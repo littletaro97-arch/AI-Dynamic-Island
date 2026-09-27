@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -14,7 +15,8 @@ namespace YoyoClawCompanion;
 
 public partial class MainWindow : Window
 {
-    private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#FFA63D"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
+    private const double CollapsedHeight = 48, ExpandedHeight = 210, IslandMargin = 16;
+    private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#F2C94C"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
     private readonly YoyoStatusService _statusService = new();
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
     private readonly WorkBuddyCreditsService _workBuddyCreditsService = new();
@@ -23,7 +25,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
-    private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+    private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private Point _dragCursorStart;
@@ -33,14 +35,16 @@ public partial class MainWindow : Window
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
     private string _latestYoyoResult = "尚未检测到任务结果";
-    private Brush _primaryTextBrush = Brush("#F2F5FF");
+    private Brush _secondaryTextBrush = Brush("#9AA5BC");
+    private bool _isBalanceSummary, _focusModeHidden, _expandUp;
+    private bool _anyBusy;
+    private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
     {
         InitializeComponent();
         Loaded += OnLoaded;
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowProc);
-        LocationChanged += (_, _) => SavePosition();
         _refreshTimer.Tick += async (_, _) => await RefreshStatusAsync();
         _holdTimer.Tick += (_, _) => ArmDrag();
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
@@ -51,6 +55,7 @@ public partial class MainWindow : Window
     }
 
     internal IslandSettings CurrentSettings => _settings;
+    internal void OpenHomeFromExternalRequest() => OpenHome();
 
     internal void ApplySettings(IslandSettings settings, bool persist = true)
     {
@@ -58,7 +63,10 @@ public partial class MainWindow : Window
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
         settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 340);
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
+        settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
+        settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
+        settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
         _settings = settings;
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         var selectionRadius = new CornerRadius(settings.CornerRadius);
@@ -74,18 +82,23 @@ public partial class MainWindow : Window
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
+        _completionTimer.Interval = TimeSpan.FromSeconds(settings.CompletionDisplaySeconds);
         SetLaunchControls(settings.EnableAppLaunch);
         if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
         ApplyTheme();
         Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
         if (persist) AppSettings.Save(_settings);
         if (persist && IsLoaded) _ = RefreshStatusAsync();
+        ScheduleSummaryMarquee();
     }
 
     internal void ResetPosition()
     {
         Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2;
         Top = SystemParameters.WorkArea.Top;
+        Island.VerticalAlignment = VerticalAlignment.Top;
+        Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+        _expandUp = false;
         SavePosition();
     }
 
@@ -105,8 +118,9 @@ public partial class MainWindow : Window
         ApplySettings(_settings, false);
         if (_settings.X is double x && _settings.Y is double y)
         {
-            Left = Math.Clamp(x, SystemParameters.WorkArea.Left, SystemParameters.WorkArea.Right - Width);
-            Top = Math.Clamp(y, SystemParameters.WorkArea.Top, SystemParameters.WorkArea.Bottom - Height);
+            Left = x;
+            Top = y;
+            ClampCollapsedPosition();
         }
         else ResetPosition();
         await RefreshStatusAsync();
@@ -116,7 +130,8 @@ public partial class MainWindow : Window
     private void SavePosition()
     {
         if (!IsLoaded) return;
-        _settings.X = Left; _settings.Y = Top;
+        _settings.X = Left;
+        _settings.Y = _expandUp && _expanded ? Top + Height - (IslandMargin * 2 + CollapsedHeight) : Top;
         AppSettings.Save(_settings);
     }
 
@@ -142,43 +157,71 @@ public partial class MainWindow : Window
             CodexDot.Fill = CodexMiniDot.Fill;
             WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
             PointsText.Text = status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --";
-            StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : "空闲";
-            CodexStateText.Text = CodexSummary(codex);
-            WorkBuddyStateText.Text = WorkBuddySummary(workBuddy, workBuddyCredits);
+            StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : status.LastTaskFailed ? "最近任务失败" : "空闲";
+            StateText.Foreground = YoyoMiniDot.Fill;
+            SetCodexStateText(codex);
+            SetWorkBuddyStateText(workBuddy, workBuddyCredits);
             _latestYoyoResult = status.RecentResult;
             var completion = DetectCompletion(status, codex, workBuddy);
             RecentResultText.Text = _activeCompletionNotice ?? status.RecentResult;
             UpdateQuotaDial(status);
+            _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
+            _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
-            UpdateBusyAnimation(status.IsBusy);
+            UpdateBusyAnimation(_anyBusy);
             WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
             if (completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
+            else UpdateDisplayMode();
         }
-        catch (Exception error) { HeadlineText.Text = "状态刷新失败"; SummaryText.Text = error.GetType().Name; }
+        catch (Exception error)
+        {
+            HeadlineText.Text = "状态刷新失败";
+            HeadlineText.Foreground = ErrorBrush;
+            SetPlainSummary(error.GetType().Name);
+        }
         finally { _refreshing = false; }
     }
 
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
-        HeadlineText.Foreground = yoyo.LastTaskFailed || (yoyo.IsYoyoRunning && !yoyo.TaskStatusAvailable) ? ErrorBrush : _primaryTextBrush;
-        if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; SummaryText.Text = codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"; }
-        else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; SummaryText.Text = points; }
-        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; SummaryText.Text = yoyo.RecentResult; }
-        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; SummaryText.Text = CodexSummary(codex); }
-        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; SummaryText.Text = workBuddy.Summary; }
-        else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; SummaryText.Text = yoyo.RecentResult; }
-        else { HeadlineText.Text = "全部就绪"; SummaryText.Text = BuildBalanceSummary(yoyo, codex, workBuddyCredits); }
+        if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
+        else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
+        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
+        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
+        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
+        else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
+        else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
     }
 
-    private string BuildBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
+    private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
     {
-        var yoyoBalance = yoyo.RemainingPoints is double yoyoPoints ? $"YOYO Claw {yoyoPoints:0.##}" : "YOYO Claw --";
-        var codexBalance = codex.FiveHourRemainingPercent is int fiveHour
-            ? $"Codex 5小时 {fiveHour}%"
-            : codex.WeeklyRemainingPercent is int weekly ? $"Codex 本周 {weekly}%" : "Codex --";
-        var workBuddyBalance = workBuddy.Available && workBuddy.Remaining is double credits ? $"WorkBuddy {credits:0.##}" : "WorkBuddy --";
-        return $"{yoyoBalance} | {codexBalance} | {workBuddyBalance}";
+        _isBalanceSummary = true;
+        SummaryText.Inlines.Clear();
+        AddSummaryPart("YOYO Claw ", yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--");
+        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+        AddSummaryPart("Codex ", codex.FiveHourRemainingPercent is int fiveHour
+            ? $"5小时 {fiveHour}%"
+            : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--");
+        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+        AddSummaryPart("WorkBuddy ", workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--");
+        ScheduleSummaryMarquee();
+    }
+
+    private void AddSummaryPart(string label, string value)
+    {
+        SummaryText.Inlines.Add(new Run(label) { Foreground = _secondaryTextBrush });
+        SummaryText.Inlines.Add(new Run(value) { Foreground = AccentBrush, FontWeight = FontWeights.SemiBold });
+    }
+
+    private void SetPlainSummary(string value, Brush? foreground = null)
+    {
+        _isBalanceSummary = false;
+        StopSummaryMarquee();
+        SummaryText.Inlines.Clear();
+        var run = new Run(value);
+        if (foreground is not null) run.Foreground = foreground;
+        SummaryText.Inlines.Add(run);
     }
 
     private CompletionNotice? DetectCompletion(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
@@ -216,6 +259,7 @@ public partial class MainWindow : Window
         _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
         RecentResultText.Text = _activeCompletionNotice;
         _completionTimer.Stop();
+        ShowIslandForFocusMode();
         ExpandIsland(true);
         _completionTimer.Start();
     }
@@ -225,14 +269,51 @@ public partial class MainWindow : Window
         _completionTimer.Stop();
         _activeCompletionNotice = null;
         RecentResultText.Text = _latestYoyoResult;
-        if (!Island.IsMouseOver) CollapseIsland();
+        if (_settings.DisplayMode == "activeOnly" && !_anyBusy)
+        {
+            CollapseIsland(true);
+            HideIslandForFocusMode();
+        }
+        else if (!Island.IsMouseOver) CollapseIsland();
+    }
+
+    private void UpdateDisplayMode()
+    {
+        if (_settings.DisplayMode != "activeOnly" || _activeCompletionNotice is not null)
+        {
+            ShowIslandForFocusMode();
+            return;
+        }
+        if (_anyBusy)
+        {
+            ShowIslandForFocusMode();
+        }
+        else HideIslandForFocusMode();
+    }
+
+    private void HideIslandForFocusMode()
+    {
+        if (_focusModeHidden) return;
+        _enterTimer.Stop();
+        _leaveTimer.Stop();
+        StopSummaryMarquee();
+        Island.Visibility = Visibility.Hidden;
+        _focusModeHidden = true;
+    }
+
+    private void ShowIslandForFocusMode()
+    {
+        if (!_focusModeHidden) return;
+        Island.Visibility = Visibility.Visible;
+        _focusModeHidden = false;
+        ScheduleSummaryMarquee();
     }
 
     private void UpdateQuotaDial(YoyoStatus status)
     {
         var hasQuota = status.RemainingPoints is double && status.TotalPoints is > 0;
         var ratio = hasQuota ? Math.Clamp(status.RemainingPoints!.Value / status.TotalPoints!.Value, 0, 1) : 0;
-        QuotaArc.Stroke = !status.IsYoyoRunning || !hasQuota ? OfflineBrush : ratio < .1 ? ErrorBrush : ratio < .3 ? BusyBrush : AccentBrush;
+        QuotaArc.Stroke = !status.IsYoyoRunning || !hasQuota ? OfflineBrush : AccentBrush;
         const double c = 16, r = 15;
         if (ratio <= 0) { QuotaArc.Data = Geometry.Empty; return; }
         if (ratio >= .999) { QuotaArc.Data = new EllipseGeometry(new Point(c, c), r, r); return; }
@@ -278,8 +359,10 @@ public partial class MainWindow : Window
         var dy = cursor.Y - _dragCursorStart.Y;
         if (!_dragging && Math.Abs(dx) < 2 && Math.Abs(dy) < 2) return;
         _dragging = true;
-        Left = Math.Clamp(_dragWindowStart.X + dx, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - Width);
-        Top = Math.Clamp(_dragWindowStart.Y + dy, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - Height);
+        var workArea = GetCurrentWorkArea();
+        var bounds = GetIslandWindowBounds();
+        Left = Math.Clamp(_dragWindowStart.X + dx, workArea.Left - bounds.Left, workArea.Right - bounds.Right);
+        Top = Math.Clamp(_dragWindowStart.Y + dy, workArea.Top - bounds.Top, workArea.Bottom - bounds.Bottom);
     }
 
     private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => FinishPointerGesture();
@@ -290,7 +373,11 @@ public partial class MainWindow : Window
         _finishingGesture = true;
         _holdTimer.Stop(); _holdArmed = false; Island.Cursor = Cursors.Arrow; Island.Opacity = _settings.Opacity;
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
-        if (_dragging) SavePosition();
+        if (_dragging)
+        {
+            SnapToHorizontalCenter();
+            SavePosition();
+        }
         _dragging = false;
         _finishingGesture = false;
         if (Island.IsMouseOver) _enterTimer.Start();
@@ -311,13 +398,26 @@ public partial class MainWindow : Window
     private void ExpandIsland(bool force = false)
     {
         if ((!force && !_settings.EnableHoverExpansion) || _expanded || _dragging || _holdArmed) return;
+        StopSummaryMarquee();
+        _expandUp = ShouldExpandUp();
+        if (_expandUp)
+        {
+            Top += IslandMargin * 2 + CollapsedHeight - Height;
+            Island.VerticalAlignment = VerticalAlignment.Bottom;
+            Island.Margin = new Thickness(0, 0, 0, IslandMargin);
+        }
+        else
+        {
+            Island.VerticalAlignment = VerticalAlignment.Top;
+            Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+        }
         _expanded = true;
         ExpandedPanel.Visibility = Visibility.Visible;
         IEasingFunction easing = _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .28, EasingMode = EasingMode.EaseOut }
             : new CubicEase { EasingMode = EasingMode.EaseOut };
         Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, Math.Max(408, _settings.IslandWidth), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
-        Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, 172, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
+        Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, ExpandedHeight, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
     }
 
@@ -330,10 +430,66 @@ public partial class MainWindow : Window
             ? new BackEase { Amplitude = .22, EasingMode = EasingMode.EaseIn }
             : new CubicEase { EasingMode = EasingMode.EaseIn };
         var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
-        var height = new DoubleAnimation(Island.ActualHeight, 48, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
-        height.Completed += (_, _) => ExpandedPanel.Visibility = Visibility.Collapsed;
+        var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
+        height.Completed += (_, _) =>
+        {
+            ExpandedPanel.Visibility = Visibility.Collapsed;
+            if (_expandUp)
+            {
+                Top += Height - (IslandMargin * 2 + CollapsedHeight);
+                Island.VerticalAlignment = VerticalAlignment.Top;
+                Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+                _expandUp = false;
+            }
+            ScheduleSummaryMarquee();
+            if (_settings.DisplayMode == "activeOnly" && !_anyBusy && _activeCompletionNotice is null) HideIslandForFocusMode();
+        };
         Island.BeginAnimation(WidthProperty, width);
         Island.BeginAnimation(HeightProperty, height);
+    }
+
+    private Rect GetIslandWindowBounds()
+    {
+        if (Island.ActualWidth <= 0 || Island.ActualHeight <= 0)
+            return new Rect((Width - _settings.IslandWidth) / 2, IslandMargin, _settings.IslandWidth, CollapsedHeight);
+        return Island.TransformToAncestor(this).TransformBounds(new Rect(0, 0, Island.ActualWidth, Island.ActualHeight));
+    }
+
+    private Rect GetCurrentWorkArea()
+    {
+        var screenPoint = PointToScreen(new Point(Width / 2, Height / 2));
+        var pixelArea = NativeWindow.GetMonitorWorkArea(screenPoint);
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null) return SystemParameters.WorkArea;
+        var transform = source.CompositionTarget.TransformFromDevice;
+        var topLeft = transform.Transform(pixelArea.TopLeft);
+        var bottomRight = transform.Transform(pixelArea.BottomRight);
+        return new Rect(topLeft, bottomRight);
+    }
+
+    private void ClampCollapsedPosition()
+    {
+        var workArea = GetCurrentWorkArea();
+        var leftOffset = (Width - _settings.IslandWidth) / 2;
+        Left = Math.Clamp(Left, workArea.Left - leftOffset, workArea.Right - leftOffset - _settings.IslandWidth);
+        Top = Math.Clamp(Top, workArea.Top - IslandMargin, workArea.Bottom - IslandMargin - CollapsedHeight);
+    }
+
+    private void SnapToHorizontalCenter()
+    {
+        var workArea = GetCurrentWorkArea();
+        var bounds = GetIslandWindowBounds();
+        var islandCenter = Left + bounds.Left + bounds.Width / 2;
+        var screenCenter = workArea.Left + workArea.Width / 2;
+        if (Math.Abs(islandCenter - screenCenter) <= 36) Left += screenCenter - islandCenter;
+    }
+
+    private bool ShouldExpandUp()
+    {
+        var workArea = GetCurrentWorkArea();
+        var bounds = GetIslandWindowBounds();
+        var availableBelow = workArea.Bottom - (Top + bounds.Bottom);
+        return availableBelow < ExpandedHeight - CollapsedHeight + 12;
     }
 
     private static bool ActivateProcess(string name, Func<Process, bool>? predicate = null)
@@ -382,6 +538,9 @@ public partial class MainWindow : Window
 
     private void CaptureExecutablePaths()
     {
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastPathCapture < TimeSpan.FromMinutes(1)) return;
+        _lastPathCapture = now;
         var yoyo = ApplicationLocator.FindRunningExecutable("HnMagicClawUI");
         var codex = ApplicationLocator.FindRunningExecutable("ChatGPT", IsCodexProcess);
         var workBuddy = ApplicationLocator.FindRunningExecutable("WorkBuddy");
@@ -404,12 +563,66 @@ public partial class MainWindow : Window
         return string.Join(" · ", pieces);
     }
 
-    private string WorkBuddySummary(WorkBuddyStatus status, WorkBuddyCredits credits)
+    private void SetCodexStateText(CodexStatus status)
     {
-        if (!status.IsRunning) return "未运行";
-        var state = status.IsBusy ? "执行中" : "空闲";
-        if (!_settings.ShowWorkBuddyCredits) return state;
-        return credits.Available && credits.Remaining is double remaining ? $"{state} · {remaining:0.##} 积分" : $"{state} · 积分不可用";
+        CodexStateText.Inlines.Clear();
+        var state = !status.IsRunning ? "未运行" : !_settings.EnableCodexActivityDetection ? "已打开" : status.IsBusy ? "执行中" : "空闲";
+        var stateBrush = !status.IsRunning ? OfflineBrush : status.IsBusy ? BusyBrush : OnlineBrush;
+        CodexStateText.Inlines.Add(new Run(state) { Foreground = stateBrush });
+        if (!_settings.ShowCodexLimits) return;
+        CodexStateText.Inlines.Add(new Run(" · ") { Foreground = _secondaryTextBrush });
+        if (!status.LimitsAvailable)
+        {
+            CodexStateText.Inlines.Add(new Run("限额不可用") { Foreground = ErrorBrush });
+            return;
+        }
+        var quota = new List<string>();
+        if (status.FiveHourRemainingPercent is int fiveHour) quota.Add($"5小时 {fiveHour}%");
+        if (status.WeeklyRemainingPercent is int weekly) quota.Add($"本周 {weekly}%");
+        CodexStateText.Inlines.Add(new Run(quota.Count > 0 ? string.Join(" · ", quota) : "限额不可用") { Foreground = quota.Count > 0 ? AccentBrush : ErrorBrush });
+    }
+
+    private void SetWorkBuddyStateText(WorkBuddyStatus status, WorkBuddyCredits credits)
+    {
+        WorkBuddyStateText.Inlines.Clear();
+        var state = !status.IsRunning ? "未运行" : !status.DataAvailable ? "状态不可用" : status.IsBusy ? "执行中" : "空闲";
+        var stateBrush = !status.IsRunning ? OfflineBrush : !status.DataAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : OnlineBrush;
+        WorkBuddyStateText.Inlines.Add(new Run(state) { Foreground = stateBrush });
+        if (!_settings.ShowWorkBuddyCredits) return;
+        WorkBuddyStateText.Inlines.Add(new Run(" · ") { Foreground = _secondaryTextBrush });
+        WorkBuddyStateText.Inlines.Add(new Run(credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用")
+        {
+            Foreground = credits.Available ? AccentBrush : ErrorBrush
+        });
+    }
+
+    private void ScheduleSummaryMarquee()
+    {
+        Dispatcher.BeginInvoke(UpdateSummaryMarquee, DispatcherPriority.Loaded);
+    }
+
+    private void UpdateSummaryMarquee()
+    {
+        StopSummaryMarquee();
+        if (!_isBalanceSummary || _expanded || _focusModeHidden || SummaryViewport.ActualWidth <= 0) return;
+        SummaryText.Measure(new Size(double.PositiveInfinity, SummaryViewport.ActualHeight));
+        var overflow = SummaryText.DesiredSize.Width - SummaryViewport.ActualWidth;
+        if (overflow <= 2) return;
+        var seconds = Math.Max(2.5, overflow / _settings.QuotaScrollSpeed);
+        var animation = new DoubleAnimation(0, -overflow, TimeSpan.FromSeconds(seconds))
+        {
+            BeginTime = TimeSpan.FromSeconds(.8),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+        };
+        SummaryTranslate.BeginAnimation(TranslateTransform.XProperty, animation);
+    }
+
+    private void StopSummaryMarquee()
+    {
+        SummaryTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+        SummaryTranslate.X = 0;
     }
 
     private void SetLaunchControls(bool enabled)
@@ -434,19 +647,21 @@ public partial class MainWindow : Window
         var light = _settings.ThemeMode == "light" || (_settings.ThemeMode == "system" && SystemUsesLightTheme());
         var primary = Brush(light ? "#182033" : "#F2F5FF");
         var secondary = Brush(light ? "#5E687A" : "#9AA5BC");
-        _primaryTextBrush = primary;
+        _secondaryTextBrush = secondary;
         Island.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         Island.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
         HeadlineText.Foreground = primary;
         SummaryText.Foreground = secondary;
+        if (_isBalanceSummary)
+        {
+            foreach (var run in SummaryText.Inlines.OfType<Run>().Where(run => run.FontWeight != FontWeights.SemiBold)) run.Foreground = secondary;
+        }
         YoyoLabel.Foreground = primary;
         CodexLabel.Foreground = primary;
         WorkBuddyLabel.Foreground = primary;
-        StateText.Foreground = secondary;
-        CodexStateText.Foreground = secondary;
-        WorkBuddyStateText.Foreground = secondary;
         RecentResultText.Foreground = Brush(light ? "#59657A" : "#B9C2D4");
         RecentBorder.Background = Brush(light ? "#CCEAF0F7" : "#B8182033");
+        if (_isBalanceSummary) ScheduleSummaryMarquee();
     }
 
     private static bool SystemUsesLightTheme()
@@ -465,7 +680,7 @@ public partial class MainWindow : Window
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
             var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total } });
-            File.WriteAllText(Path.Combine(directory, "status.json"), json); File.WriteAllText(Path.Combine(directory, $"status-{Environment.ProcessId}.json"), json);
+            File.WriteAllText(Path.Combine(directory, "status.json"), json);
         }
         catch { }
     }

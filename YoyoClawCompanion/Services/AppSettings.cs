@@ -25,6 +25,9 @@ internal sealed class IslandSettings
     public bool EnableSpringAnimation { get; set; } = true;
     public bool EnableCompletionNotifications { get; set; } = true;
     public double HoverDelayMs { get; set; } = 70;
+    public double QuotaScrollSpeed { get; set; } = 24;
+    public double CompletionDisplaySeconds { get; set; } = 10;
+    public string DisplayMode { get; set; } = "always";
     public string? YoyoExecutablePath { get; set; }
     public string? CodexExecutablePath { get; set; }
     public string? WorkBuddyExecutablePath { get; set; }

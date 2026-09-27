@@ -24,7 +24,7 @@ internal sealed class YoyoStatusService
 
     public async Task<YoyoStatus> ReadAsync()
     {
-        var running = Process.GetProcessesByName("HnMagicClawUI").Length > 0;
+        var running = ApplicationLocator.IsProcessRunning("HnMagicClawUI");
         var points = ReadPoints();
         var snapshot = await ReadMagicoreAsync();
         var updatedAt = ParseDate(snapshot?.UpdatedAt);

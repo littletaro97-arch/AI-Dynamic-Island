@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -25,7 +24,7 @@ internal sealed partial class WorkBuddyStatusService
 
     private WorkBuddyStatus Read()
     {
-        var running = Process.GetProcessesByName("WorkBuddy").Length > 0;
+        var running = ApplicationLocator.IsProcessRunning("WorkBuddy");
         try
         {
             if (!Directory.Exists(_projectsRoot)) return new(running, false, false, running ? "无会话数据" : "未运行");

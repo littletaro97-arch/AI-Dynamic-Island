@@ -7,6 +7,13 @@ namespace YoyoClawCompanion.Services;
 
 internal static class ApplicationLocator
 {
+    public static bool IsProcessRunning(string processName)
+    {
+        var processes = Process.GetProcessesByName(processName);
+        try { return processes.Length > 0; }
+        finally { foreach (var process in processes) process.Dispose(); }
+    }
+
     public static string? FindRunningExecutable(string processName, Func<Process, bool>? predicate = null)
     {
         var processes = Process.GetProcessesByName(processName);

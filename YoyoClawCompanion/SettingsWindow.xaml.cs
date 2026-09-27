@@ -42,6 +42,10 @@ public partial class SettingsWindow : Window
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
         CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
         HoverDelaySlider.Value = value.HoverDelayMs;
+        QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
+        CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
+        foreach (ComboBoxItem item in DisplayModeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.DisplayMode, StringComparison.OrdinalIgnoreCase)) DisplayModeCombo.SelectedItem = item;
+        if (DisplayModeCombo.SelectedIndex < 0) DisplayModeCombo.SelectedIndex = 0;
     }
 
     private void Setting_ValueChanged(object sender, RoutedEventArgs e)
@@ -66,6 +70,9 @@ public partial class SettingsWindow : Window
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
         current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
         current.HoverDelayMs = HoverDelaySlider.Value;
+        current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
+        current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
+        current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
         _island.ApplySettings(current);
         UpdateLabels();
         ApplyPanelTheme();
@@ -77,6 +84,8 @@ public partial class SettingsWindow : Window
         OpacityValue.Text = $"{OpacitySlider.Value:0}%";
         WidthValue.Text = $"{WidthSlider.Value:0} px";
         HoverDelayValue.Text = $"{HoverDelaySlider.Value:0} ms";
+        QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
+        CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
     }
 
     private void ResetPosition_Click(object sender, RoutedEventArgs e) => _island.ResetPosition();
@@ -92,6 +101,7 @@ public partial class SettingsWindow : Window
         current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;
         current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
         current.EnableCompletionNotifications = true;
+        current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         LoadValues(current);
         _loading = false;
         _island.ApplySettings(current);

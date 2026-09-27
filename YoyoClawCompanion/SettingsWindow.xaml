@@ -41,6 +41,7 @@
             <Border x:Name="FeatureCard" Background="White" CornerRadius="14" Padding="20" Margin="0,0,0,14">
                 <StackPanel>
                     <TextBlock Text="功能与交互" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                    <DockPanel Margin="0,0,0,8"><TextBlock Text="显示模式" VerticalAlignment="Center"/><ComboBox x:Name="DisplayModeCombo" DockPanel.Dock="Right" Width="180" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="always" Content="始终显示"/><ComboBoxItem Tag="activeOnly" Content="仅任务活动时显示"/></ComboBox></DockPanel>
                     <CheckBox x:Name="CodexActivityCheck" Content="检测 Codex 是否正在执行任务" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="CodexLimitsCheck" Content="显示 Codex 5 小时与周限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="WorkBuddyCreditsCheck" Content="显示 WorkBuddy 剩余积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
@@ -50,6 +51,10 @@
                     <CheckBox x:Name="CompletionNotificationsCheck" Content="任务完成时自动展开并显示回复" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <DockPanel><TextBlock Text="悬停展开延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
+                    <DockPanel><TextBlock Text="折叠态额度滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
+                    <Slider x:Name="QuotaScrollSpeedSlider" Minimum="8" Maximum="80" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
+                    <DockPanel><TextBlock Text="任务完成展开时间"/><TextBlock x:Name="CompletionDisplayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
+                    <Slider x:Name="CompletionDisplaySlider" Minimum="3" Maximum="30" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
                 </StackPanel>
             </Border>
 
