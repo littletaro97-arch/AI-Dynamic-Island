@@ -10,7 +10,10 @@ internal sealed record CodexStatus(
     bool IsBusy,
     bool LimitsAvailable,
     int? FiveHourRemainingPercent,
-    int? WeeklyRemainingPercent);
+    int? WeeklyRemainingPercent,
+    string? RecentResponse,
+    string? RecentResponseId,
+    DateTimeOffset? RecentResponseAt);
 
 internal sealed class CodexStatusService
 {
@@ -24,14 +27,71 @@ internal sealed class CodexStatusService
     {
         var running = IsCodexRunning();
         var busy = running && detectActivity && ReadBusyState();
+        var completion = ReadRecentCompletion();
         if (readLimits && (DateTimeOffset.Now - _lastLimitRead > TimeSpan.FromSeconds(60) || _cachedLimits is null))
         {
             var limits = await ReadLimitsAsync();
             _lastLimitRead = DateTimeOffset.Now;
             if (limits is not null) _cachedLimits = limits;
         }
-        return new CodexStatus(running, busy, readLimits && _cachedLimits is not null, _cachedLimits?.FiveHour, _cachedLimits?.Weekly);
+        return new CodexStatus(running, busy, readLimits && _cachedLimits is not null, _cachedLimits?.FiveHour, _cachedLimits?.Weekly,
+            completion.Response, completion.Id, completion.Timestamp);
     });
+
+    private (string? Response, string? Id, DateTimeOffset? Timestamp) ReadRecentCompletion()
+    {
+        try
+        {
+            if (!Directory.Exists(_sessionsRoot)) return default;
+            foreach (var file in new DirectoryInfo(_sessionsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories).OrderByDescending(item => item.LastWriteTimeUtc).Take(4))
+            {
+                string? response = null, id = null;
+                DateTimeOffset? timestamp = null;
+                foreach (var line in ReadTailLines(file.FullName, 2 * 1024 * 1024))
+                {
+                    if (!line.Contains("\"phase\":\"final_answer\"", StringComparison.Ordinal) || !line.Contains("\"role\":\"assistant\"", StringComparison.Ordinal)) continue;
+                    try
+                    {
+                        using var document = JsonDocument.Parse(line);
+                        var root = document.RootElement;
+                        if (Text(root, "type") != "response_item" || !root.TryGetProperty("payload", out var payload) || Text(payload, "type") != "message" || Text(payload, "role") != "assistant" || Text(payload, "phase") != "final_answer") continue;
+                        var extracted = ExtractOutputText(payload);
+                        if (string.IsNullOrWhiteSpace(extracted)) continue;
+                        response = NormalizeResponse(extracted);
+                        timestamp = DateTimeOffset.TryParse(Text(root, "timestamp"), out var parsed) ? parsed : file.LastWriteTimeUtc;
+                        id = Text(payload, "id");
+                        if (string.IsNullOrWhiteSpace(id)) id = $"{file.FullName}|{timestamp:O}";
+                    }
+                    catch (JsonException) { }
+                }
+                if (response is not null) return (response, id, timestamp);
+            }
+        }
+        catch { }
+        return default;
+    }
+
+    private static IEnumerable<string> ReadTailLines(string path, int maxBytes)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var start = Math.Max(0, stream.Length - maxBytes);
+        stream.Seek(start, SeekOrigin.Begin);
+        using var reader = new StreamReader(stream, Encoding.UTF8, true);
+        if (start > 0) reader.ReadLine();
+        while (reader.ReadLine() is { } line) yield return line;
+    }
+
+    private static string? ExtractOutputText(JsonElement message)
+    {
+        if (!message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return null;
+        return string.Join(" ", content.EnumerateArray().Where(item => Text(item, "type") == "output_text").Select(item => Text(item, "text")).Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string NormalizeResponse(string value)
+    {
+        var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length <= 96 ? oneLine : oneLine[..95] + "…";
+    }
 
     private bool ReadBusyState()
     {

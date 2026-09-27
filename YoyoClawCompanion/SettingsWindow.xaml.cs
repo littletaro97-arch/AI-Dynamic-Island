@@ -40,6 +40,7 @@ public partial class SettingsWindow : Window
         AppLaunchCheck.IsChecked = value.EnableAppLaunch;
         HoverExpansionCheck.IsChecked = value.EnableHoverExpansion;
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
+        CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
         HoverDelaySlider.Value = value.HoverDelayMs;
     }
 
@@ -63,6 +64,7 @@ public partial class SettingsWindow : Window
         current.EnableAppLaunch = AppLaunchCheck.IsChecked == true;
         current.EnableHoverExpansion = HoverExpansionCheck.IsChecked == true;
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
+        current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
         current.HoverDelayMs = HoverDelaySlider.Value;
         _island.ApplySettings(current);
         UpdateLabels();
@@ -89,6 +91,7 @@ public partial class SettingsWindow : Window
         current.ThemeMode = "system"; current.EnableCodexActivityDetection = true;
         current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;
         current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
+        current.EnableCompletionNotifications = true;
         LoadValues(current);
         _loading = false;
         _island.ApplySettings(current);

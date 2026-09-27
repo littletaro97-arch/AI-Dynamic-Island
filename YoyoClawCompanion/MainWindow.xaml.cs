@@ -23,11 +23,16 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
+    private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(8) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private Point _dragCursorStart;
     private Point _dragWindowStart;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
+    private bool _completionBaselineReady;
+    private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
+    private string? _activeCompletionNotice;
+    private string _latestYoyoResult = "尚未检测到任务结果";
     private Brush _primaryTextBrush = Brush("#F2F5FF");
 
     public MainWindow()
@@ -40,6 +45,7 @@ public partial class MainWindow : Window
         _holdTimer.Tick += (_, _) => ArmDrag();
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
+        _completionTimer.Tick += (_, _) => EndCompletionNotice();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
         Closed += (_, _) => SystemEvents.UserPreferenceChanged -= SystemThemeChanged;
     }
@@ -55,6 +61,11 @@ public partial class MainWindow : Window
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         _settings = settings;
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
+        var selectionRadius = new CornerRadius(settings.CornerRadius);
+        YoyoButton.Tag = selectionRadius;
+        YoyoRowButton.Tag = selectionRadius;
+        CodexRowButton.Tag = selectionRadius;
+        WorkBuddyRowButton.Tag = selectionRadius;
         Island.Opacity = settings.Opacity;
         if (!_expanded) Island.Width = settings.IslandWidth;
         Topmost = settings.Topmost;
@@ -133,17 +144,20 @@ public partial class MainWindow : Window
             StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : "空闲";
             CodexStateText.Text = CodexSummary(codex);
             WorkBuddyStateText.Text = WorkBuddySummary(workBuddy, workBuddyCredits);
-            RecentResultText.Text = status.RecentResult;
+            _latestYoyoResult = status.RecentResult;
+            var completion = DetectCompletion(status, codex, workBuddy);
+            RecentResultText.Text = _activeCompletionNotice ?? status.RecentResult;
             UpdateQuotaDial(status);
-            UpdateHeadline(status, codex, workBuddy);
+            UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
             UpdateBusyAnimation(status.IsBusy);
             WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
+            if (completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
         }
         catch (Exception error) { HeadlineText.Text = "状态刷新失败"; SummaryText.Text = error.GetType().Name; }
         finally { _refreshing = false; }
     }
 
-    private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
+    private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         HeadlineText.Foreground = yoyo.LastTaskFailed || (yoyo.IsYoyoRunning && !yoyo.TaskStatusAvailable) ? ErrorBrush : _primaryTextBrush;
@@ -153,7 +167,64 @@ public partial class MainWindow : Window
         else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; SummaryText.Text = CodexSummary(codex); }
         else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; SummaryText.Text = workBuddy.Summary; }
         else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; SummaryText.Text = yoyo.RecentResult; }
-        else { HeadlineText.Text = "全部就绪"; SummaryText.Text = points; }
+        else { HeadlineText.Text = "全部就绪"; SummaryText.Text = BuildBalanceSummary(yoyo, codex, workBuddyCredits); }
+    }
+
+    private string BuildBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
+    {
+        var yoyoBalance = yoyo.RemainingPoints is double yoyoPoints ? $"YOYO Claw {yoyoPoints:0.##}" : "YOYO Claw --";
+        var codexBalance = codex.FiveHourRemainingPercent is int fiveHour
+            ? $"Codex 5小时 {fiveHour}%"
+            : codex.WeeklyRemainingPercent is int weekly ? $"Codex 本周 {weekly}%" : "Codex --";
+        var workBuddyBalance = workBuddy.Available && workBuddy.Remaining is double credits ? $"WorkBuddy {credits:0.##}" : "WorkBuddy --";
+        return $"{yoyoBalance} | {codexBalance} | {workBuddyBalance}";
+    }
+
+    private CompletionNotice? DetectCompletion(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
+    {
+        var yoyoId = !yoyo.IsBusy && yoyo.TaskStatusAvailable && yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt
+            ? $"{yoyoAt:O}|{yoyo.RecentResult}" : null;
+        var codexId = !codex.IsBusy ? codex.RecentResponseId : null;
+        var workBuddyId = !workBuddy.IsBusy ? workBuddy.RecentResponseId : null;
+
+        if (!_completionBaselineReady)
+        {
+            _yoyoCompletionId = yoyoId;
+            _codexCompletionId = codexId;
+            _workBuddyCompletionId = workBuddyId;
+            _completionBaselineReady = true;
+            return null;
+        }
+
+        var notices = new List<CompletionNotice>();
+        if (yoyoId is not null && yoyoId != _yoyoCompletionId && !string.IsNullOrWhiteSpace(yoyo.RecentResult))
+            notices.Add(new("YOYO Claw", yoyo.RecentResult, yoyo.RecentUpdatedAt ?? DateTimeOffset.Now));
+        if (codexId is not null && codexId != _codexCompletionId && !string.IsNullOrWhiteSpace(codex.RecentResponse))
+            notices.Add(new("Codex", codex.RecentResponse!, codex.RecentResponseAt ?? DateTimeOffset.Now));
+        if (workBuddyId is not null && workBuddyId != _workBuddyCompletionId && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
+            notices.Add(new("WorkBuddy", workBuddy.RecentResponse!, workBuddy.RecentResponseAt ?? DateTimeOffset.Now));
+
+        if (yoyoId is not null) _yoyoCompletionId = yoyoId;
+        if (codexId is not null) _codexCompletionId = codexId;
+        if (workBuddyId is not null) _workBuddyCompletionId = workBuddyId;
+        return notices.OrderByDescending(item => item.CompletedAt).FirstOrDefault();
+    }
+
+    private void ShowCompletionNotice(CompletionNotice notice)
+    {
+        _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
+        RecentResultText.Text = _activeCompletionNotice;
+        _completionTimer.Stop();
+        ExpandIsland(true);
+        _completionTimer.Start();
+    }
+
+    private void EndCompletionNotice()
+    {
+        _completionTimer.Stop();
+        _activeCompletionNotice = null;
+        RecentResultText.Text = _latestYoyoResult;
+        if (!Island.IsMouseOver) CollapseIsland();
     }
 
     private void UpdateQuotaDial(YoyoStatus status)
@@ -236,9 +307,9 @@ public partial class MainWindow : Window
         if (!_dragging && !_holdArmed && _expanded && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
     }
 
-    private void ExpandIsland()
+    private void ExpandIsland(bool force = false)
     {
-        if (!_settings.EnableHoverExpansion || _expanded || _dragging || _holdArmed) return;
+        if ((!force && !_settings.EnableHoverExpansion) || _expanded || _dragging || _holdArmed) return;
         _expanded = true;
         ExpandedPanel.Visibility = Visibility.Visible;
         IEasingFunction easing = _settings.EnableSpringAnimation
@@ -349,6 +420,9 @@ public partial class MainWindow : Window
         YoyoIndicatorButton.Cursor = cursor;
         CodexIndicatorButton.Cursor = cursor;
         WorkBuddyIndicatorButton.Cursor = cursor;
+        YoyoRowButton.Cursor = cursor;
+        CodexRowButton.Cursor = cursor;
+        WorkBuddyRowButton.Cursor = cursor;
     }
 
     private void SystemThemeChanged(object sender, UserPreferenceChangedEventArgs e)
@@ -406,6 +480,7 @@ public partial class MainWindow : Window
     }
 
     private static SolidColorBrush Brush(string color) => (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
+    private sealed record CompletionNotice(string Provider, string Response, DateTimeOffset CompletedAt);
     private void OpenHome_Click(object sender, RoutedEventArgs e) => OpenHome();
     private void OpenYoyo_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenYoyo(); e.Handled = true; }
     private void OpenCodex_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenCodex(); e.Handled = true; }

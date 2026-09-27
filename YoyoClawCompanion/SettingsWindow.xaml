@@ -47,6 +47,7 @@
                     <CheckBox x:Name="AppLaunchCheck" Content="允许点击组件打开对应应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="HoverExpansionCheck" Content="鼠标悬停时展开灵动岛" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="SpringAnimationCheck" Content="展开和收回使用回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
+                    <CheckBox x:Name="CompletionNotificationsCheck" Content="任务完成时自动展开并显示回复" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <DockPanel><TextBlock Text="悬停展开延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
                 </StackPanel>

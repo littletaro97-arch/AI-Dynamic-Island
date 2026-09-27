@@ -14,6 +14,21 @@
         <Style x:Key="RowLaunchButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/><Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="SelectionBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                                CornerRadius="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#727C90"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#727C90"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="SelectionBorder" Property="Background" Value="#14727C90"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <ContextMenu x:Key="IslandMenu">
             <MenuItem Header="打开主页" Click="OpenHome_Click"/><Separator/>
@@ -35,7 +50,7 @@
                 <Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <Button x:Name="YoyoButton" Click="OpenYoyo_Click" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand">
+                    <Button x:Name="YoyoButton" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click" Padding="0">
                     <Grid x:Name="QuotaDial" Width="32" Height="32">
                         <Ellipse Fill="#1A7188FF"/><Ellipse Stroke="#1AFFFFFF" StrokeThickness="2" Margin="1"/>
                         <Path x:Name="QuotaArc" Stroke="#8FA0FF" StrokeThickness="2" StrokeStartLineCap="Flat" StrokeEndLineCap="Flat" Fill="Transparent"/>
@@ -68,9 +83,9 @@
                     <Border x:Name="RecentBorder" Grid.Row="3" Grid.ColumnSpan="4" Background="#B8182033" CornerRadius="12" Padding="10,5" Margin="0,6,0,0">
                         <TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="10.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     </Border>
-                    <Button Grid.Row="0" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click"/>
-                    <Button Grid.Row="1" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenCodex_Click"/>
-                    <Button Grid.Row="2" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenWorkBuddy_Click"/>
+                    <Button x:Name="YoyoRowButton" Grid.Row="0" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click"/>
+                    <Button x:Name="CodexRowButton" Grid.Row="1" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenCodex_Click"/>
+                    <Button x:Name="WorkBuddyRowButton" Grid.Row="2" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenWorkBuddy_Click"/>
                 </Grid>
             </Grid>
         </Border>

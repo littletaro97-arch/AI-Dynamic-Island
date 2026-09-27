@@ -23,6 +23,7 @@ internal sealed class IslandSettings
     public bool EnableAppLaunch { get; set; } = true;
     public bool EnableHoverExpansion { get; set; } = true;
     public bool EnableSpringAnimation { get; set; } = true;
+    public bool EnableCompletionNotifications { get; set; } = true;
     public double HoverDelayMs { get; set; } = 70;
 }
 

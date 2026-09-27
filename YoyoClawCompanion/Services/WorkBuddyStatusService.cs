@@ -6,7 +6,14 @@ using System.Text.RegularExpressions;
 
 namespace YoyoClawCompanion.Services;
 
-internal sealed record WorkBuddyStatus(bool IsRunning, bool DataAvailable, bool IsBusy, string Summary);
+internal sealed record WorkBuddyStatus(
+    bool IsRunning,
+    bool DataAvailable,
+    bool IsBusy,
+    string Summary,
+    string? RecentResponse = null,
+    string? RecentResponseId = null,
+    DateTimeOffset? RecentResponseAt = null);
 
 internal sealed partial class WorkBuddyStatusService
 {
@@ -30,6 +37,9 @@ internal sealed partial class WorkBuddyStatusService
             var lines = ReadTailLines(session.FullName, 1024 * 1024);
             string? latestTask = null;
             string? latestAction = null;
+            string? latestResponse = null;
+            string? latestResponseId = null;
+            DateTimeOffset? latestResponseAt = null;
             var completed = false;
 
             foreach (var line in lines)
@@ -45,7 +55,21 @@ internal sealed partial class WorkBuddyStatusService
                         if (!string.IsNullOrWhiteSpace(extracted)) latestTask = extracted;
                     }
                     if (type == "function_call") latestAction = FriendlyAction(Text(root, "name"));
-                    if (type == "message" && Text(root, "role") == "assistant") completed = Text(root, "status") == "completed";
+                    if (type == "message" && Text(root, "role") == "assistant")
+                    {
+                        completed = Text(root, "status") == "completed";
+                        if (completed)
+                        {
+                            var extracted = ExtractAssistantResponse(root);
+                            if (!string.IsNullOrWhiteSpace(extracted))
+                            {
+                                latestResponse = NormalizeResponse(extracted);
+                                latestResponseAt = ReadTimestamp(root);
+                                latestResponseId = Text(root, "id");
+                                if (string.IsNullOrWhiteSpace(latestResponseId)) latestResponseId = $"{session.FullName}|{latestResponseAt:O}";
+                            }
+                        }
+                    }
                     else if (type is "function_call" or "reasoning") completed = false;
                 }
                 catch (JsonException) { }
@@ -67,7 +91,7 @@ internal sealed partial class WorkBuddyStatusService
             var summary = busy
                 ? latestAction ?? "正在处理任务"
                 : latestTask is not null ? $"最近 · {latestTask}" : project?.Name ?? "已检测到会话";
-            return new(running, true, busy, Normalize(summary));
+            return new(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt);
         }
         catch
         {
@@ -120,6 +144,19 @@ internal sealed partial class WorkBuddyStatusService
         return null;
     }
 
+    private static string? ExtractAssistantResponse(JsonElement root)
+    {
+        if (!root.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return null;
+        return string.Join(" ", content.EnumerateArray().Where(item => Text(item, "type") == "output_text").Select(item => Text(item, "text")).Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static DateTimeOffset? ReadTimestamp(JsonElement root)
+    {
+        if (!root.TryGetProperty("timestamp", out var value)) return null;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var milliseconds)) return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+        return value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var parsed) ? parsed : null;
+    }
+
     private static string FriendlyAction(string value) => value switch
     {
         "Read" => "正在读取文件",
@@ -137,6 +174,14 @@ internal sealed partial class WorkBuddyStatusService
         value = QuotedMentionRegex().Replace(value, "");
         var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return oneLine.Length <= 28 ? oneLine : oneLine[..27] + "…";
+    }
+
+    private static string NormalizeResponse(string value)
+    {
+        value = ImageReferenceRegex().Replace(value, "");
+        value = QuotedMentionRegex().Replace(value, "");
+        var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length <= 96 ? oneLine : oneLine[..95] + "…";
     }
 
     [GeneratedRegex("<user_query>(.*?)</user_query>", RegexOptions.Singleline)]

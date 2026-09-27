@@ -11,6 +11,8 @@
 - WorkBuddy 只读解析 `%USERPROFILE%\.workbuddy\projects` 的最近会话流水，并通过宿主 `wb.request` 通道显示真实剩余积分。
 - 单击每个状态点或展开后的整行可打开/激活对应应用；长按拖动可改变位置，右键可打开主页或退出。
 - 支持跟随系统、浅色、深色三种主题；悬停延时、回弹动效、点击启动及各数据组件均可在主页独立开关。
+- YOYO Claw、Codex 或 WorkBuddy 产生新的最终回复后，灵动岛会自动展开约 8 秒并显示来源与回复摘要；首次启动只建立基线，不弹出历史完成记录。
+- “全部就绪”摘要按 `YOYO Claw | Codex | WorkBuddy` 顺序显示三方余额；Codex 优先显示 5 小时额度，没有时再显示周额度。
 - 状态色：绿色空闲、橙色忙碌、红色最近失败、灰色 YOYO 未运行。
 
 ## 构建与运行
@@ -26,6 +28,7 @@ dotnet run --project .\YoyoClawCompanion\YoyoClawCompanion.csproj -c Release
 ## 已知边界
 
 - 当前版本依据各应用的任务生命周期判断忙碌，不把“应用进程存在”误报为“正在执行任务”，也不伪造百分比进度。
+- 浅色和深色模式下，组件悬停统一使用随外框圆角变化的灰色描边，不再使用会遮挡文字的系统蓝色按钮背景。
 - 仅读取当前列出的 Agent 与活动会话，并按真实会话更新时间排序；不再读取旧的 `host_runtime.db`。
 - Magicore 接口不可访问时会明确显示“任务状态不可用”，不会静默回退到历史数据库。
 - YOYO 刷新禁止异步重入；接口异常会明确降级，不把旧成功快照伪装成当前在线状态。诊断信息写入 `%LOCALAPPDATA%\YoyoClawCompanion\diagnostics.log`。
