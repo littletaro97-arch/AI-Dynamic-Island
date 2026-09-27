@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 灵动岛 · 视觉原型 v1</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    /* ── 尺寸 ───────────────────────────── */
+    --w-collapsed:224px;
+    --h-collapsed:48px;
+    --w-expanded:408px;
+    --h-expanded:172px;
+    --radius:24px;
+
+    /* ── 材质（参考 ClassIsland：半透明纯色 + 1px 描边 + 近距阴影，无毛玻璃） ── */
+    --fill:rgba(14,18,28,.92);
+    --stroke:rgba(255,255,255,.10);
+    --edge-light:inset 0 1px 0 rgba(255,255,255,.06);
+    --shadow:0 6px 16px rgba(0,0,0,.38), 0 1px 2px rgba(0,0,0,.34);
+
+    /* ── 动效 token（过冲曲线来自 ClassIsland 的 BackgroundWidth 过渡） ── */
+    --ease-island:cubic-bezier(.2,1,.4,1.08);   /* 展开：带过冲 */
+    --ease-close:cubic-bezier(.4,0,1,1);        /* 收起：加速脱离 */
+    --ease-content:cubic-bezier(.2,.8,.2,1);    /* 内容淡入 */
+    --dur-open:460ms;
+    --dur-close:320ms;
+
+    /* ── 语义色 ─────────────────────────── */
+    --idle:#3ED598;
+    --busy:#FFA63D;
+    --fail:#F2686F;
+    --off:#727C90;
+    --accent:#8FA0FF;
+
+    /* ── 文字 ───────────────────────────── */
+    --ink:#F2F5FF;
+    --ink-2:#9AA5BC;
+    --ink-3:#B9C2D4;
+  }
+
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;
+    background:#0b0d12;color:#D8DEE9;
+  }
+
+  /* ═══ 舞台：模拟桌面，用来判断透明度 / 阴影 / 对比度 ═══ */
+  .stage{
+    position:relative;flex:1;min-height:260px;overflow:hidden;
+    background:radial-gradient(1100px 520px at 22% 8%,#2a3550 0%,#161b27 46%,#0d1016 100%);
+  }
+  .stage.light{
+    background:radial-gradient(1100px 520px at 22% 8%,#dfe6f2 0%,#c3cddd 46%,#aab6c8 100%);
+  }
+  /* 桌面上的"内容"，用来验证岛的投影和可读性 */
+  .stage .mockbar{
+    position:absolute;inset:auto 0 0 0;height:52px;
+    background:rgba(255,255,255,.05);border-top:1px solid rgba(255,255,255,.07);
+    display:flex;align-items:center;padding:0 18px;gap:16px;
+    font-size:12px;color:rgba(216,222,233,.5);
+  }
+  .stage.light .mockbar{background:rgba(0,0,0,.05);border-top-color:rgba(0,0,0,.08);color:rgba(0,0,0,.4)}
+  .mockbar span{display:flex;align-items:center;gap:7px}
+  .mockbar i{width:20px;height:20px;border-radius:5px;background:rgba(255,255,255,.14)}
+  .stage.light .mockbar i{background:rgba(0,0,0,.14)}
+
+  /* ═══ 岛 ═══ */
+  .island-slot{position:absolute;top:12px;left:0;right:0;display:flex;justify-content:center}
+
+  .island{
+    position:relative;
+    width:var(--w-collapsed);
+    height:var(--h-collapsed);
+    border-radius:var(--radius);
+    background:var(--fill);
+    box-shadow:var(--edge-light),var(--shadow);
+    border:1px solid var(--stroke);
+    overflow:hidden;
+    display:flex;flex-direction:column;
+    color:var(--ink);
+    /* 收起时的时序：形变 320ms 先走，内容 120ms 立刻淡掉 */
+    transition:
+      width var(--dur-close) var(--ease-close),
+      height var(--dur-close) var(--ease-close);
+    cursor:default;
+    user-select:none;
+  }
+  .island.expanded{
+    width:var(--w-expanded);
+    height:var(--h-expanded);
+    /* 展开时换成过冲曲线 */
+    transition:
+      width var(--dur-open) var(--ease-island),
+      height var(--dur-open) var(--ease-island);
+  }
+
+  /* ── 扫光层（ClassIsland 的 SlantedMaskControl：5 段 / 60° / 错峰 120ms） ── */
+  .sweep{
+    position:absolute;inset:0;border-radius:inherit;
+    pointer-events:none;opacity:0;
+  }
+  .sweep span{
+    position:absolute;top:-30%;bottom:-30%;left:var(--x);
+    width:0;
+    transform-origin:left center;
+    transform:skewX(-30deg);
+    background:rgba(143,160,255,.30);
+    transition:width 360ms cubic-bezier(.25,1,.5,1);
+  }
+  .sweep.run{opacity:1;transition:opacity 120ms linear}
+  .sweep.run span{width:var(--w)}
+  .sweep.fade{opacity:0;transition:opacity 320ms cubic-bezier(.4,0,1,1)}
+
+  /* ── 头部（折叠态可见，展开后保留为"身份行"） ──
+     46 = 折叠高 48 − 上下各 1px 描边。WPF 的 BorderThickness 同样占布局，
+     所以这里如实扣掉，保证原型尺寸能 1:1 对到 XAML。 */
+  .header{
+    flex:0 0 calc(var(--h-collapsed) - 2px);
+    display:flex;align-items:center;gap:10px;
+    padding:0 14px;
+  }
+  .logo{
+    position:relative;flex:0 0 32px;height:32px;border-radius:50%;
+    background:rgba(113,136,255,.16);
+    display:grid;place-items:center;
+  }
+  .logo svg{width:19px;height:19px;fill:var(--accent);display:block}
+  .badge{
+    position:absolute;right:0;bottom:0;width:9px;height:9px;border-radius:50%;
+    border:2px solid #0E121C;background:var(--idle);
+    transition:background 140ms linear;
+  }
+  .titles{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .t1{font-size:12.5px;font-weight:500;letter-spacing:.2px;white-space:nowrap}
+  .t2{
+    font-size:10.5px;color:var(--ink-2);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:opacity 160ms var(--ease-content);
+  }
+  .dots{display:flex;gap:5px;flex:0 0 auto}
+  .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--off);
+    transition:background 140ms linear,transform 240ms var(--ease-island);
+  }
+  .dot.on-idle{background:var(--idle)}
+  .dot.on-busy{background:var(--busy)}
+  .dot.on-fail{background:var(--fail)}
+  .dot.on-off{background:var(--off)}
+
+  /* ── 展开体 ── */
+  .body{
+    flex:1;min-height:0;
+    padding:6px 14px 10px;
+    display:flex;flex-direction:column;
+    opacity:0;
+    /* 收起：内容先淡出 */
+    transition:opacity 120ms linear;
+  }
+  .island.expanded .body{
+    opacity:1;
+    /* 展开：形变走到一半再淡入（90ms 错峰，对应 ClassIsland 的分阶段） */
+    transition:opacity 200ms var(--ease-content) 90ms;
+  }
+
+  .rows{display:flex;flex-direction:column;gap:3px}
+  .row{
+    height:22px;align-items:center;
+    /* 四列对齐：点 | 名称 | 状态（左对齐成一列） | 附加信息（右对齐） */
+    display:grid;grid-template-columns:7px 76px minmax(0,1fr) auto;
+    column-gap:8px;
+    font-size:11.5px;
+  }
+  .row .rdot{width:7px;height:7px;border-radius:50%;background:var(--off);
+    transition:background 140ms linear}
+  .row .rdot.on-idle{background:var(--idle)}
+  .row .rdot.on-busy{background:var(--busy)}
+  .row .rdot.on-fail{background:var(--fail)}
+  .row .name{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .state{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .pts{color:var(--accent);font-weight:500;white-space:nowrap;text-align:right}
+
+  .result{
+    margin-top:6px;height:30px;flex:0 0 30px;
+    border-radius:8px;background:rgba(255,255,255,.045);
+    display:flex;align-items:center;padding:0 10px;
+    font-size:11px;color:var(--ink-3);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  /* ═══ 控制区 ═══ */
+  .panel-ui{
+    flex:0 0 auto;border-top:1px solid rgba(255,255,255,.08);
+    background:#0e1118;padding:14px 18px 18px;
+    display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;
+  }
+  .grp{display:flex;flex-direction:column;gap:7px}
+  .grp>label{font-size:10.5px;letter-spacing:.6px;color:#6B7689;text-transform:uppercase}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  button{
+    font:inherit;font-size:11.5px;
+    padding:5px 11px;border-radius:7px;cursor:pointer;
+    background:rgba(255,255,255,.06);color:#C6CEDD;
+    border:1px solid rgba(255,255,255,.10);
+    transition:background 140ms linear,border-color 140ms linear;
+  }
+  button:hover{background:rgba(255,255,255,.11)}
+  button[aria-pressed="true"]{background:rgba(143,160,255,.18);border-color:rgba(143,160,255,.5);color:#DCE3FF}
+  .hint{font-size:11.5px;color:#6B7689;line-height:1.7;max-width:330px}
+  .hint b{color:#9AA5BC;font-weight:500}
+  .hint code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11px;color:#8FA0FF}
+
+  /* ═══ 规格表 ═══ */
+  .spec{flex:0 0 auto;background:#0a0c11;border-top:1px solid rgba(255,255,255,.08);padding:16px 18px 22px}
+  .spec h2{font-size:12px;font-weight:500;color:#8FA0FF;letter-spacing:.4px;margin-bottom:10px}
+  .spec table{border-collapse:collapse;width:100%;max-width:1000px;font-size:11.5px}
+  .spec th,.spec td{text-align:left;padding:5px 12px 5px 0;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.06)}
+  .spec th{color:#6B7689;font-weight:400;white-space:nowrap}
+  .spec td:first-child{color:#C6CEDD;white-space:nowrap}
+  .spec code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;color:#8FA0FF}
+  .spec .old{color:#6B7689}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <div class="island-slot">
+    <div class="island" id="island">
+      <div class="sweep" id="sweep">
+        <span style="--x:0%;  --w:10%"></span>
+        <span style="--x:10%; --w:20%"></span>
+        <span style="--x:30%; --w:40%"></span>
+        <span style="--x:70%; --w:20%"></span>
+        <span style="--x:90%; --w:10%"></span>
+      </div>
+
+      <div class="header">
+        <div class="logo">
+          <svg viewBox="0 0 52 48" aria-hidden="true">
+            <path d="M 16,34 C 10,30 9,20 16,15 C 22,9 31,10 36,15 C 41,20 40,29 35,34 C 31,38 21,39 16,34 Z"/>
+          </svg>
+          <i class="badge" id="badge"></i>
+        </div>
+        <div class="titles">
+          <div class="t1">AI 灵动岛</div>
+          <div class="t2" id="summary">3/3 个 AI 工具运行中</div>
+        </div>
+        <div class="dots">
+          <i class="dot" id="dYoyo"></i>
+          <i class="dot" id="dCodex"></i>
+          <i class="dot" id="dWb"></i>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="rows">
+          <div class="row">
+            <i class="rdot" id="rYoyo"></i>
+            <span class="name">YOYO Claw</span>
+            <span class="state" id="sYoyo">空闲</span>
+            <span class="pts" id="pYoyo">334.30 分</span>
+          </div>
+          <div class="row">
+            <i class="rdot" id="rCodex"></i>
+            <span class="name">Codex</span>
+            <span class="state" id="sCodex">运行中</span>
+          </div>
+          <div class="row">
+            <i class="rdot" id="rWb"></i>
+            <span class="name">WorkBuddy</span>
+            <span class="state" id="sWb">正在执行 PowerShell</span>
+          </div>
+        </div>
+        <div class="result" id="result">Daemon encountered an internal error.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockbar">
+    <span><i></i>模拟桌面</span>
+    <span>把鼠标移到岛上试试展开</span>
+  </div>
+</div>
+
+<div class="panel-ui">
+  <div class="grp">
+    <label>状态</label>
+    <div class="btns" id="stateBtns">
+      <button data-state="idle"   aria-pressed="true">空闲</button>
+      <button data-state="busy">忙碌</button>
+      <button data-state="fail">最近失败</button>
+      <button data-state="noYoyo">YOYO 未运行</button>
+      <button data-state="offline">全部离线</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>桌面底色</label>
+    <div class="btns" id="bgBtns">
+      <button data-bg="dark" aria-pressed="true">深色壁纸</button>
+      <button data-bg="light">浅色壁纸</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>动效</label>
+    <div class="btns">
+      <button id="replaySweep">重放扫光</button>
+    </div>
+  </div>
+  <p class="hint">
+    <b>悬停 140ms 才展开</b>（防鼠标掠过误触），移开有 90ms 宽限。<br>
+    点岛屿可固定展开。切换状态到<b>忙碌</b>时会扫一次光。
+  </p>
+</div>
+
+<div class="spec">
+  <h2>规格 token（可直接交给 Codex）</h2>
+  <table>
+    <tr><th>折叠尺寸</th><td><span class="old">旧 224×58，圆角 29</span> → <code>224×48，圆角 24</code>（比例更接近真岛）</td></tr>
+    <tr><th>展开尺寸</th><td><span class="old">旧 424×152 窗口 / 408×152 岛，底部结果条被压到 8px</span> → <code>408×172</code>，内部各行给足高度</td></tr>
+    <tr><th>展开动画</th><td>宽度+高度 <code>460ms cubic-bezier(.2, 1, .4, 1.08)</code> —— <b>曲线带过冲</b>，这是"岛"手感的来源</td></tr>
+    <tr><th>收起动画</th><td><code>320ms cubic-bezier(.4, 0, 1, 1)</code>（收起比展开慢一点，视觉上更像"缩回去"）</td></tr>
+    <tr><th>内容淡入</th><td><code>200ms cubic-bezier(.2, .8, .2, 1)</code>，<b>延迟 90ms</b>——先长形、再显字</td></tr>
+    <tr><th>内容淡出</th><td><code>120ms linear</code>，无延迟（收起时必须先走）</td></tr>
+    <tr><th>悬停意图</th><td>进入延迟 <code>140ms</code>，移出宽限 <code>90ms</code></td></tr>
+    <tr><th>状态点换色</th><td><code>140ms linear</code>（ClassIsland 用 100ms，这个量级即可）</td></tr>
+    <tr><th>扫光</th><td>5 段斜切、斜角 <code>60°</code>（skewX -30°）、段宽比 <code>10/20/40/20/10</code>、单段 <code>360ms</code>、错峰 <code>0 / 90 / 120ms</code>、缓动 <code>cubic-bezier(.25,1,.5,1)</code></td></tr>
+    <tr><th>材质</th><td><code>rgba(14,18,28,.92)</code> + 1px <code>rgba(255,255,255,.10)</code> + 顶部内高光 <code>inset 0 1px 0 rgba(255,255,255,.06)</code></td></tr>
+    <tr><th>阴影</th><td><span class="old">旧 blur24 / depth5 / 34%（在深色上偏脏，且被窗口裁掉）</span> → <code>0 6px 16px rgba(0,0,0,.38), 0 1px 2px rgba(0,0,0,.34)</code>（贴近 ClassIsland 的 <code>0 4 8 2 #48000000</code>）</td></tr>
+    <tr><th>窗口尺寸</th><td>必须留出阴影余量：<code>408 + 2×24 = 456</code> 宽、<code>172 + 24 + 24 = 220</code> 高，且岛<b>居中</b>对齐（现在靠右，展开只往左长）</td></tr>
+    <tr><th>语义色</th><td>空闲 <code>#3ED598</code> · 忙碌 <code>#FFA63D</code> · 失败 <code>#F2686F</code> · 离线 <code>#727C90</code> · 强调 <code>#8FA0FF</code></td></tr>
+  </table>
+</div>
+
+<script>
+(function(){
+  var el = function(id){ return document.getElementById(id); };
+  var island = el('island');
+  var enterTimer = null, leaveTimer = null, pinned = false;
+
+  /* ── 悬停意图：进入 140ms 才展开（防鼠标掠过误触），移出 90ms 宽限 ── */
+  island.addEventListener('mouseenter', function(){
+    clearTimeout(leaveTimer);
+    if (pinned) return;
+    enterTimer = setTimeout(function(){ island.classList.add('expanded'); }, 140);
+  });
+  island.addEventListener('mouseleave', function(){
+    clearTimeout(enterTimer);
+    if (pinned) return;
+    leaveTimer = setTimeout(function(){ island.classList.remove('expanded'); }, 90);
+  });
+  /* 点击固定展开 / 再点收起 */
+  island.addEventListener('click', function(){
+    pinned = !pinned;
+    clearTimeout(enterTimer); clearTimeout(leaveTimer);
+    island.classList.toggle('expanded', pinned);
+  });
+
+  /* ── 扫光：ClassIsland SlantedMaskControl 的节奏（外-内-中，错峰 90/120ms） ── */
+  var sweep = el('sweep');
+  var spans = sweep.querySelectorAll('span');
+  var sweepTimer = null, resetTimer = null;
+  function playSweep(){
+    clearTimeout(sweepTimer); clearTimeout(resetTimer);
+    sweep.classList.remove('run','fade');
+    for (var i = 0; i < spans.length; i++){
+      spans[i].style.transition = 'none';
+      spans[i].style.transitionDelay = '0ms';
+    }
+    void sweep.offsetWidth;                       /* 无过渡地把 5 段全部归零 */
+    for (var j = 0; j < spans.length; j++) spans[j].style.transition = '';
+    void sweep.offsetWidth;
+    var stagger = [0, 90, 120, 90, 0];
+    for (var k = 0; k < spans.length; k++) spans[k].style.transitionDelay = stagger[k] + 'ms';
+    sweep.classList.add('run');
+    sweepTimer = setTimeout(function(){
+      sweep.classList.remove('run');
+      sweep.classList.add('fade');
+      resetTimer = setTimeout(function(){ sweep.classList.remove('fade'); }, 340);
+    }, 600);
+  }
+  el('replaySweep').addEventListener('click', playSweep);
+
+  /* ── 状态数据 ── */
+  var STATES = {
+    idle:    {y:'idle', c:'idle', w:'busy', sum:'3/3 个 AI 工具运行中', sY:'空闲',   sC:'运行中', sW:'正在执行 PowerShell', res:'Daemon encountered an internal error.'},
+    busy:    {y:'busy', c:'idle', w:'idle', sum:'YOYO 正在执行任务',    sY:'忙碌中', sC:'运行中', sW:'正在执行 PowerShell', res:'正在生成月度报表 …'},
+    fail:    {y:'fail', c:'idle', w:'idle', sum:'1 项需要处理',         sY:'空闲',   sC:'运行中', sW:'最近 · 去这里看看，怎么使用？', res:'Daemon encountered an internal error.'},
+    noYoyo:  {y:'off',  c:'idle', w:'idle', sum:'2/3 个 AI 工具运行中', sY:'未运行', sC:'运行中', sW:'最近 · 修复导出样式', res:'尚未检测到任务结果'},
+    offline: {y:'off',  c:'off',  w:'off',  sum:'0/3 个 AI 工具运行中', sY:'未运行', sC:'未运行', sW:'未运行', res:'尚未检测到任务结果'}
+  };
+  function setState(name){
+    var s = STATES[name];
+    el('dYoyo').className = 'dot on-' + s.y;
+    el('dCodex').className = 'dot on-' + s.c;
+    el('dWb').className = 'dot on-' + s.w;
+    el('badge').style.background = 'var(--' + s.y + ')';
+    el('rYoyo').className = 'rdot on-' + s.y;
+    el('rCodex').className = 'rdot on-' + s.c;
+    el('rWb').className = 'rdot on-' + s.w;
+    el('summary').textContent = s.sum;
+    el('sYoyo').textContent = s.sY;
+    el('sCodex').textContent = s.sC;
+    el('sWb').textContent = s.sW;
+    el('result').textContent = s.res;
+    if (name === 'busy') playSweep();
+  }
+
+  el('stateBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    [].forEach.call(this.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b); });
+    setState(b.dataset.state);
+  });
+  el('bgBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    [].forEach.call(this.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b); });
+    el('stage').classList.toggle('light', b.dataset.bg === 'light');
+  });
+})();
+</script>
+</body>
+</html>

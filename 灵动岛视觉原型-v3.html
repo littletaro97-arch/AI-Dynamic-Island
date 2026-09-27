@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 灵动岛 · 视觉原型 v3</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    /* ── 尺寸 ───────────────────────────── */
+    --w-collapsed:224px;
+    --h-collapsed:48px;
+    --w-expanded:408px;
+    --h-expanded:172px;
+    /* 圆角：由滑杆实时改（0–24，即折叠高 48 的一半）。
+       上限的语义来自 ClassIsland ——「调至最大时左右边缘为半圆」，
+       它的岛高 40 → 滑杆上限 20；我们折叠高 48 → 上限 24。 */
+    --radius:24px;
+    /* 嵌套元素的圆角 = 岛半径 / 2（ClassIsland 的转换器默认除数就是 2） */
+    --radius-inner:calc(var(--radius) / 2);
+
+    /* ── 材质（参考 ClassIsland：半透明纯色 + 1px 描边 + 近距阴影，无毛玻璃） ── */
+    --fill:rgba(14,18,28,.92);
+    --stroke:rgba(255,255,255,.10);
+    --edge-light:inset 0 1px 0 rgba(255,255,255,.06);
+    --shadow:0 6px 16px rgba(0,0,0,.38), 0 1px 2px rgba(0,0,0,.34);
+
+    /* ── 动效 token（过冲曲线来自 ClassIsland 的 BackgroundWidth 过渡） ── */
+    --ease-island:cubic-bezier(.2,1,.4,1.08);   /* 展开：带过冲 */
+    --ease-close:cubic-bezier(.4,0,1,1);        /* 收起：加速脱离 */
+    --ease-content:cubic-bezier(.2,.8,.2,1);    /* 内容淡入 */
+    --dur-open:460ms;
+    --dur-close:320ms;
+
+    /* ── 语义色 ─────────────────────────── */
+    --idle:#3ED598;
+    --busy:#FFA63D;
+    --fail:#F2686F;
+    --off:#727C90;
+    --accent:#8FA0FF;
+
+    /* ── 文字 ───────────────────────────── */
+    --ink:#F2F5FF;
+    --ink-2:#9AA5BC;
+    --ink-3:#B9C2D4;
+  }
+
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;
+    background:#0b0d12;color:#D8DEE9;
+  }
+
+  /* ═══ 舞台：模拟桌面，用来判断透明度 / 阴影 / 对比度 ═══ */
+  .stage{
+    position:relative;flex:1;min-height:260px;overflow:hidden;
+    background:radial-gradient(1100px 520px at 22% 8%,#2a3550 0%,#161b27 46%,#0d1016 100%);
+  }
+  .stage.light{
+    background:radial-gradient(1100px 520px at 22% 8%,#dfe6f2 0%,#c3cddd 46%,#aab6c8 100%);
+  }
+  /* 桌面上的"内容"，用来验证岛的投影和可读性 */
+  .stage .mockbar{
+    position:absolute;inset:auto 0 0 0;height:52px;
+    background:rgba(255,255,255,.05);border-top:1px solid rgba(255,255,255,.07);
+    display:flex;align-items:center;padding:0 18px;gap:16px;
+    font-size:12px;color:rgba(216,222,233,.5);
+  }
+  .stage.light .mockbar{background:rgba(0,0,0,.05);border-top-color:rgba(0,0,0,.08);color:rgba(0,0,0,.4)}
+  .mockbar span{display:flex;align-items:center;gap:7px}
+  .mockbar i{width:20px;height:20px;border-radius:5px;background:rgba(255,255,255,.14)}
+  .stage.light .mockbar i{background:rgba(0,0,0,.14)}
+
+  /* ═══ 岛 ═══ */
+  .island-slot{position:absolute;top:12px;left:0;right:0;display:flex;justify-content:center}
+
+  .island{
+    position:relative;
+    width:var(--w-collapsed);
+    height:var(--h-collapsed);
+    border-radius:var(--radius);
+    background:var(--fill);
+    box-shadow:var(--edge-light),var(--shadow);
+    border:1px solid var(--stroke);
+    overflow:hidden;
+    display:flex;flex-direction:column;
+    color:var(--ink);
+    /* 收起时的时序：形变 320ms 先走，内容 120ms 立刻淡掉 */
+    transition:
+      width var(--dur-close) var(--ease-close),
+      height var(--dur-close) var(--ease-close);
+    cursor:default;
+    user-select:none;
+  }
+  .island.expanded{
+    width:var(--w-expanded);
+    height:var(--h-expanded);
+    /* 展开时换成过冲曲线 */
+    transition:
+      width var(--dur-open) var(--ease-island),
+      height var(--dur-open) var(--ease-island);
+  }
+
+  /* ── 扫光层已移除（2026-09-25 决定，别再照着 ClassIsland 加回来）──
+     它是"通知面"抓注意力的手段，我们这是常驻状态监视器，没有"新东西到了"这个场景。
+     替代方案见下方：状态变化提示 · 点脉冲。规格表里留了记录。 */
+
+  /* ── 头部（折叠态可见，展开后保留为"身份行"） ──
+     46 = 折叠高 48 − 上下各 1px 描边。WPF 的 BorderThickness 同样占布局，
+     所以这里如实扣掉，保证原型尺寸能 1:1 对到 XAML。 */
+  .header{
+    flex:0 0 calc(var(--h-collapsed) - 2px);
+    display:flex;align-items:center;gap:10px;
+    padding:0 14px;
+  }
+  .logo{
+    position:relative;flex:0 0 32px;height:32px;border-radius:50%;
+    background:rgba(113,136,255,.16);
+    display:grid;place-items:center;
+  }
+  .logo svg{width:19px;height:19px;fill:var(--accent);display:block}
+  .badge{
+    position:absolute;right:0;bottom:0;width:9px;height:9px;border-radius:50%;
+    border:2px solid #0E121C;background:var(--idle);
+    transition:background 140ms linear;
+  }
+  .titles{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .t1{
+    font-size:13px;font-weight:600;letter-spacing:.2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:color 140ms linear;
+  }
+  /* 只有"需要你处理"才上色，其余保持中性 —— 颜色只在该报警的时候出现 */
+  .t1.warn{color:var(--fail)}
+  .t2{
+    font-size:10.5px;color:var(--ink-2);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:opacity 160ms var(--ease-content);
+  }
+  .dots{display:flex;gap:5px;flex:0 0 auto}
+  .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--off);
+    --c:var(--off);
+    transition:background 140ms linear,transform 240ms var(--ease-island);
+  }
+  /* 状态色 + 同色光晕变量 --c（脉冲环要用） */
+  .dot.on-idle, .row .rdot.on-idle{background:var(--idle);--c:var(--idle)}
+  .dot.on-busy, .row .rdot.on-busy{background:var(--busy);--c:var(--busy)}
+  .dot.on-fail, .row .rdot.on-fail{background:var(--fail);--c:var(--fail)}
+  .dot.on-off,  .row .rdot.on-off {background:var(--off); --c:var(--off)}
+
+  /* ── 状态变化提示 · 方案 B：点脉冲 ──
+     一次 300ms，从圆点向外扩一圈同色消失。只回答"刚刚变了"，
+     不回答"变成什么"（那是颜色的活）。 */
+  @keyframes dotpulse{
+    0%  {box-shadow:0 0 0 0 var(--c)}
+    100%{box-shadow:0 0 0 6px rgba(0,0,0,0)}
+  }
+  .dot.pulse,.row .rdot.pulse{animation:dotpulse 300ms cubic-bezier(.2,.8,.2,1)}
+
+  /* ── 展开体 ── */
+  .body{
+    flex:1;min-height:0;
+    padding:6px 14px 10px;
+    display:flex;flex-direction:column;
+    opacity:0;
+    /* 收起：内容先淡出 */
+    transition:opacity 120ms linear;
+  }
+  .island.expanded .body{
+    opacity:1;
+    /* 展开：形变走到一半再淡入（90ms 错峰，对应 ClassIsland 的分阶段） */
+    transition:opacity 200ms var(--ease-content) 90ms;
+  }
+
+  .rows{display:flex;flex-direction:column;gap:3px}
+  .row{
+    height:22px;align-items:center;
+    /* 四列对齐：点 | 名称 | 状态（左对齐成一列） | 附加信息（右对齐） */
+    display:grid;grid-template-columns:7px 76px minmax(0,1fr) auto;
+    column-gap:8px;
+    font-size:11.5px;
+  }
+  .row .rdot{width:7px;height:7px;border-radius:50%;background:var(--off);
+    --c:var(--off);
+    transition:background 140ms linear}
+  .row .name{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .state{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .pts{color:var(--accent);font-weight:500;white-space:nowrap;text-align:right}
+
+  .result{
+    margin-top:6px;height:30px;flex:0 0 30px;
+    /* 内部圆角跟着岛半径走（半径/2），不写死 —— 否则圆角调到 0 时里面还是圆的 */
+    border-radius:var(--radius-inner);
+    background:rgba(255,255,255,.045);
+    display:flex;align-items:center;padding:0 10px;
+    font-size:11px;color:var(--ink-3);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  /* ═══ 控制区 ═══ */
+  .panel-ui{
+    flex:0 0 auto;border-top:1px solid rgba(255,255,255,.08);
+    background:#0e1118;padding:14px 18px 18px;
+    display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;
+  }
+  .grp{display:flex;flex-direction:column;gap:7px}
+  .grp>label{font-size:10.5px;letter-spacing:.6px;color:#6B7689;text-transform:uppercase}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  button{
+    font:inherit;font-size:11.5px;
+    padding:5px 11px;border-radius:7px;cursor:pointer;
+    background:rgba(255,255,255,.06);color:#C6CEDD;
+    border:1px solid rgba(255,255,255,.10);
+    transition:background 140ms linear,border-color 140ms linear;
+  }
+  button:hover{background:rgba(255,255,255,.11)}
+  button[aria-pressed="true"]{background:rgba(143,160,255,.18);border-color:rgba(143,160,255,.5);color:#DCE3FF}
+  .hint{font-size:11.5px;color:#6B7689;line-height:1.7;max-width:330px}
+  .hint b{color:#9AA5BC;font-weight:500}
+  .hint code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11px;color:#8FA0FF}
+
+  /* 圆角滑杆 */
+  .slider-row{display:flex;align-items:center;gap:10px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:196px;height:3px;border-radius:2px;
+    background:rgba(255,255,255,.16);outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:13px;height:13px;border-radius:50%;
+    background:var(--accent);border:2px solid #0e1118;
+    box-shadow:0 0 0 1px rgba(143,160,255,.55);
+  }
+  .readout{
+    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    font-size:12px;color:var(--accent);min-width:52px;
+  }
+  .readout em{font-style:normal;color:#6B7689;font-size:10.5px;margin-left:6px;font-family:inherit}
+
+  /* ═══ 规格表 ═══ */
+  .spec{flex:0 0 auto;background:#0a0c11;border-top:1px solid rgba(255,255,255,.08);padding:16px 18px 22px}
+  .spec h2{font-size:12px;font-weight:500;color:#8FA0FF;letter-spacing:.4px;margin-bottom:10px}
+  .spec table{border-collapse:collapse;width:100%;max-width:1000px;font-size:11.5px}
+  .spec th,.spec td{text-align:left;padding:5px 12px 5px 0;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.06)}
+  .spec th{color:#6B7689;font-weight:400;white-space:nowrap}
+  .spec td:first-child{color:#C6CEDD;white-space:nowrap}
+  .spec code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;color:#8FA0FF}
+  .spec .old{color:#6B7689}
+  .spec .no{color:#F2686F;font-weight:500}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <div class="island-slot">
+    <div class="island" id="island">
+      <div class="header">
+        <div class="logo">
+          <svg viewBox="0 0 52 48" aria-hidden="true">
+            <path d="M 16,34 C 10,30 9,20 16,15 C 22,9 31,10 36,15 C 41,20 40,29 35,34 C 31,38 21,39 16,34 Z"/>
+          </svg>
+          <i class="badge" id="badge"></i>
+        </div>
+        <div class="titles">
+          <!-- 折叠态最贵的位置，给它"会变的信息"。
+               原来这里写死"AI 灵动岛"——那是产品名，你正看着它，零信息量。 -->
+          <div class="t1" id="line1">全部就绪</div>
+          <div class="t2" id="line2">积分 334.30</div>
+        </div>
+        <div class="dots">
+          <i class="dot" id="dYoyo"></i>
+          <i class="dot" id="dCodex"></i>
+          <i class="dot" id="dWb"></i>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="rows">
+          <div class="row">
+            <i class="rdot" id="rYoyo"></i>
+            <span class="name">YOYO Claw</span>
+            <span class="state" id="sYoyo">空闲</span>
+            <span class="pts" id="pYoyo">334.30 分</span>
+          </div>
+          <div class="row">
+            <i class="rdot" id="rCodex"></i>
+            <span class="name">Codex</span>
+            <span class="state" id="sCodex">运行中</span>
+          </div>
+          <div class="row">
+            <i class="rdot" id="rWb"></i>
+            <span class="name">WorkBuddy</span>
+            <span class="state" id="sWb">正在执行 PowerShell</span>
+          </div>
+        </div>
+        <div class="result" id="result">Daemon encountered an internal error.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockbar">
+    <span><i></i>模拟桌面</span>
+    <span>把鼠标移到岛上试试展开</span>
+  </div>
+</div>
+
+<div class="panel-ui">
+  <div class="grp">
+    <label>状态</label>
+    <div class="btns" id="stateBtns">
+      <button data-state="idle"   aria-pressed="true">空闲</button>
+      <button data-state="busy">忙碌</button>
+      <button data-state="fail">最近失败</button>
+      <button data-state="noYoyo">YOYO 未运行</button>
+      <button data-state="offline">全部离线</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>桌面底色</label>
+    <div class="btns" id="bgBtns">
+      <button data-bg="dark" aria-pressed="true">深色壁纸</button>
+      <button data-bg="light">浅色壁纸</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>圆角（实时生效）</label>
+    <div class="slider-row">
+      <input type="range" id="radiusSlider" min="0" max="24" step="0.5" value="24">
+      <span class="readout"><span id="radiusVal">24px</span><em id="radiusNote">胶囊</em></span>
+    </div>
+  </div>
+  <div class="grp">
+    <label>状态变化提示</label>
+    <div class="btns" id="cueBtns">
+      <button data-cue="none">无</button>
+      <button data-cue="pulse" aria-pressed="true">点脉冲（推荐）</button>
+    </div>
+  </div>
+  <p class="hint">
+    <b>悬停 140ms 才展开</b>（防鼠标掠过误触），移开有 90ms 宽限。<br>
+    <b>点岛 = 固定展开 → 点空白处或按 Esc 收起。</b>（原型专用；真机上这一下是"打开 YOYO 窗口"）<br>
+    折叠态两行都是<b>活信息</b>：上行 = 一句话状态，下行 = 细节 / 积分。点上面的状态按钮看文案怎么变。<br>
+    圆角上限 <code>24</code> = 折叠高的一半，拉满就是胶囊；结果条圆角自动取一半。
+  </p>
+</div>
+
+<div class="spec">
+  <h2>规格 token（可直接交给 Codex）</h2>
+  <table>
+    <tr><th>折叠尺寸</th><td><span class="old">旧 224×58，圆角写死 29</span> → <code>224×48</code>，圆角改成可调（见下一行）</td></tr>
+    <tr><th>折叠态信息</th><td><b>模板：两行都必须会变。</b>上行 = 一句话状态（<code>全部就绪</code> / <code>YOYO 执行中</code> / <code>1 项需要处理</code> / <code>YOYO 未运行</code> / <code>全部离线</code>），下行 = 细节或积分。<br>判断标准就一条：<b>写死的字一个都不要放</b> —— 原来上行是产品名"AI 灵动岛"，永远不变，却占着折叠态最贵的位置。上行 <code>13px / 600</code>，只在"需要你处理"时变红（<code>.warn</code>，颜色只在该报警时出现），其余保持中性；下行 <code>10.5px</code> 次级色。两行都 <code>text-overflow: ellipsis</code>。文案预算：上行 ≈ <b>9 个汉字</b>，下行 ≈ <b>11 个</b>（可用宽约 111px）</td></tr>
+    <tr><th>圆角</th><td>用户可调 <code>0 – 24</code>、步进 <code>0.5</code>。上限 <b>= 折叠高 / 2</b>，拉满就是完美胶囊 —— 这条语义直接抄 ClassIsland：它的岛高 40、滑杆上限 20，设置项原文「<i>主界面圆角半径，调至最大数值时左右边缘为半圆</i>」。一个值同时管折叠态与展开态；<b>内部元素的圆角 = 半径 / 2</b>，不要写死（ClassIsland 的 <code>SizeDoubleToCornerRadiusConverter</code> 默认除数就是 <code>2.0</code>，岛自己用 <code>1.0</code>）。落盘：<code>settings.json</code> 加 <code>RadiusX</code></td></tr>
+    <tr><th>点击语义</th><td><b>真机保持原样：单击 = 激活 YOYO 窗口。</b>原型里的"点岛固定展开 / 点空白或 Esc 收起"只为了你自己好翻看，<span class="no">别照抄</span> —— 悬停展开已经够用，再加一个"点一下固定"会和"点一下开 YOYO"互相打架</td></tr>
+    <tr><th>展开尺寸</th><td><span class="old">旧 424×152 窗口 / 408×152 岛，底部结果条被压到 8px</span> → <code>408×172</code>，内部各行给足高度</td></tr>
+    <tr><th>展开动画</th><td>宽度+高度 <code>460ms cubic-bezier(.2, 1, .4, 1.08)</code> —— <b>曲线带过冲</b>，这是"岛"手感的来源</td></tr>
+    <tr><th>收起动画</th><td><code>320ms cubic-bezier(.4, 0, 1, 1)</code>（收起比展开慢一点，视觉上更像"缩回去"）</td></tr>
+    <tr><th>内容淡入</th><td><code>200ms cubic-bezier(.2, .8, .2, 1)</code>，<b>延迟 90ms</b>——先长形、再显字</td></tr>
+    <tr><th>内容淡出</th><td><code>120ms linear</code>，无延迟（收起时必须先走）</td></tr>
+    <tr><th>悬停意图</th><td>进入延迟 <code>140ms</code>，移出宽限 <code>90ms</code></td></tr>
+    <tr><th>状态点换色</th><td><code>140ms linear</code>（ClassIsland 用 100ms，这个量级即可）</td></tr>
+    <tr><th>状态变化提示</th><td><b>推荐：点脉冲</b> —— 变了的那个点向外扩一圈同色光晕，<code>300ms</code>、只放一次、不循环。存在的理由只有一条：状态是 <code>5s</code> 轮询来的，<b>光看颜色分不出"刚变的"还是"一直这样"</b>，脉冲只补这一条时间信息。关掉时 = 只换颜色</td></tr>
+    <tr><th>已否决 · 斜切扫光</th><td><span class="no">不要实现</span>（2026-09-25 决定）。ClassIsland 的扫光是"通知面"用来抓注意力的，我们这是<b>常驻状态监视器</b>，没有"新东西到了"这个场景；接成"一忙碌就扫"只会每个任务闪一下，还要多养一层遮罩控件。原参数留档（万一以后真做通知功能再取）：5 段斜切 / 斜角 <code>60°</code> / 段宽比 <code>10-20-40-20-10</code> / 单段 <code>360ms</code> / 错峰 <code>0-90-120ms</code> / 缓动 <code>cubic-bezier(.25,1,.5,1)</code></td></tr>
+    <tr><th>材质</th><td><code>rgba(14,18,28,.92)</code> + 1px <code>rgba(255,255,255,.10)</code> + 顶部内高光 <code>inset 0 1px 0 rgba(255,255,255,.06)</code></td></tr>
+    <tr><th>阴影</th><td><span class="old">旧 blur24 / depth5 / 34%（在深色上偏脏，且被窗口裁掉）</span> → <code>0 6px 16px rgba(0,0,0,.38), 0 1px 2px rgba(0,0,0,.34)</code>（贴近 ClassIsland 的 <code>0 4 8 2 #48000000</code>）</td></tr>
+    <tr><th>窗口尺寸</th><td>必须留出阴影余量：<code>408 + 2×24 = 456</code> 宽、<code>172 + 24 + 24 = 220</code> 高，且岛<b>居中</b>对齐（现在靠右，展开只往左长）</td></tr>
+    <tr><th>语义色</th><td>空闲 <code>#3ED598</code> · 忙碌 <code>#FFA63D</code> · 失败 <code>#F2686F</code> · 离线 <code>#727C90</code> · 强调 <code>#8FA0FF</code></td></tr>
+  </table>
+</div>
+
+<script>
+(function(){
+  var el = function(id){ return document.getElementById(id); };
+  var island = el('island');
+  var enterTimer = null, leaveTimer = null, pinned = false;
+  var ui = document.querySelector('.panel-ui');
+
+  function unpin(){
+    pinned = false;
+    clearTimeout(enterTimer); clearTimeout(leaveTimer);
+    island.classList.remove('expanded');
+  }
+
+  /* ── 悬停意图：进入 140ms 才展开（防鼠标掠过误触），移出 90ms 宽限 ── */
+  island.addEventListener('mouseenter', function(){
+    clearTimeout(leaveTimer);
+    if (pinned) return;
+    enterTimer = setTimeout(function(){ island.classList.add('expanded'); }, 140);
+  });
+  island.addEventListener('mouseleave', function(){
+    clearTimeout(enterTimer);
+    if (pinned) return;
+    leaveTimer = setTimeout(function(){ island.classList.remove('expanded'); }, 90);
+  });
+  /* 点岛 = 固定展开；再点一次 = 收起 */
+  island.addEventListener('click', function(){
+    if (pinned){ unpin(); return; }
+    pinned = true;
+    clearTimeout(enterTimer); clearTimeout(leaveTimer);
+    island.classList.add('expanded');
+  });
+
+  /* 点空白处收起。用 pointerdown 而不是 click：在岛上按下、拖到外面松手也立即收，
+     不用等 mouseup。控制面板 .panel-ui 不算"空白"，否则点一下状态按钮岛就没了。 */
+  document.addEventListener('pointerdown', function(e){
+    if (!pinned) return;
+    if (island.contains(e.target) || ui.contains(e.target)) return;
+    unpin();
+  }, true);
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') unpin();
+  });
+
+  /* ── 状态变化提示：无 / 点脉冲（默认脉冲）── */
+  var cueMode = 'pulse';
+  el('cueBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-cue]'); if (!b) return;
+    [].forEach.call(this.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b); });
+    cueMode = b.dataset.cue;
+  });
+  function pulse(ids){
+    for (var i = 0; i < ids.length; i++){
+      var d = el(ids[i]); if (!d) continue;
+      d.classList.remove('pulse');
+      void d.offsetWidth;                    /* 重排一次，动画才能重放 */
+      d.classList.add('pulse');
+    }
+  }
+
+  /* ── 圆角滑杆（0–24，步进 0.5；记在 localStorage，刷新后保留） ── */
+  var slider = el('radiusSlider');
+  function applyRadius(v){
+    v = Math.max(0, Math.min(24, parseFloat(v) || 0));
+    document.documentElement.style.setProperty('--radius', v + 'px');
+    el('radiusVal').textContent = (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) + 'px';
+    el('radiusNote').textContent = v >= 24 ? '胶囊' : v === 0 ? '直角' : '圆角矩形';
+    try { localStorage.setItem('islandRadius', v); } catch (err) {}
+  }
+  slider.addEventListener('input', function(){ applyRadius(this.value); });
+  try {
+    var savedR = localStorage.getItem('islandRadius');
+    if (savedR !== null) slider.value = savedR;
+  } catch (err) {}
+  applyRadius(slider.value);
+
+  /* ── 状态数据 ──
+     l1 / l2 就是折叠态那两行的文案，展开态的头行复用同一套
+     （展开不该"换一个界面"，两行给同样的信息才有连续性）。
+     原则：**不动的信息不占位**。原来 L1 写死"AI 灵动岛"，而你正看着它 —— 零信息量。
+     L1 = 当前最该知道的那一句；L2 = 是谁 / 在干什么 / 多少。 */
+  var STATES = {
+    idle:    {y:'idle', c:'idle', w:'idle', warn:false,
+              l1:'全部就绪',    l2:'积分 334.30',
+              sY:'空闲',   sC:'运行中', sW:'运行中', res:'尚未检测到任务结果'},
+    busy:    {y:'busy', c:'idle', w:'idle', warn:false,
+              l1:'YOYO 执行中', l2:'正在生成月度报表',
+              sY:'忙碌中', sC:'运行中', sW:'运行中', res:'正在生成月度报表 …'},
+    fail:    {y:'fail', c:'idle', w:'idle', warn:true,
+              l1:'1 项需要处理', l2:'Daemon 报错 · 25h 前',
+              sY:'空闲',   sC:'运行中', sW:'运行中', res:'Daemon encountered an internal error.'},
+    noYoyo:  {y:'off',  c:'idle', w:'idle', warn:false,
+              l1:'YOYO 未运行', l2:'另 2 项正常',
+              sY:'未运行', sC:'运行中', sW:'运行中', res:'尚未检测到任务结果'},
+    offline: {y:'off',  c:'off',  w:'off',  warn:false,
+              l1:'全部离线',    l2:'未检测到运行实例',
+              sY:'未运行', sC:'未运行', sW:'未运行', res:'尚未检测到任务结果'}
+  };
+  var prev = null;
+  function setState(name){
+    var s = STATES[name];
+
+    /* 先比出"这一次到底是哪几个点变了"，只有变了的才提示 */
+    var changed = [];
+    if (prev){
+      if (prev.y !== s.y) changed.push('Yoyo');
+      if (prev.c !== s.c) changed.push('Codex');
+      if (prev.w !== s.w) changed.push('Wb');
+    }
+
+    el('dYoyo').className = 'dot on-' + s.y;
+    el('dCodex').className = 'dot on-' + s.c;
+    el('dWb').className = 'dot on-' + s.w;
+    el('badge').style.background = 'var(--' + s.y + ')';
+    el('rYoyo').className = 'rdot on-' + s.y;
+    el('rCodex').className = 'rdot on-' + s.c;
+    el('rWb').className = 'rdot on-' + s.w;
+    el('line1').textContent = s.l1;
+    el('line1').className = s.warn ? 't1 warn' : 't1';
+    el('line2').textContent = s.l2;
+    el('sYoyo').textContent = s.sY;
+    el('sCodex').textContent = s.sC;
+    el('sWb').textContent = s.sW;
+    el('result').textContent = s.res;
+
+    /* 只有点变了才提示；"无"就只换颜色 */
+    if (changed.length && cueMode === 'pulse'){
+      var ids = [];
+      for (var i = 0; i < changed.length; i++){ ids.push('d' + changed[i], 'r' + changed[i]); }
+      pulse(ids);
+    }
+
+    prev = {y:s.y, c:s.c, w:s.w};
+  }
+
+  el('stateBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    [].forEach.call(this.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b); });
+    setState(b.dataset.state);
+  });
+  el('bgBtns').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    [].forEach.call(this.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b); });
+    el('stage').classList.toggle('light', b.dataset.bg === 'light');
+  });
+})();
+</script>
+</body>
+</html>

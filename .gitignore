@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/node_modules/
+publish*/
+WorkBuddyIsland-Windows-便携版(1)/
+*.user
+*.suo

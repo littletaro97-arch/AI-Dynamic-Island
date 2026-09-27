@@ -1,0 +1,10 @@
+{
+  "name": "yoyo-claw-magicore-bridge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@grpc/grpc-js": "1.14.4",
+    "bonjour-service": "1.4.1",
+    "yaml": "2.9.0"
+  }
+}
