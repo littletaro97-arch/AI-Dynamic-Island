@@ -16,6 +16,14 @@ internal sealed class IslandSettings
     public bool ShowCodex { get; set; } = true;
     public bool ShowWorkBuddy { get; set; } = true;
     public bool ShowShadow { get; set; } = true;
+    public string ThemeMode { get; set; } = "system";
+    public bool EnableCodexActivityDetection { get; set; } = true;
+    public bool ShowCodexLimits { get; set; } = true;
+    public bool ShowWorkBuddyCredits { get; set; } = true;
+    public bool EnableAppLaunch { get; set; } = true;
+    public bool EnableHoverExpansion { get; set; } = true;
+    public bool EnableSpringAnimation { get; set; } = true;
+    public double HoverDelayMs { get; set; } = 70;
 }
 
 internal static class AppSettings

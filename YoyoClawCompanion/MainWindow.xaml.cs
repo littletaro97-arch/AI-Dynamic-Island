@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using YoyoClawCompanion.Services;
 
 namespace YoyoClawCompanion;
@@ -16,15 +17,18 @@ public partial class MainWindow : Window
     private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#FFA63D"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
     private readonly YoyoStatusService _statusService = new();
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
+    private readonly WorkBuddyCreditsService _workBuddyCreditsService = new();
+    private readonly CodexStatusService _codexStatusService = new();
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
-    private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private Point _dragCursorStart;
     private Point _dragWindowStart;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
+    private Brush _primaryTextBrush = Brush("#F2F5FF");
 
     public MainWindow()
     {
@@ -36,6 +40,8 @@ public partial class MainWindow : Window
         _holdTimer.Tick += (_, _) => ArmDrag();
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
+        SystemEvents.UserPreferenceChanged += SystemThemeChanged;
+        Closed += (_, _) => SystemEvents.UserPreferenceChanged -= SystemThemeChanged;
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -45,6 +51,8 @@ public partial class MainWindow : Window
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
         settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 340);
+        settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
+        settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         _settings = settings;
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         Island.Opacity = settings.Opacity;
@@ -54,8 +62,13 @@ public partial class MainWindow : Window
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
+        _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
+        SetLaunchControls(settings.EnableAppLaunch);
+        if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
+        ApplyTheme();
         Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
         if (persist) AppSettings.Save(_settings);
+        if (persist && IsLoaded) _ = RefreshStatusAsync();
     }
 
     internal void ResetPosition()
@@ -102,12 +115,15 @@ public partial class MainWindow : Window
         _refreshing = true;
         try
         {
-            var codexRunning = IsCodexRunning();
             var workBuddyTask = _workBuddyStatusService.ReadAsync();
+            var workBuddyCreditsTask = _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits);
+            var codexTask = _codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits);
             var yoyoTask = _statusService.ReadAsync();
-            CodexMiniDot.Fill = codexRunning ? OnlineBrush : OfflineBrush;
             var status = await yoyoTask;
             var workBuddy = await workBuddyTask;
+            var workBuddyCredits = await workBuddyCreditsTask;
+            var codex = await codexTask;
+            CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy ? BusyBrush : OnlineBrush;
             WorkBuddyMiniDot.Fill = !workBuddy.IsRunning ? OfflineBrush : !workBuddy.DataAvailable ? ErrorBrush : workBuddy.IsBusy ? BusyBrush : OnlineBrush;
             YoyoMiniDot.Fill = !status.IsYoyoRunning ? OfflineBrush : !status.TaskStatusAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : status.LastTaskFailed ? ErrorBrush : OnlineBrush;
             StateDot.Fill = YoyoMiniDot.Fill;
@@ -115,25 +131,26 @@ public partial class MainWindow : Window
             WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
             PointsText.Text = status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --";
             StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : "空闲";
-            CodexStateText.Text = codexRunning ? "运行中" : "未运行";
-            WorkBuddyStateText.Text = workBuddy.IsRunning ? workBuddy.Summary : "未运行";
+            CodexStateText.Text = CodexSummary(codex);
+            WorkBuddyStateText.Text = WorkBuddySummary(workBuddy, workBuddyCredits);
             RecentResultText.Text = status.RecentResult;
             UpdateQuotaDial(status);
-            UpdateHeadline(status, codexRunning, workBuddy);
+            UpdateHeadline(status, codex, workBuddy);
             UpdateBusyAnimation(status.IsBusy);
-            WriteStatusSnapshot(status, codexRunning, workBuddy);
+            WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
         }
         catch (Exception error) { HeadlineText.Text = "状态刷新失败"; SummaryText.Text = error.GetType().Name; }
         finally { _refreshing = false; }
     }
 
-    private void UpdateHeadline(YoyoStatus yoyo, bool codexRunning, WorkBuddyStatus workBuddy)
+    private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
-        HeadlineText.Foreground = yoyo.LastTaskFailed || (yoyo.IsYoyoRunning && !yoyo.TaskStatusAvailable) ? ErrorBrush : Brushes.White;
-        if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; SummaryText.Text = codexRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"; }
+        HeadlineText.Foreground = yoyo.LastTaskFailed || (yoyo.IsYoyoRunning && !yoyo.TaskStatusAvailable) ? ErrorBrush : _primaryTextBrush;
+        if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; SummaryText.Text = codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"; }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; SummaryText.Text = points; }
         else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; SummaryText.Text = yoyo.RecentResult; }
+        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; SummaryText.Text = CodexSummary(codex); }
         else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; SummaryText.Text = workBuddy.Summary; }
         else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; SummaryText.Text = yoyo.RecentResult; }
         else { HeadlineText.Text = "全部就绪"; SummaryText.Text = points; }
@@ -210,7 +227,7 @@ public partial class MainWindow : Window
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
         _leaveTimer.Stop();
-        if (!_dragging && !_holdArmed && !_expanded) _enterTimer.Start();
+        if (_settings.EnableHoverExpansion && !_dragging && !_holdArmed && !_expanded) _enterTimer.Start();
     }
 
     private void Island_MouseLeave(object sender, MouseEventArgs e)
@@ -221,21 +238,25 @@ public partial class MainWindow : Window
 
     private void ExpandIsland()
     {
-        if (_expanded || _dragging || _holdArmed) return;
+        if (!_settings.EnableHoverExpansion || _expanded || _dragging || _holdArmed) return;
         _expanded = true;
         ExpandedPanel.Visibility = Visibility.Visible;
-        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        IEasingFunction easing = _settings.EnableSpringAnimation
+            ? new BackEase { Amplitude = .28, EasingMode = EasingMode.EaseOut }
+            : new CubicEase { EasingMode = EasingMode.EaseOut };
         Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, Math.Max(408, _settings.IslandWidth), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, 172, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
     }
 
-    private void CollapseIsland()
+    private void CollapseIsland(bool force = false)
     {
-        if (!_expanded || _dragging || _holdArmed) return;
+        if (!_expanded || (!force && (_dragging || _holdArmed))) return;
         _expanded = false;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
-        var easing = new CubicEase { EasingMode = EasingMode.EaseIn };
+        IEasingFunction easing = _settings.EnableSpringAnimation
+            ? new BackEase { Amplitude = .22, EasingMode = EasingMode.EaseIn }
+            : new CubicEase { EasingMode = EasingMode.EaseIn };
         var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
         var height = new DoubleAnimation(Island.ActualHeight, 48, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
         height.Completed += (_, _) => ExpandedPanel.Visibility = Visibility.Collapsed;
@@ -259,13 +280,6 @@ public partial class MainWindow : Window
     {
         try { return process.MainModule?.FileName?.Contains("OpenAI.Codex_", StringComparison.OrdinalIgnoreCase) == true; }
         catch { return process.MainWindowTitle.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase); }
-    }
-
-    private static bool IsCodexRunning()
-    {
-        var processes = Process.GetProcessesByName("ChatGPT");
-        try { return processes.Any(IsCodexProcess); }
-        finally { foreach (var process in processes) process.Dispose(); }
     }
 
     private static void OpenYoyo()
@@ -308,12 +322,76 @@ public partial class MainWindow : Window
         catch { return null; }
     }
 
-    private static void WriteStatusSnapshot(YoyoStatus yoyo, bool codexRunning, WorkBuddyStatus workBuddy)
+    private string CodexSummary(CodexStatus status)
+    {
+        if (!status.IsRunning) return "未运行";
+        var state = _settings.EnableCodexActivityDetection ? (status.IsBusy ? "执行中" : "空闲") : "已打开";
+        if (!_settings.ShowCodexLimits) return state;
+        if (!status.LimitsAvailable) return $"{state} · 限额不可用";
+        var pieces = new List<string> { state };
+        if (status.FiveHourRemainingPercent is int fiveHour) pieces.Add($"5小时 {fiveHour}%");
+        if (status.WeeklyRemainingPercent is int weekly) pieces.Add($"本周 {weekly}%");
+        return string.Join(" · ", pieces);
+    }
+
+    private string WorkBuddySummary(WorkBuddyStatus status, WorkBuddyCredits credits)
+    {
+        if (!status.IsRunning) return "未运行";
+        var state = status.IsBusy ? "执行中" : "空闲";
+        if (!_settings.ShowWorkBuddyCredits) return state;
+        return credits.Available && credits.Remaining is double remaining ? $"{state} · {remaining:0.##} 积分" : $"{state} · 积分不可用";
+    }
+
+    private void SetLaunchControls(bool enabled)
+    {
+        var cursor = enabled ? Cursors.Hand : Cursors.Arrow;
+        YoyoButton.Cursor = cursor;
+        YoyoIndicatorButton.Cursor = cursor;
+        CodexIndicatorButton.Cursor = cursor;
+        WorkBuddyIndicatorButton.Cursor = cursor;
+    }
+
+    private void SystemThemeChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (_settings.ThemeMode == "system") Dispatcher.BeginInvoke(ApplyTheme);
+    }
+
+    private void ApplyTheme()
+    {
+        var light = _settings.ThemeMode == "light" || (_settings.ThemeMode == "system" && SystemUsesLightTheme());
+        var primary = Brush(light ? "#182033" : "#F2F5FF");
+        var secondary = Brush(light ? "#5E687A" : "#9AA5BC");
+        _primaryTextBrush = primary;
+        Island.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
+        Island.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
+        HeadlineText.Foreground = primary;
+        SummaryText.Foreground = secondary;
+        YoyoLabel.Foreground = primary;
+        CodexLabel.Foreground = primary;
+        WorkBuddyLabel.Foreground = primary;
+        StateText.Foreground = secondary;
+        CodexStateText.Foreground = secondary;
+        WorkBuddyStateText.Foreground = secondary;
+        RecentResultText.Foreground = Brush(light ? "#59657A" : "#B9C2D4");
+        RecentBorder.Background = Brush(light ? "#CCEAF0F7" : "#B8182033");
+    }
+
+    private static bool SystemUsesLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return Convert.ToInt32(key?.GetValue("AppsUseLightTheme", 1)) != 0;
+        }
+        catch { return true; }
+    }
+
+    private static void WriteStatusSnapshot(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits)
     {
         try
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
-            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult }, codex = new { running = codexRunning }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary } });
+            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total } });
             File.WriteAllText(Path.Combine(directory, "status.json"), json); File.WriteAllText(Path.Combine(directory, $"status-{Environment.ProcessId}.json"), json);
         }
         catch { }
@@ -329,9 +407,9 @@ public partial class MainWindow : Window
 
     private static SolidColorBrush Brush(string color) => (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
     private void OpenHome_Click(object sender, RoutedEventArgs e) => OpenHome();
-    private void OpenYoyo_Click(object sender, RoutedEventArgs e) { if (!_dragging) OpenYoyo(); e.Handled = true; }
-    private void OpenCodex_Click(object sender, RoutedEventArgs e) { if (!_dragging) OpenCodex(); e.Handled = true; }
-    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) { if (!_dragging) OpenWorkBuddy(); e.Handled = true; }
+    private void OpenYoyo_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenYoyo(); e.Handled = true; }
+    private void OpenCodex_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenCodex(); e.Handled = true; }
+    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenWorkBuddy(); e.Handled = true; }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshStatusAsync();
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }
