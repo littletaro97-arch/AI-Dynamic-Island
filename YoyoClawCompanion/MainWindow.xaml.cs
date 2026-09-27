@@ -18,9 +18,13 @@ public partial class MainWindow : Window
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
+    private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
-    private bool _holdArmed, _dragging, _refreshing;
+    private Point _dragCursorStart;
+    private Point _dragWindowStart;
+    private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
 
     public MainWindow()
     {
@@ -30,6 +34,8 @@ public partial class MainWindow : Window
         LocationChanged += (_, _) => SavePosition();
         _refreshTimer.Tick += async (_, _) => await RefreshStatusAsync();
         _holdTimer.Tick += (_, _) => ArmDrag();
+        _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
+        _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -42,7 +48,7 @@ public partial class MainWindow : Window
         _settings = settings;
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         Island.Opacity = settings.Opacity;
-        Island.Width = settings.IslandWidth;
+        if (!_expanded) Island.Width = settings.IslandWidth;
         Topmost = settings.Topmost;
         QuotaDial.Visibility = settings.ShowQuota ? Visibility.Visible : Visibility.Collapsed;
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
@@ -104,6 +110,14 @@ public partial class MainWindow : Window
             var workBuddy = await workBuddyTask;
             WorkBuddyMiniDot.Fill = !workBuddy.IsRunning ? OfflineBrush : !workBuddy.DataAvailable ? ErrorBrush : workBuddy.IsBusy ? BusyBrush : OnlineBrush;
             YoyoMiniDot.Fill = !status.IsYoyoRunning ? OfflineBrush : !status.TaskStatusAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : status.LastTaskFailed ? ErrorBrush : OnlineBrush;
+            StateDot.Fill = YoyoMiniDot.Fill;
+            CodexDot.Fill = CodexMiniDot.Fill;
+            WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
+            PointsText.Text = status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --";
+            StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : "空闲";
+            CodexStateText.Text = codexRunning ? "运行中" : "未运行";
+            WorkBuddyStateText.Text = workBuddy.IsRunning ? workBuddy.Summary : "未运行";
+            RecentResultText.Text = status.RecentResult;
             UpdateQuotaDial(status);
             UpdateHeadline(status, codexRunning, workBuddy);
             UpdateBusyAnimation(status.IsBusy);
@@ -151,6 +165,7 @@ public partial class MainWindow : Window
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
+        _enterTimer.Stop(); _leaveTimer.Stop();
         _dragging = false; _holdArmed = false;
         _holdTimer.Start();
     }
@@ -160,25 +175,72 @@ public partial class MainWindow : Window
         _holdTimer.Stop();
         if (Mouse.LeftButton != MouseButtonState.Pressed || !Island.IsMouseOver) return;
         _holdArmed = true;
+        _dragCursorStart = PointToScreen(Mouse.GetPosition(this));
+        _dragWindowStart = new Point(Left, Top);
         Island.CaptureMouse();
         Island.Cursor = Cursors.SizeAll; Island.Opacity = Math.Max(.55, _settings.Opacity - .15);
     }
 
     private void Island_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_holdArmed || e.LeftButton != MouseButtonState.Pressed || _dragging) return;
+        if (!_holdArmed || e.LeftButton != MouseButtonState.Pressed) return;
+        var cursor = PointToScreen(e.GetPosition(this));
+        var dx = cursor.X - _dragCursorStart.X;
+        var dy = cursor.Y - _dragCursorStart.Y;
+        if (!_dragging && Math.Abs(dx) < 2 && Math.Abs(dy) < 2) return;
         _dragging = true;
-        try { DragMove(); } catch { } finally { FinishPointerGesture(); }
+        Left = Math.Clamp(_dragWindowStart.X + dx, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - Width);
+        Top = Math.Clamp(_dragWindowStart.Y + dy, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - Height);
     }
 
     private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => FinishPointerGesture();
     private void Island_LostMouseCapture(object sender, MouseEventArgs e) => FinishPointerGesture();
     private void FinishPointerGesture()
     {
+        if (_finishingGesture) return;
+        _finishingGesture = true;
         _holdTimer.Stop(); _holdArmed = false; Island.Cursor = Cursors.Arrow; Island.Opacity = _settings.Opacity;
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
         if (_dragging) SavePosition();
         _dragging = false;
+        _finishingGesture = false;
+        if (Island.IsMouseOver) _enterTimer.Start();
+    }
+
+    private void Island_MouseEnter(object sender, MouseEventArgs e)
+    {
+        _leaveTimer.Stop();
+        if (!_dragging && !_holdArmed && !_expanded) _enterTimer.Start();
+    }
+
+    private void Island_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _enterTimer.Stop();
+        if (!_dragging && !_holdArmed && _expanded && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
+    }
+
+    private void ExpandIsland()
+    {
+        if (_expanded || _dragging || _holdArmed) return;
+        _expanded = true;
+        ExpandedPanel.Visibility = Visibility.Visible;
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, Math.Max(408, _settings.IslandWidth), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
+        Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, 172, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
+        ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
+    }
+
+    private void CollapseIsland()
+    {
+        if (!_expanded || _dragging || _holdArmed) return;
+        _expanded = false;
+        ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
+        var height = new DoubleAnimation(Island.ActualHeight, 48, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
+        height.Completed += (_, _) => ExpandedPanel.Visibility = Visibility.Collapsed;
+        Island.BeginAnimation(WidthProperty, width);
+        Island.BeginAnimation(HeightProperty, height);
     }
 
     private static bool ActivateProcess(string name, Func<Process, bool>? predicate = null)
