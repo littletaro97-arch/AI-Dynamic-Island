@@ -17,7 +17,7 @@ internal sealed record CodexStatus(
 
 internal sealed class CodexStatusService
 {
-    private readonly string _sessionsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+    private readonly string _sessionsRoot = Path.Combine(ProductPaths.CodexHome, "sessions");
     private DateTimeOffset _lastLimitRead;
     private (int? FiveHour, int? Weekly)? _cachedLimits;
     private readonly Dictionary<string, (long Length, string? Lifecycle)> _lifecycleCache = new(StringComparer.OrdinalIgnoreCase);
@@ -221,15 +221,5 @@ internal sealed class CodexStatusService
     }
 
     private static string? FindCodexExecutable()
-    {
-        try
-        {
-            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var root = Path.Combine(local, "OpenAI", "Codex", "bin");
-            return Directory.Exists(root)
-                ? new DirectoryInfo(root).EnumerateFiles("codex.exe", SearchOption.AllDirectories).OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault()?.FullName
-                : null;
-        }
-        catch { return null; }
-    }
+        => ApplicationLocator.FindCodexCliExecutable();
 }

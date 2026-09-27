@@ -126,6 +126,7 @@ public partial class MainWindow : Window
         _refreshing = true;
         try
         {
+            CaptureExecutablePaths();
             var workBuddyTask = _workBuddyStatusService.ReadAsync();
             var workBuddyCreditsTask = _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits);
             var codexTask = _codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits);
@@ -353,44 +354,42 @@ public partial class MainWindow : Window
         catch { return process.MainWindowTitle.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase); }
     }
 
-    private static void OpenYoyo()
+    private void OpenYoyo()
     {
         if (ActivateProcess("HnMagicClawUI")) return;
-        var executable = FindYoyoExecutable();
+        var executable = ApplicationLocator.FindYoyoExecutable(_settings.YoyoExecutablePath);
         if (executable is not null) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
     }
 
-    private static void OpenCodex()
+    private void OpenCodex()
     {
         if (ActivateProcess("ChatGPT", IsCodexProcess)) return;
+        var executable = ApplicationLocator.FindCodexDesktopExecutable(_settings.CodexExecutablePath, IsCodexProcess);
+        if (executable is not null)
+        {
+            try { Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }); return; }
+            catch { }
+        }
         Process.Start(new ProcessStartInfo("explorer.exe", "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App") { UseShellExecute = true });
     }
 
-    private static void OpenWorkBuddy()
+    private void OpenWorkBuddy()
     {
         if (ActivateProcess("WorkBuddy")) return;
-        const string path = @"E:\D-diskExpansionCabin\workbuddy\WorkBuddy.exe";
-        if (File.Exists(path)) Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        var executable = ApplicationLocator.FindWorkBuddyExecutable(_settings.WorkBuddyExecutablePath);
+        if (executable is not null) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
     }
 
-    private static string? FindYoyoExecutable()
+    private void CaptureExecutablePaths()
     {
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HONOR", "MagicClaw");
-        try
-        {
-            var currentFile = Path.Combine(root, "current.json");
-            if (File.Exists(currentFile))
-            {
-                using var document = JsonDocument.Parse(File.ReadAllText(currentFile));
-                if (document.RootElement.TryGetProperty("path", out var value))
-                {
-                    var resolved = Path.GetFullPath(Path.Combine(root, value.GetString() ?? ""));
-                    if (resolved.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(resolved)) return resolved;
-                }
-            }
-            var launcher = Path.Combine(root, "HnMagicClawUI.exe"); return File.Exists(launcher) ? launcher : null;
-        }
-        catch { return null; }
+        var yoyo = ApplicationLocator.FindRunningExecutable("HnMagicClawUI");
+        var codex = ApplicationLocator.FindRunningExecutable("ChatGPT", IsCodexProcess);
+        var workBuddy = ApplicationLocator.FindRunningExecutable("WorkBuddy");
+        var changed = false;
+        if (yoyo is not null && !string.Equals(_settings.YoyoExecutablePath, yoyo, StringComparison.OrdinalIgnoreCase)) { _settings.YoyoExecutablePath = yoyo; changed = true; }
+        if (codex is not null && !string.Equals(_settings.CodexExecutablePath, codex, StringComparison.OrdinalIgnoreCase)) { _settings.CodexExecutablePath = codex; changed = true; }
+        if (workBuddy is not null && !string.Equals(_settings.WorkBuddyExecutablePath, workBuddy, StringComparison.OrdinalIgnoreCase)) { _settings.WorkBuddyExecutablePath = workBuddy; changed = true; }
+        if (changed) AppSettings.Save(_settings);
     }
 
     private string CodexSummary(CodexStatus status)

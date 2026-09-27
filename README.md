@@ -36,6 +36,9 @@ dotnet run --project .\YoyoClawCompanion\YoyoClawCompanion.csproj -c Release
 - Codex 限额使用本机已登录 Codex 的 app-server，不读取或保存认证文件；接口不可用时只降级该项显示。
 - WorkBuddy 积分通过带双向校验的本机命名管道读取，票据只在内存中用于握手，不写入日志或设置文件。
 - WorkBuddy 的 JSONL 与宿主 IPC 都属于内部接口，升级后如果结构变化，只影响 WorkBuddy 一行，不会拖垮 YOYO 或 Codex 状态。
+- 应用启动路径不绑定安装盘：优先记忆运行中进程的真实路径，再查询 Windows `App Paths`、卸载信息和常见安装目录。Codex 商店版还可通过 AppsFolder 激活。
+- WorkBuddy 数据目录支持 `WORKBUDDY_CONFIG_DIR`，Codex 会话目录支持 `CODEX_HOME`；未配置时分别使用当前用户的 `%USERPROFILE%\.workbuddy` 与 `%USERPROFILE%\.codex`。
+- 完全未注册且从未运行过的任意目录便携版无法由 Windows 全盘无损定位；先运行一次应用，灵动岛会自动记录其真实路径，之后关闭状态下也能重新打开。
 - 任务桥接依赖本机 Node.js；发布目录内包含从当前 YOYO 安装包提取的只读 SDK 运行组件。
 - `@magicore/*` 是随 YOYO 版本提取的 vendor 依赖，不要在 `magicore-bridge` 内运行 `npm ci`；构建脚本会在依赖缺失时中止并给出明确错误。
 - 程序具有单实例保护；再次启动不会生成重叠的第二个灵动岛。

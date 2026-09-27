@@ -11,7 +11,7 @@ internal sealed record WorkBuddyCredits(bool Available, double? Remaining, doubl
 
 internal sealed class WorkBuddyCreditsService
 {
-    private readonly string _discoveryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".workbuddy", "wbipc", "endpoint.json");
+    private readonly string _discoveryPath = Path.Combine(ProductPaths.WorkBuddyConfigDirectory, "wbipc", "endpoint.json");
     private DateTimeOffset _lastRead;
     private WorkBuddyCredits _cached = new(false, null, null);
     internal string? LastError { get; private set; }

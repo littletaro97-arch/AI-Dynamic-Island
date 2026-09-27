@@ -17,7 +17,7 @@ internal sealed record WorkBuddyStatus(
 
 internal sealed partial class WorkBuddyStatusService
 {
-    private readonly string _projectsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".workbuddy", "projects");
+    private readonly string _projectsRoot = Path.Combine(ProductPaths.WorkBuddyConfigDirectory, "projects");
     private string? _cachedSessionPath;
     private string? _cachedTask;
 
