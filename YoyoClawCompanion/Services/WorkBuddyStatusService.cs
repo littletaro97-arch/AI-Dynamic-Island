@@ -63,7 +63,7 @@ internal sealed partial class WorkBuddyStatusService
                             if (!string.IsNullOrWhiteSpace(extracted))
                             {
                                 latestResponse = NormalizeResponse(extracted);
-                                latestResponseAt = ReadTimestamp(root);
+                                latestResponseAt = ReadTimestamp(root) ?? session.LastWriteTimeUtc;
                                 latestResponseId = Text(root, "id");
                                 if (string.IsNullOrWhiteSpace(latestResponseId)) latestResponseId = $"{session.FullName}|{latestResponseAt:O}";
                             }
@@ -180,7 +180,7 @@ internal sealed partial class WorkBuddyStatusService
         value = ImageReferenceRegex().Replace(value, "");
         value = QuotedMentionRegex().Replace(value, "");
         var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return oneLine.Length <= 96 ? oneLine : oneLine[..95] + "…";
+        return oneLine.Length <= 600 ? oneLine : oneLine[..599] + "…";
     }
 
     [GeneratedRegex("<user_query>(.*?)</user_query>", RegexOptions.Singleline)]

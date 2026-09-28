@@ -43,7 +43,9 @@ internal sealed class CodexStatusService
         try
         {
             if (!Directory.Exists(_sessionsRoot)) return default;
-            foreach (var file in new DirectoryInfo(_sessionsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories).OrderByDescending(item => item.LastWriteTimeUtc).Take(4))
+            string? latestResponse = null, latestId = null;
+            DateTimeOffset? latestTimestamp = null;
+            foreach (var file in new DirectoryInfo(_sessionsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories).OrderByDescending(item => item.LastWriteTimeUtc).Take(8))
             {
                 string? response = null, id = null;
                 DateTimeOffset? timestamp = null;
@@ -64,8 +66,14 @@ internal sealed class CodexStatusService
                     }
                     catch (JsonException) { }
                 }
-                if (response is not null) return (response, id, timestamp);
+                if (response is not null && timestamp is not null && (latestTimestamp is null || timestamp > latestTimestamp))
+                {
+                    latestResponse = response;
+                    latestId = id;
+                    latestTimestamp = timestamp;
+                }
             }
+            return (latestResponse, latestId, latestTimestamp);
         }
         catch { }
         return default;
@@ -90,7 +98,7 @@ internal sealed class CodexStatusService
     private static string NormalizeResponse(string value)
     {
         var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return oneLine.Length <= 96 ? oneLine : oneLine[..95] + "…";
+        return oneLine.Length <= 600 ? oneLine : oneLine[..599] + "…";
     }
 
     private bool ReadBusyState()

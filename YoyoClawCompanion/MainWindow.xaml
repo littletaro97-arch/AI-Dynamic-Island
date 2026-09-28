@@ -60,9 +60,11 @@
                     <StackPanel x:Name="CollapsedTextPanel" Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
                     <TextBlock x:Name="HeadlineText" Text="正在读取状态…" Foreground="#F2F5FF" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <Grid x:Name="SummaryViewport" Height="15" ClipToBounds="True">
-                        <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap" HorizontalAlignment="Left">
-                            <TextBlock.RenderTransform><TranslateTransform x:Name="SummaryTranslate"/></TextBlock.RenderTransform>
-                        </TextBlock>
+                        <StackPanel x:Name="SummaryMarqueeTrack" Orientation="Horizontal" HorizontalAlignment="Left">
+                            <StackPanel.RenderTransform><TranslateTransform x:Name="SummaryTranslate"/></StackPanel.RenderTransform>
+                            <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap"/>
+                            <TextBlock x:Name="SummaryTextClone" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap" Visibility="Collapsed"/>
+                        </StackPanel>
                     </Grid>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

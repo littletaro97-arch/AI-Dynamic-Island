@@ -187,7 +187,7 @@ internal sealed class YoyoStatusService
     {
         if (string.IsNullOrWhiteSpace(value)) return "尚未检测到任务记录";
         var oneLine = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return oneLine.Length <= 56 ? oneLine : oneLine[..55] + "…";
+        return oneLine.Length <= 600 ? oneLine : oneLine[..599] + "…";
     }
 
     private static DateTimeOffset? ParseDate(string? value) => DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;

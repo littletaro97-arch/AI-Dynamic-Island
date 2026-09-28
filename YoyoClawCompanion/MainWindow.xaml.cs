@@ -17,6 +17,7 @@ using Size = System.Windows.Size;
 using Application = System.Windows.Application;
 using Cursors = System.Windows.Input.Cursors;
 using NativeWindow = YoyoClawCompanion.Services.NativeWindow;
+using TextBlock = System.Windows.Controls.TextBlock;
 
 namespace YoyoClawCompanion;
 
@@ -41,7 +42,7 @@ public partial class MainWindow : Window
     private bool _completionBaselineReady;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
-    private string _latestYoyoResult = "尚未检测到任务结果";
+    private string _latestCombinedResult = "尚未检测到任务结果";
     private Brush _secondaryTextBrush = Brush("#9AA5BC");
     private bool _isBalanceSummary, _focusModeHidden, _expandUp;
     private bool _anyBusy;
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
     {
         var textSize = _settings.TextSize;
         HeadlineText.FontSize = textSize + 2;
-        SummaryText.FontSize = textSize;
+        SummaryText.FontSize = SummaryTextClone.FontSize = textSize;
         YoyoLabel.FontSize = CodexLabel.FontSize = WorkBuddyLabel.FontSize = textSize + 1;
         StateText.FontSize = PointsText.FontSize = CodexStateText.FontSize = WorkBuddyStateText.FontSize = textSize;
         RecentResultText.FontSize = textSize;
@@ -212,9 +213,9 @@ public partial class MainWindow : Window
             StateText.Foreground = YoyoMiniDot.Fill;
             SetCodexStateText(codex);
             SetWorkBuddyStateText(workBuddy, workBuddyCredits);
-            _latestYoyoResult = status.RecentResult;
+            _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
-            RecentResultText.Text = _activeCompletionNotice ?? status.RecentResult;
+            RecentResultText.Text = _activeCompletionNotice ?? _latestCombinedResult;
             UpdateQuotaDial(status);
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
@@ -257,19 +258,25 @@ public partial class MainWindow : Window
 
         _isBalanceSummary = true;
         _balanceSummaryKey = key;
-        SummaryText.Inlines.Clear();
-        AddSummaryPart("YOYO Claw ", yoyoValue);
-        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart("Codex ", codexValue);
-        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart("WorkBuddy ", workBuddyValue);
+        PopulateBalanceSummary(SummaryText, yoyoValue, codexValue, workBuddyValue);
+        PopulateBalanceSummary(SummaryTextClone, yoyoValue, codexValue, workBuddyValue);
         ScheduleSummaryMarquee();
     }
 
-    private void AddSummaryPart(string label, string value)
+    private void PopulateBalanceSummary(TextBlock target, string yoyoValue, string codexValue, string workBuddyValue)
     {
-        SummaryText.Inlines.Add(new Run(label) { Foreground = _secondaryTextBrush });
-        SummaryText.Inlines.Add(new Run(value) { Foreground = AccentBrush, FontWeight = FontWeights.SemiBold });
+        target.Inlines.Clear();
+        AddSummaryPart(target, "YOYO Claw ", yoyoValue);
+        target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+        AddSummaryPart(target, "Codex ", codexValue);
+        target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+        AddSummaryPart(target, "WorkBuddy ", workBuddyValue);
+    }
+
+    private void AddSummaryPart(TextBlock target, string label, string value)
+    {
+        target.Inlines.Add(new Run(label) { Foreground = _secondaryTextBrush });
+        target.Inlines.Add(new Run(value) { Foreground = AccentBrush, FontWeight = FontWeights.SemiBold });
     }
 
     private void SetPlainSummary(string value, Brush? foreground = null)
@@ -278,9 +285,24 @@ public partial class MainWindow : Window
         _balanceSummaryKey = null;
         StopSummaryMarquee();
         SummaryText.Inlines.Clear();
+        SummaryTextClone.Inlines.Clear();
+        SummaryTextClone.Visibility = Visibility.Collapsed;
         var run = new Run(value);
         if (foreground is not null) run.Foreground = foreground;
         SummaryText.Inlines.Add(run);
+    }
+
+    private static string SelectLatestResponse(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
+    {
+        var candidates = new List<CompletionNotice>();
+        if (yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt && !string.IsNullOrWhiteSpace(yoyo.RecentResult) && yoyo.TaskStatusAvailable)
+            candidates.Add(new("YOYO Claw", yoyo.RecentResult, yoyoAt));
+        if (codex.RecentResponseAt is DateTimeOffset codexAt && !string.IsNullOrWhiteSpace(codex.RecentResponse))
+            candidates.Add(new("Codex", codex.RecentResponse!, codexAt));
+        if (workBuddy.RecentResponseAt is DateTimeOffset workBuddyAt && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
+            candidates.Add(new("WorkBuddy", workBuddy.RecentResponse!, workBuddyAt));
+        var latest = candidates.OrderByDescending(item => item.CompletedAt).FirstOrDefault();
+        return latest is null ? yoyo.RecentResult : $"{latest.Provider} · {latest.Response}";
     }
 
     private CompletionNotice? DetectCompletion(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
@@ -327,7 +349,7 @@ public partial class MainWindow : Window
     {
         _completionTimer.Stop();
         _activeCompletionNotice = null;
-        RecentResultText.Text = _latestYoyoResult;
+        RecentResultText.Text = _latestCombinedResult;
         if (_settings.DisplayMode == "activeOnly" && !_anyBusy)
         {
             CollapseIsland(true);
@@ -458,6 +480,7 @@ public partial class MainWindow : Window
     {
         if ((!force && !_settings.EnableHoverExpansion) || _expanded || _dragging || _holdArmed) return;
         StopSummaryMarquee();
+        SummaryTextClone.Visibility = Visibility.Collapsed;
         _expandUp = ShouldExpandUp();
         if (_expandUp)
         {
@@ -670,10 +693,17 @@ public partial class MainWindow : Window
         if (!_isBalanceSummary || _expanded || _focusModeHidden || SummaryViewport.ActualWidth <= 0) return;
         SummaryText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var textWidth = SummaryText.DesiredSize.Width;
-        if (textWidth <= SummaryViewport.ActualWidth) return;
-        var distance = SummaryViewport.ActualWidth + textWidth;
-        var seconds = Math.Max(2.5, distance / _settings.QuotaScrollSpeed);
-        var animation = new DoubleAnimation(SummaryViewport.ActualWidth, -textWidth, TimeSpan.FromSeconds(seconds))
+        if (textWidth <= SummaryViewport.ActualWidth)
+        {
+            SummaryTextClone.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var gap = SummaryText.FontSize * 5;
+        SummaryTextClone.Margin = new Thickness(gap, 0, 0, 0);
+        SummaryTextClone.Visibility = Visibility.Visible;
+        var cycleDistance = textWidth + gap;
+        var seconds = Math.Max(2.5, cycleDistance / _settings.QuotaScrollSpeed);
+        var animation = new DoubleAnimation(0, -cycleDistance, TimeSpan.FromSeconds(seconds))
         {
             RepeatBehavior = RepeatBehavior.Forever
         };
@@ -712,9 +742,11 @@ public partial class MainWindow : Window
         Island.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         Island.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
         SummaryText.Foreground = secondary;
+        SummaryTextClone.Foreground = secondary;
         if (_isBalanceSummary)
         {
-            foreach (var run in SummaryText.Inlines.OfType<Run>().Where(run => !ReferenceEquals(run.Foreground, AccentBrush))) run.Foreground = secondary;
+            foreach (var textBlock in new[] { SummaryText, SummaryTextClone })
+            foreach (var run in textBlock.Inlines.OfType<Run>().Where(run => !ReferenceEquals(run.Foreground, AccentBrush))) run.Foreground = secondary;
         }
         YoyoLabel.Foreground = primary;
         CodexLabel.Foreground = primary;
@@ -739,7 +771,7 @@ public partial class MainWindow : Window
         try
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
-            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total } });
+            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent, recentResponseAt = codex.RecentResponseAt }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt } });
             File.WriteAllText(Path.Combine(directory, "status.json"), json);
         }
         catch { }
