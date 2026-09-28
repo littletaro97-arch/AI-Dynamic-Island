@@ -24,41 +24,51 @@
             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
                 <Border x:Name="SwitchCard" Height="62" Padding="10" CornerRadius="16" BorderThickness="1.5">
-                    <Border.Background><SolidColorBrush x:Name="SwitchCardBrush" Color="#083ED598"/></Border.Background>
-                    <Border.BorderBrush><SolidColorBrush x:Name="SwitchCardBorderBrush" Color="#303ED598"/></Border.BorderBrush>
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CheckStates">
+                            <VisualStateGroup.Transitions>
+                                <VisualTransition GeneratedDuration="0:0:0.18">
+                                    <VisualTransition.GeneratedEasingFunction><CubicEase EasingMode="EaseOut"/></VisualTransition.GeneratedEasingFunction>
+                                </VisualTransition>
+                            </VisualStateGroup.Transitions>
+                            <VisualState x:Name="Unchecked">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="ToggleKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="SwitchCard" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#083ED598" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="SwitchCard" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#303ED598" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="IconTile" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#737C90" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="ToggleTrack" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#AAB2C0" Duration="0"/>
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Checked">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="ToggleKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="20" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="SwitchCard" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#123ED598" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="SwitchCard" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#623ED598" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="IconTile" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#43A878" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="ToggleTrack" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#43A878" Duration="0"/>
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Indeterminate"/>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <Border.Background><SolidColorBrush Color="#083ED598"/></Border.Background>
+                    <Border.BorderBrush><SolidColorBrush Color="#303ED598"/></Border.BorderBrush>
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
                         <Border x:Name="IconTile" Width="38" Height="38" CornerRadius="12">
-                            <Border.Background><SolidColorBrush x:Name="IconTileBrush" Color="#737C90"/></Border.Background>
+                            <Border.Background><SolidColorBrush Color="#737C90"/></Border.Background>
                             <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Stroke="White" Fill="Transparent" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="21" Height="21" Stretch="Uniform"/>
                         </Border>
                         <TextBlock Grid.Column="1" Text="{TemplateBinding Content}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="10,0"/>
                         <Border x:Name="ToggleTrack" Grid.Column="2" Width="44" Height="24" CornerRadius="12" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Border.Background><SolidColorBrush x:Name="ToggleTrackBrush" Color="#AAB2C0"/></Border.Background>
+                            <Border.Background><SolidColorBrush Color="#AAB2C0"/></Border.Background>
                             <Ellipse x:Name="ToggleKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="3,0">
-                                <Ellipse.RenderTransform><TranslateTransform x:Name="ToggleKnobTransform"/></Ellipse.RenderTransform>
+                                <Ellipse.RenderTransform><TranslateTransform/></Ellipse.RenderTransform>
                             </Ellipse>
                         </Border>
                     </Grid>
                 </Border>
                 <ControlTemplate.Triggers>
-                    <EventTrigger RoutedEvent="CheckBox.Checked">
-                        <BeginStoryboard><Storyboard>
-                            <DoubleAnimation Storyboard.TargetName="ToggleKnobTransform" Storyboard.TargetProperty="X" To="20" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-                            <ColorAnimation Storyboard.TargetName="SwitchCardBrush" Storyboard.TargetProperty="Color" To="#123ED598" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="SwitchCardBorderBrush" Storyboard.TargetProperty="Color" To="#623ED598" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="IconTileBrush" Storyboard.TargetProperty="Color" To="#43A878" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="ToggleTrackBrush" Storyboard.TargetProperty="Color" To="#43A878" Duration="0:0:0.18"/>
-                        </Storyboard></BeginStoryboard>
-                    </EventTrigger>
-                    <EventTrigger RoutedEvent="CheckBox.Unchecked">
-                        <BeginStoryboard><Storyboard>
-                            <DoubleAnimation Storyboard.TargetName="ToggleKnobTransform" Storyboard.TargetProperty="X" To="0" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-                            <ColorAnimation Storyboard.TargetName="SwitchCardBrush" Storyboard.TargetProperty="Color" To="#083ED598" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="SwitchCardBorderBrush" Storyboard.TargetProperty="Color" To="#303ED598" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="IconTileBrush" Storyboard.TargetProperty="Color" To="#737C90" Duration="0:0:0.18"/>
-                            <ColorAnimation Storyboard.TargetName="ToggleTrackBrush" Storyboard.TargetProperty="Color" To="#AAB2C0" Duration="0:0:0.18"/>
-                        </Storyboard></BeginStoryboard>
-                    </EventTrigger>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SwitchCard" Property="Opacity" Value=".96"/></Trigger>
                     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchCard" Property="Opacity" Value=".45"/></Trigger>
                 </ControlTemplate.Triggers>

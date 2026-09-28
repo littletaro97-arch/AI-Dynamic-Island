@@ -15,9 +15,11 @@ public partial class App : Application
     private RegisteredWaitHandle? _showSettingsRegistration;
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private System.Drawing.Icon? _trayDrawingIcon;
+    private static readonly object CrashLogLock = new();
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        RegisterGlobalExceptionLogging();
         _singleInstanceMutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
@@ -30,6 +32,30 @@ public partial class App : Application
             Dispatcher.BeginInvoke(() => (this.MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest()), null, Timeout.Infinite, false);
         CleanupStaleSnapshots();
         base.OnStartup(e);
+    }
+
+    private void RegisterGlobalExceptionLogging()
+    {
+        DispatcherUnhandledException += (_, args) => WriteCrashLog("DispatcherUnhandledException", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            WriteCrashLog("AppDomain.UnhandledException", args.ExceptionObject as Exception ?? new Exception(args.ExceptionObject?.ToString()));
+        TaskScheduler.UnobservedTaskException += (_, args) => WriteCrashLog("TaskScheduler.UnobservedTaskException", args.Exception);
+    }
+
+    private static void WriteCrashLog(string source, Exception exception)
+    {
+        try
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion");
+            Directory.CreateDirectory(directory);
+            var entry = $"{DateTimeOffset.Now:O} [{source}]{Environment.NewLine}{exception}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}";
+            lock (CrashLogLock)
+                File.AppendAllText(Path.Combine(directory, "crash.log"), entry);
+        }
+        catch
+        {
+            // Crash logging must never replace the original exception.
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
