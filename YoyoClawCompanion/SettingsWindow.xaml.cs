@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         CornerSlider.Value = value.CornerRadius;
         OpacitySlider.Value = value.Opacity * 100;
         WidthSlider.Value = value.IslandWidth;
+        HeightSlider.Value = value.IslandHeight;
         TextSizeSlider.Value = value.TextSize;
         ShadowCheck.IsChecked = value.ShowShadow;
         TopmostCheck.IsChecked = value.Topmost;
@@ -47,6 +48,8 @@ public partial class SettingsWindow : Window
         ConfirmationNotificationsCheck.IsChecked = value.EnableConfirmationNotifications;
         ReverseHoverCheck.IsChecked = value.EnableReverseHover;
         FullscreenActiveOnlyCheck.IsChecked = value.EnableFullscreenActiveOnly;
+        UnchangedAutoHideCheck.IsChecked = value.EnableUnchangedAutoHide;
+        UnchangedAutoHideSlider.Value = value.UnchangedAutoHideMinutes;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
@@ -65,6 +68,7 @@ public partial class SettingsWindow : Window
         current.CornerRadius = CornerSlider.Value;
         current.Opacity = OpacitySlider.Value / 100;
         current.IslandWidth = WidthSlider.Value;
+        current.IslandHeight = HeightSlider.Value;
         current.TextSize = TextSizeSlider.Value;
         current.ShowShadow = ShadowCheck.IsChecked == true;
         current.Topmost = TopmostCheck.IsChecked == true;
@@ -84,6 +88,8 @@ public partial class SettingsWindow : Window
         current.EnableConfirmationNotifications = ConfirmationNotificationsCheck.IsChecked == true;
         current.EnableReverseHover = ReverseHoverCheck.IsChecked == true;
         current.EnableFullscreenActiveOnly = FullscreenActiveOnlyCheck.IsChecked == true;
+        current.EnableUnchangedAutoHide = UnchangedAutoHideCheck.IsChecked == true;
+        current.UnchangedAutoHideMinutes = UnchangedAutoHideSlider.Value;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
@@ -105,10 +111,17 @@ public partial class SettingsWindow : Window
         CornerValue.Text = $"{CornerSlider.Value:0} px";
         OpacityValue.Text = $"{OpacitySlider.Value:0}%";
         WidthValue.Text = $"{WidthSlider.Value:0} px";
+        HeightValue.Text = $"{HeightSlider.Value:0} px";
         TextSizeValue.Text = $"{TextSizeSlider.Value:0.#} px";
         HoverDelayValue.Text = $"{HoverDelaySlider.Value:0} ms";
         QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
         CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
+        UnchangedAutoHideValue.Text = $"{UnchangedAutoHideSlider.Value:0} 分钟";
+        UnchangedAutoHideSlider.IsEnabled = UnchangedAutoHideCheck.IsChecked == true;
+        PreviewIsland.Width = Math.Min(330, Math.Max(190, WidthSlider.Value));
+        PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));
+        PreviewIsland.CornerRadius = new CornerRadius(Math.Min(CornerSlider.Value, PreviewIsland.Height / 2));
+        PreviewIsland.Opacity = OpacitySlider.Value / 100;
     }
 
     private void ResetPosition_Click(object sender, RoutedEventArgs e) => _island.ResetPosition();
@@ -117,7 +130,7 @@ public partial class SettingsWindow : Window
     {
         _loading = true;
         var current = _island.CurrentSettings;
-        current.CornerRadius = 24; current.Opacity = .92; current.IslandWidth = 224;
+        current.CornerRadius = 24; current.Opacity = .92; current.IslandWidth = 224; current.IslandHeight = 48;
         current.TextSize = 11; current.MaxResponseLines = 3;
         current.ShowShadow = true; current.Topmost = true; current.ShowQuota = true;
         current.ShowYoyo = true; current.ShowCodex = true; current.ShowWorkBuddy = true; current.ShowTrayIcon = true;
@@ -128,6 +141,7 @@ public partial class SettingsWindow : Window
         current.EnableConfirmationNotifications = true;
         current.EnableReverseHover = false;
         current.EnableFullscreenActiveOnly = false;
+        current.EnableUnchangedAutoHide = false; current.UnchangedAutoHideMinutes = 5;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
@@ -146,8 +160,20 @@ public partial class SettingsWindow : Window
         var primary = Brush(light ? "#182033" : "#F2F5FF");
         var secondary = Brush(light ? "#657087" : "#9AA5BC");
         Background = background; Foreground = primary;
+        RightPane.Background = background;
+        NavPane.Background = Brush(light ? "#E9EDF4" : "#171E2A");
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
-        AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; PositionCard.Background = card;
+        NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
+        AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; PositionCard.Background = card;
+        PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
+        PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
+        PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
+    }
+
+    private void Nav_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string target } && FindName(target) is FrameworkElement section)
+            section.BringIntoView();
     }
 
     private static bool SystemUsesLightTheme()

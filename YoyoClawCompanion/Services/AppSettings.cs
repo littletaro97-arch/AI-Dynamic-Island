@@ -10,6 +10,7 @@ internal sealed class IslandSettings
     public double CornerRadius { get; set; } = 24;
     public double Opacity { get; set; } = 0.92;
     public double IslandWidth { get; set; } = 224;
+    public double IslandHeight { get; set; } = 48;
     public bool Topmost { get; set; } = true;
     public bool ShowQuota { get; set; } = true;
     public bool ShowYoyo { get; set; } = true;
@@ -28,6 +29,8 @@ internal sealed class IslandSettings
     public bool EnableConfirmationNotifications { get; set; } = true;
     public bool EnableReverseHover { get; set; }
     public bool EnableFullscreenActiveOnly { get; set; }
+    public bool EnableUnchangedAutoHide { get; set; }
+    public double UnchangedAutoHideMinutes { get; set; } = 5;
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;
     public double CompletionDisplaySeconds { get; set; } = 10;

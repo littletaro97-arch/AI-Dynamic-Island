@@ -56,11 +56,11 @@ public partial class App : Application
         menu.Items.Add("打开主页", null, (_, _) => Dispatcher.BeginInvoke(OpenHome));
         menu.Items.Add("刷新全部状态", null, (_, _) => Dispatcher.BeginInvoke(RefreshStatus));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("退出 AI 灵动岛", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        menu.Items.Add("退出 AI Dynamic Island", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
             Icon = _trayDrawingIcon,
-            Text = "AI 灵动岛",
+            Text = "AI Dynamic Island",
             ContextMenuStrip = menu,
             Visible = true
         };

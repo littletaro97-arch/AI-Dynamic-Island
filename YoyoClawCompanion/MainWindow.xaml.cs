@@ -24,7 +24,7 @@ namespace YoyoClawCompanion;
 
 public partial class MainWindow : Window
 {
-    private const double CollapsedHeight = 48, IslandMargin = 16;
+    private const double IslandMargin = 16;
     private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#F2C94C"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
     private readonly YoyoStatusService _statusService = new();
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
@@ -56,8 +56,13 @@ public partial class MainWindow : Window
     private bool _reverseHoverHidden;
     private Rect _reverseHoverBoundsPixels;
     private bool _fullscreenOverrideActive, _islandAnimationInProgress;
+    private bool _inactivityHidden;
     private int _islandAnimationVersion, _reverseFadeVersion;
     private double _collapsedAnchorTop;
+    private string? _stateFingerprint;
+    private DateTimeOffset _lastStateChangeAt = DateTimeOffset.Now;
+    private bool _appliedUnchangedAutoHide;
+    private double _appliedUnchangedAutoHideMinutes;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -77,6 +82,7 @@ public partial class MainWindow : Window
     }
 
     internal IslandSettings CurrentSettings => _settings;
+    private double CollapsedHeight => _settings.IslandHeight;
     internal void OpenHomeFromExternalRequest() => OpenHome();
     internal void RefreshFromExternalRequest() => _ = RefreshStatusAsync();
 
@@ -85,15 +91,25 @@ public partial class MainWindow : Window
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
         settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 340);
+        settings.IslandHeight = Math.Clamp(settings.IslandHeight, 32, 72);
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
         settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
         settings.MaxResponseLines = Math.Clamp(settings.MaxResponseLines, 1, 6);
         settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
+        settings.UnchangedAutoHideMinutes = Math.Clamp(settings.UnchangedAutoHideMinutes, 1, 60);
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
         settings.ProviderOrder = NormalizeProviderOrder(settings.ProviderOrder);
         _settings = settings;
+        if (_appliedUnchangedAutoHide != settings.EnableUnchangedAutoHide
+            || Math.Abs(_appliedUnchangedAutoHideMinutes - settings.UnchangedAutoHideMinutes) > .01)
+        {
+            _appliedUnchangedAutoHide = settings.EnableUnchangedAutoHide;
+            _appliedUnchangedAutoHideMinutes = settings.UnchangedAutoHideMinutes;
+            _lastStateChangeAt = DateTimeOffset.Now;
+            _inactivityHidden = false;
+        }
         if (!settings.EnableReverseHover) RestoreReverseHoverIsland();
         else if (_activeCompletionNotice is null)
         {
@@ -114,7 +130,9 @@ public partial class MainWindow : Window
         if (!_expanded)
         {
             Island.BeginAnimation(WidthProperty, null);
+            Island.BeginAnimation(HeightProperty, null);
             Island.Width = settings.IslandWidth;
+            Island.Height = CollapsedHeight;
         }
         Topmost = settings.Topmost;
         QuotaDial.Visibility = settings.ShowQuota ? Visibility.Visible : Visibility.Collapsed;
@@ -140,6 +158,13 @@ public partial class MainWindow : Window
         if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
         if (IsLoaded)
         {
+            if (!_expanded)
+            {
+                ClampCollapsedPosition();
+                UpdateCollapsedAnchorFromCurrentGeometry();
+                OrientCollapsedIsland();
+                SavePosition();
+            }
             UpdateFullscreenOverride();
             UpdateDisplayMode();
         }
@@ -160,9 +185,17 @@ public partial class MainWindow : Window
         RecentResultText.LineHeight = lineHeight;
         RecentResultText.MaxHeight = lineHeight * _settings.MaxResponseLines;
         ExpandedYoyoRow.Height = ExpandedCodexRow.Height = ExpandedWorkBuddyRow.Height = new GridLength(rowHeight);
+        HeaderRow.Height = new GridLength(Math.Max(30, CollapsedHeight - 2));
 
-        var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= 42;
-        HeadlineText.Visibility = showTwoRows ? Visibility.Visible : Visibility.Collapsed;
+        var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= CollapsedHeight - 4;
+        HeadlineText.Visibility = Visibility.Visible;
+        System.Windows.Controls.Grid.SetRow(HeadlineText, 0);
+        System.Windows.Controls.Grid.SetColumn(HeadlineText, 0);
+        System.Windows.Controls.Grid.SetColumnSpan(HeadlineText, showTwoRows ? 2 : 1);
+        System.Windows.Controls.Grid.SetRow(SummaryViewport, showTwoRows ? 1 : 0);
+        System.Windows.Controls.Grid.SetColumn(SummaryViewport, showTwoRows ? 0 : 1);
+        System.Windows.Controls.Grid.SetColumnSpan(SummaryViewport, showTwoRows ? 2 : 1);
+        SummaryViewport.Margin = showTwoRows ? new Thickness(0) : new Thickness(10, 0, 0, 0);
         SummaryViewport.Height = Math.Ceiling(textSize * (showTwoRows ? 1.45 : 1.7));
 
         if (_expanded)
@@ -176,7 +209,7 @@ public partial class MainWindow : Window
     {
         var rowHeight = Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
         var lineHeight = Math.Ceiling(_settings.TextSize * 1.45);
-        return Math.Min(Height - IslandMargin * 2, 90 + rowHeight * 3 + lineHeight * _settings.MaxResponseLines);
+        return Math.Min(Height - IslandMargin * 2, 42 + CollapsedHeight + rowHeight * 3 + lineHeight * _settings.MaxResponseLines);
     }
 
     private static string NormalizeProviderOrder(string? value)
@@ -226,6 +259,7 @@ public partial class MainWindow : Window
 
     internal void ResetPosition()
     {
+        if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
         Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2;
         Top = SystemParameters.WorkArea.Top;
         Island.VerticalAlignment = VerticalAlignment.Top;
@@ -262,6 +296,7 @@ public partial class MainWindow : Window
         }
         else ResetPosition();
         _collapsedAnchorTop = Top;
+        OrientCollapsedIsland();
         await RefreshStatusAsync();
         _refreshTimer.Start();
         if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
@@ -271,7 +306,7 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded) return;
         _settings.X = Left;
-        _settings.Y = _expanded && _expandUp ? _collapsedAnchorTop : Top;
+        _settings.Y = _expandUp ? _collapsedAnchorTop : Top;
         AppSettings.Save(_settings);
     }
 
@@ -296,7 +331,9 @@ public partial class MainWindow : Window
             StateDot.Fill = YoyoMiniDot.Fill;
             CodexDot.Fill = CodexMiniDot.Fill;
             WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
-            PointsText.Text = status.RemainingPoints is double remaining ? $"· {remaining:0.##} 积分" : "· 积分 --";
+            PointsText.Inlines.Clear();
+            PointsText.Inlines.Add(new Run("· ") { Foreground = Brush("#182033") });
+            PointsText.Inlines.Add(new Run(status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --") { Foreground = AccentBrush });
             StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : status.LastTaskFailed ? "最近任务失败" : "空闲";
             StateText.Foreground = YoyoMiniDot.Fill;
             SetCodexStateText(codex);
@@ -307,6 +344,7 @@ public partial class MainWindow : Window
             RecentResultText.Text = _activeConfirmationNotice ?? _activeCompletionNotice ?? _latestCombinedResult;
             UpdateQuotaDial(status);
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
+            UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
             UpdateBusyAnimation(_anyBusy);
@@ -474,7 +512,7 @@ public partial class MainWindow : Window
             HideIslandForReverseHover();
             return;
         }
-        if (UsesActiveOnlyDisplay && !_anyBusy)
+        if (_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy))
         {
             CollapseIsland(true);
             HideIslandForFocusMode();
@@ -484,7 +522,17 @@ public partial class MainWindow : Window
 
     private void UpdateDisplayMode()
     {
-        if (!UsesActiveOnlyDisplay || _activeCompletionNotice is not null || _activeConfirmationNotice is not null)
+        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null)
+        {
+            ShowIslandForFocusMode();
+            return;
+        }
+        if (_inactivityHidden)
+        {
+            HideIslandForFocusMode();
+            return;
+        }
+        if (!UsesActiveOnlyDisplay)
         {
             ShowIslandForFocusMode();
             return;
@@ -494,6 +542,37 @@ public partial class MainWindow : Window
             ShowIslandForFocusMode();
         }
         else HideIslandForFocusMode();
+    }
+
+    private void UpdateInactivityState(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits)
+    {
+        var fingerprint = string.Join('|',
+            yoyo.IsYoyoRunning, yoyo.TaskStatusAvailable, yoyo.IsBusy, yoyo.LastTaskFailed, yoyo.RemainingPoints, yoyo.RecentResult,
+            codex.IsRunning, codex.IsBusy, codex.FiveHourRemainingPercent, codex.WeeklyRemainingPercent, codex.RecentResponse,
+            workBuddy.IsRunning, workBuddy.DataAvailable, workBuddy.IsBusy, workBuddy.RequiresConfirmation, workBuddy.Summary,
+            workBuddy.RecentResponse, credits.Available, credits.Remaining);
+        var now = DateTimeOffset.Now;
+        if (!string.Equals(_stateFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            _stateFingerprint = fingerprint;
+            _lastStateChangeAt = now;
+            var wasHidden = _inactivityHidden;
+            _inactivityHidden = false;
+            if (wasHidden)
+            {
+                ShowIslandForFocusMode();
+                if (_expanded) CollapseIsland(true);
+            }
+            return;
+        }
+
+        if (!_settings.EnableUnchangedAutoHide)
+        {
+            _inactivityHidden = false;
+            return;
+        }
+        if (now - _lastStateChangeAt >= TimeSpan.FromMinutes(_settings.UnchangedAutoHideMinutes))
+            _inactivityHidden = true;
     }
 
     private bool UsesActiveOnlyDisplay => _settings.DisplayMode == "activeOnly" || _fullscreenOverrideActive;
@@ -628,7 +707,7 @@ public partial class MainWindow : Window
         _holdTimer.Stop();
         if (Mouse.LeftButton != MouseButtonState.Pressed || !Island.IsMouseOver) return;
         _holdArmed = true;
-        if (_expanded) CollapseIslandImmediatelyForDrag();
+        if (_expanded || _expandUp) CollapseIslandImmediatelyForDrag();
         _dragging = true;
         Island.Cursor = Cursors.SizeAll; Island.Opacity = Math.Max(.55, _settings.Opacity - .15);
         try { DragMove(); }
@@ -648,7 +727,8 @@ public partial class MainWindow : Window
         {
             ClampCollapsedPosition();
             SnapToHorizontalCenter();
-            _collapsedAnchorTop = Top;
+            UpdateCollapsedAnchorFromCurrentGeometry();
+            OrientCollapsedIsland();
             SavePosition();
         }
         _dragging = false;
@@ -693,7 +773,7 @@ public partial class MainWindow : Window
 
     private void CollapseIslandImmediatelyForDrag()
     {
-        if (!_expanded) return;
+        if (!_expanded && !_expandUp) return;
         _islandAnimationVersion++;
         _islandAnimationInProgress = false;
         var bounds = GetIslandWindowBounds();
@@ -731,23 +811,17 @@ public partial class MainWindow : Window
         }
         StopSummaryMarquee();
         SummaryTextClone.Visibility = Visibility.Collapsed;
-        _collapsedAnchorTop = Top;
-        _expandUp = ShouldExpandUp();
-        if (_expandUp)
-        {
-            Top = _collapsedAnchorTop - (Height - (IslandMargin * 2 + CollapsedHeight));
-            Island.VerticalAlignment = VerticalAlignment.Bottom;
-            Island.Margin = new Thickness(0, 0, 0, IslandMargin);
-        }
-        else
-        {
-            Island.VerticalAlignment = VerticalAlignment.Top;
-            Island.Margin = new Thickness(0, IslandMargin, 0, 0);
-        }
+        if (!_expandUp) _collapsedAnchorTop = Top;
+        OrientCollapsedIsland();
         _expanded = true;
         _islandAnimationInProgress = true;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.Visibility = Visibility.Visible;
+        StartExpandAnimations(animationVersion);
+    }
+
+    private void StartExpandAnimations(int animationVersion)
+    {
         IEasingFunction easing = _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .28, EasingMode = EasingMode.EaseOut }
             : new CubicEase { EasingMode = EasingMode.EaseOut };
@@ -773,11 +847,9 @@ public partial class MainWindow : Window
         Island.Height = CollapsedHeight;
         ExpandedPanel.Opacity = 0;
         ExpandedPanel.Visibility = Visibility.Collapsed;
-        if (_expandUp) Top = _collapsedAnchorTop;
-        Island.VerticalAlignment = VerticalAlignment.Top;
-        Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+        Island.VerticalAlignment = _expandUp ? VerticalAlignment.Bottom : VerticalAlignment.Top;
+        Island.Margin = _expandUp ? new Thickness(0, 0, 0, IslandMargin) : new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
-        _expandUp = false;
         _islandAnimationInProgress = false;
     }
 
@@ -803,16 +875,9 @@ public partial class MainWindow : Window
             Island.BeginAnimation(HeightProperty, null);
             Island.Height = CollapsedHeight;
             ExpandedPanel.Visibility = Visibility.Collapsed;
-            if (_expandUp)
-            {
-                Top = _collapsedAnchorTop;
-                Island.VerticalAlignment = VerticalAlignment.Top;
-                Island.Margin = new Thickness(0, IslandMargin, 0, 0);
-                _expandUp = false;
-            }
             _islandAnimationInProgress = false;
             ScheduleSummaryMarquee();
-            if (UsesActiveOnlyDisplay && !_anyBusy && _activeCompletionNotice is null && _activeConfirmationNotice is null) HideIslandForFocusMode();
+            if ((_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy)) && _activeCompletionNotice is null && _activeConfirmationNotice is null) HideIslandForFocusMode();
             else if (IsCursorNearIsland() && _settings.EnableHoverExpansion && !_settings.EnableReverseHover) _enterTimer.Start();
         };
         Island.BeginAnimation(WidthProperty, width);
@@ -852,12 +917,42 @@ public partial class MainWindow : Window
         return source?.CompositionTarget is null ? dips : source.CompositionTarget.TransformToDevice.Transform(dips);
     }
 
+    private double UpwardHostOffset => Height - (IslandMargin * 2 + CollapsedHeight);
+
+    private void UpdateCollapsedAnchorFromCurrentGeometry()
+        => _collapsedAnchorTop = _expandUp ? Top + UpwardHostOffset : Top;
+
+    private void OrientCollapsedIsland()
+    {
+        if (_expanded || _islandAnimationInProgress) return;
+        var expandUp = ShouldExpandUp();
+        if (expandUp == _expandUp) return;
+
+        Opacity = 0;
+        if (expandUp)
+        {
+            _collapsedAnchorTop = Top;
+            Island.VerticalAlignment = VerticalAlignment.Bottom;
+            Island.Margin = new Thickness(0, 0, 0, IslandMargin);
+            Top = _collapsedAnchorTop - UpwardHostOffset;
+        }
+        else
+        {
+            Top = _collapsedAnchorTop;
+            Island.VerticalAlignment = VerticalAlignment.Top;
+            Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+        }
+        _expandUp = expandUp;
+        Island.UpdateLayout();
+        Dispatcher.BeginInvoke(() => Opacity = 1, DispatcherPriority.Render);
+    }
+
     private void ClampCollapsedPosition()
     {
         var bounds = GetIslandScreenPixelBounds();
-        var workArea = NativeWindow.GetMonitorWorkArea(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
-        var correctionX = bounds.Left < workArea.Left ? workArea.Left - bounds.Left : bounds.Right > workArea.Right ? workArea.Right - bounds.Right : 0;
-        var correctionY = bounds.Top < workArea.Top ? workArea.Top - bounds.Top : bounds.Bottom > workArea.Bottom ? workArea.Bottom - bounds.Bottom : 0;
+        var monitorBounds = NativeWindow.GetMonitorBounds(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        var correctionX = bounds.Left < monitorBounds.Left ? monitorBounds.Left - bounds.Left : bounds.Right > monitorBounds.Right ? monitorBounds.Right - bounds.Right : 0;
+        var correctionY = bounds.Top < monitorBounds.Top ? monitorBounds.Top - bounds.Top : bounds.Bottom > monitorBounds.Bottom ? monitorBounds.Bottom - bounds.Bottom : 0;
         var correction = DevicePixelsToDips(new Vector(correctionX, correctionY));
         Left += correction.X;
         Top += correction.Y;
