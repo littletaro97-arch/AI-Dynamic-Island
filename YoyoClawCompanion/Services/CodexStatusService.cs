@@ -9,6 +9,8 @@ internal sealed record CodexStatus(
     bool IsRunning,
     bool IsBusy,
     bool LimitsAvailable,
+    bool LimitsLoading,
+    string? LimitsError,
     int? FiveHourRemainingPercent,
     int? WeeklyRemainingPercent,
     string? RecentResponse,
@@ -37,9 +39,11 @@ internal sealed class CodexStatusService
     private (int? FiveHour, int? Weekly)? _cachedLimits;
     private Task? _limitRefreshTask;
     private long? _lastLimitReadMilliseconds;
+    private string? _lastLimitError;
     private readonly Dictionary<string, LifecycleCacheEntry> _lifecycleCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CompletionCacheEntry> _completionCache = new(StringComparer.OrdinalIgnoreCase);
     internal string? LastError { get; private set; }
+    internal event EventHandler? LimitsUpdated;
 
     public async Task<CodexStatus> ReadAsync(bool detectActivity, bool readLimits)
     {
@@ -55,10 +59,14 @@ internal sealed class CodexStatusService
         var completion = ReadRecentCompletion();
         (int? FiveHour, int? Weekly)? limits;
         long? limitReadMilliseconds;
+        bool limitsLoading;
+        string? limitsError;
         lock (_limitsGate)
         {
             limits = _cachedLimits;
             limitReadMilliseconds = _lastLimitReadMilliseconds;
+            limitsLoading = readLimits && _limitRefreshTask is { IsCompleted: false };
+            limitsError = _lastLimitError;
         }
 
         watch.Stop();
@@ -66,6 +74,8 @@ internal sealed class CodexStatusService
             running,
             activity.IsBusy,
             readLimits && limits is not null,
+            limitsLoading,
+            limitsError,
             limits?.FiveHour,
             limits?.Weekly,
             completion.Response,
@@ -95,11 +105,19 @@ internal sealed class CodexStatusService
         var watch = Stopwatch.StartNew();
         var limits = await ReadLimitsAsync();
         watch.Stop();
+        string? failure = null;
         lock (_limitsGate)
         {
             _lastLimitReadMilliseconds = watch.ElapsedMilliseconds;
-            if (limits is not null) _cachedLimits = limits;
+            if (limits is not null)
+            {
+                _cachedLimits = limits;
+                _lastLimitError = null;
+            }
+            else failure = _lastLimitError = LastError ?? "unknown";
         }
+        if (failure is not null) WriteDiagnostic($"codex-limits: {failure}");
+        try { LimitsUpdated?.Invoke(this, EventArgs.Empty); } catch { }
     }
 
     private (string? Response, string? Id, DateTimeOffset? Timestamp) ReadRecentCompletion()
@@ -382,6 +400,17 @@ internal sealed class CodexStatusService
 
     private static string? FindCodexExecutable()
         => ApplicationLocator.FindCodexCliExecutable();
+
+    private static void WriteDiagnostic(string message)
+    {
+        try
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion");
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "diagnostics.log"), $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
+        }
+        catch { }
+    }
 
     private sealed record LifecycleSnapshot(string? State, DateTimeOffset? LifecycleAt, DateTimeOffset? LatestActivityAt);
     private sealed record LifecycleCacheEntry(long Length, DateTime LastWriteTimeUtc, LifecycleSnapshot Snapshot);

@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Microsoft.Win32;
@@ -10,6 +12,8 @@ namespace YoyoClawCompanion;
 
 public partial class SettingsWindow : Window
 {
+    private const int DwmUseImmersiveDarkMode = 20;
+    private const int DwmUseImmersiveDarkModeBefore20H1 = 19;
     private static readonly DependencyProperty AnimatedScrollOffsetProperty = DependencyProperty.Register(
         nameof(AnimatedScrollOffset), typeof(double), typeof(SettingsWindow),
         new PropertyMetadata(0d, OnAnimatedScrollOffsetChanged));
@@ -21,6 +25,7 @@ public partial class SettingsWindow : Window
     {
         _island = island;
         InitializeComponent();
+        SourceInitialized += (_, _) => ApplyTitleBarTheme();
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
@@ -40,6 +45,7 @@ public partial class SettingsWindow : Window
         CodexCheck.IsChecked = value.ShowCodex;
         WorkBuddyCheck.IsChecked = value.ShowWorkBuddy;
         TrayIconCheck.IsChecked = value.ShowTrayIcon;
+        StartupCheck.IsChecked = value.StartWithWindows;
         foreach (ComboBoxItem item in ThemeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ThemeMode, StringComparison.OrdinalIgnoreCase)) ThemeCombo.SelectedItem = item;
         if (ThemeCombo.SelectedIndex < 0) ThemeCombo.SelectedIndex = 0;
         CodexActivityCheck.IsChecked = value.EnableCodexActivityDetection;
@@ -53,6 +59,7 @@ public partial class SettingsWindow : Window
         ReverseHoverCheck.IsChecked = value.EnableReverseHover;
         FullscreenActiveOnlyCheck.IsChecked = value.EnableFullscreenActiveOnly;
         UnchangedAutoHideCheck.IsChecked = value.EnableUnchangedAutoHide;
+        ReplyFirstWhenExpandedUpCheck.IsChecked = value.PutReplyFirstWhenExpandedUp;
         UnchangedAutoHideSlider.Value = value.UnchangedAutoHideMinutes;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
@@ -80,6 +87,7 @@ public partial class SettingsWindow : Window
         current.ShowCodex = CodexCheck.IsChecked == true;
         current.ShowWorkBuddy = WorkBuddyCheck.IsChecked == true;
         current.ShowTrayIcon = TrayIconCheck.IsChecked == true;
+        current.StartWithWindows = StartupCheck.IsChecked == true;
         current.ThemeMode = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         current.EnableCodexActivityDetection = CodexActivityCheck.IsChecked == true;
         current.ShowCodexLimits = CodexLimitsCheck.IsChecked == true;
@@ -92,6 +100,7 @@ public partial class SettingsWindow : Window
         current.EnableReverseHover = ReverseHoverCheck.IsChecked == true;
         current.EnableFullscreenActiveOnly = FullscreenActiveOnlyCheck.IsChecked == true;
         current.EnableUnchangedAutoHide = UnchangedAutoHideCheck.IsChecked == true;
+        current.PutReplyFirstWhenExpandedUp = ReplyFirstWhenExpandedUpCheck.IsChecked == true;
         current.UnchangedAutoHideMinutes = UnchangedAutoHideSlider.Value;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
@@ -135,7 +144,7 @@ public partial class SettingsWindow : Window
         current.CornerRadius = 24; current.Opacity = .92; current.IslandWidth = 224; current.IslandHeight = 48;
         current.TextSize = 11; current.MaxResponseLines = 3;
         current.ShowShadow = true; current.Topmost = true;
-        current.ShowYoyo = true; current.ShowCodex = true; current.ShowWorkBuddy = true; current.ShowTrayIcon = true;
+        current.ShowYoyo = true; current.ShowCodex = true; current.ShowWorkBuddy = true; current.ShowTrayIcon = true; current.StartWithWindows = false;
         current.ThemeMode = "system"; current.EnableCodexActivityDetection = true;
         current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;
         current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
@@ -144,6 +153,7 @@ public partial class SettingsWindow : Window
         current.EnableReverseHover = false;
         current.EnableFullscreenActiveOnly = false;
         current.EnableUnchangedAutoHide = false; current.UnchangedAutoHideMinutes = 5;
+        current.PutReplyFirstWhenExpandedUp = false;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
@@ -175,6 +185,7 @@ public partial class SettingsWindow : Window
         PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
+        ApplyTitleBarTheme(light);
     }
 
     private void Nav_Click(object sender, RoutedEventArgs e)
@@ -219,6 +230,24 @@ public partial class SettingsWindow : Window
         }
         catch { return true; }
     }
+
+    private void ApplyTitleBarTheme()
+    {
+        var mode = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
+        ApplyTitleBarTheme(mode == "light" || (mode == "system" && SystemUsesLightTheme()));
+    }
+
+    private void ApplyTitleBarTheme(bool light)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero) return;
+        var dark = light ? 0 : 1;
+        if (DwmSetWindowAttribute(handle, DwmUseImmersiveDarkMode, ref dark, sizeof(int)) < 0)
+            DwmSetWindowAttribute(handle, DwmUseImmersiveDarkModeBefore20H1, ref dark, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int valueSize);
 
     private static SolidColorBrush Brush(string color) => (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
 }

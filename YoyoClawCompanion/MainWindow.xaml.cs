@@ -41,6 +41,8 @@ public partial class MainWindow : Window
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
+    private bool _manualCollapseUntilPointerExit, _refreshAfterCurrent;
+    private bool _collapseHandlePressed, _suppressCollapseHandleClick;
     private bool _completionBaselineReady, _notificationHoldActive;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
@@ -80,8 +82,9 @@ public partial class MainWindow : Window
         _passThroughTimer.Tick += (_, _) => CheckReverseHoverExit();
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
+        _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -150,6 +153,7 @@ public partial class MainWindow : Window
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
         ApplyProviderOrder();
+        ApplyExpandedContentOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
         _completionTimer.Interval = TimeSpan.FromSeconds(settings.CompletionDisplaySeconds);
         ApplyTypography();
@@ -158,6 +162,7 @@ public partial class MainWindow : Window
         ApplyTheme();
         Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
+        StartupRegistration.SetEnabled(settings.StartWithWindows);
         if (settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
         else
         {
@@ -196,7 +201,7 @@ public partial class MainWindow : Window
         var rowHeight = Math.Max(24, Math.Ceiling(textSize * 1.7));
         RecentResultText.LineHeight = lineHeight;
         RecentResultText.MaxHeight = lineHeight * _settings.MaxResponseLines;
-        ExpandedYoyoRow.Height = ExpandedCodexRow.Height = ExpandedWorkBuddyRow.Height = new GridLength(rowHeight);
+        ApplyExpandedContentOrder(rowHeight);
         HeaderRow.Height = new GridLength(Math.Max(30, CollapsedHeight - 2));
 
         HeadlineText.Visibility = Visibility.Visible;
@@ -246,7 +251,11 @@ public partial class MainWindow : Window
 
     private void ApplyProviderOrder()
     {
-        if (string.Equals(_appliedProviderOrder, _settings.ProviderOrder, StringComparison.Ordinal)) return;
+        if (string.Equals(_appliedProviderOrder, _settings.ProviderOrder, StringComparison.Ordinal))
+        {
+            ApplyExpandedContentOrder();
+            return;
+        }
         var indicators = new Dictionary<string, UIElement>
         {
             ["yoyo"] = YoyoIndicatorButton,
@@ -256,18 +265,41 @@ public partial class MainWindow : Window
         foreach (var indicator in indicators.Values) IndicatorPanel.Children.Remove(indicator);
         foreach (var provider in ProviderOrder()) IndicatorPanel.Children.Add(indicators[provider]);
 
+        _appliedProviderOrder = _settings.ProviderOrder;
+        ApplyExpandedContentOrder();
+        _balanceSummaryKey = null;
+    }
+
+    private void ApplyExpandedContentOrder(double? statusRowHeight = null)
+    {
+        var rowHeight = statusRowHeight ?? Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
+        var replyFirst = _expandUp && _settings.PutReplyFirstWhenExpandedUp;
+        ExpandedRow0.Height = replyFirst ? new GridLength(1, GridUnitType.Star) : new GridLength(rowHeight);
+        ExpandedRow1.Height = new GridLength(rowHeight);
+        ExpandedRow2.Height = new GridLength(rowHeight);
+        ExpandedRow3.Height = replyFirst ? new GridLength(rowHeight) : new GridLength(1, GridUnitType.Star);
+
         var rows = new Dictionary<string, UIElement[]>
         {
             ["yoyo"] = [StateDot, YoyoLabel, StateText, PointsText, YoyoRowButton],
             ["codex"] = [CodexDot, CodexLabel, CodexStateText, CodexRowButton],
             ["workbuddy"] = [WorkBuddyDot, WorkBuddyLabel, WorkBuddyStateText, WorkBuddyRowButton]
         };
+        var firstStatusRow = replyFirst ? 1 : 0;
         var order = ProviderOrder();
-        for (var row = 0; row < order.Length; row++)
-            foreach (var element in rows[order[row]]) System.Windows.Controls.Grid.SetRow(element, row);
+        for (var index = 0; index < order.Length; index++)
+            foreach (var element in rows[order[index]]) System.Windows.Controls.Grid.SetRow(element, firstStatusRow + index);
+        System.Windows.Controls.Grid.SetRow(RecentBorder, replyFirst ? 0 : 3);
+        RecentBorder.Margin = replyFirst ? new Thickness(0, 0, 0, 6) : new Thickness(0, 6, 0, 0);
+        ApplyCollapseHandlePosition();
+    }
 
-        _appliedProviderOrder = _settings.ProviderOrder;
-        _balanceSummaryKey = null;
+    private void ApplyCollapseHandlePosition()
+    {
+        System.Windows.Controls.Grid.SetRow(CollapseHandleButton, _expandUp ? 0 : 1);
+        CollapseHandleButton.VerticalAlignment = _expandUp ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        CollapseHandleButton.VerticalContentAlignment = _expandUp ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+        CollapseHandleButton.Margin = _expandUp ? new Thickness(0, -8, 0, 0) : new Thickness(0, 0, 0, -8);
     }
 
     internal void ResetPosition()
@@ -278,6 +310,7 @@ public partial class MainWindow : Window
         Island.VerticalAlignment = VerticalAlignment.Top;
         Island.Margin = new Thickness(0, IslandMargin, 0, 0);
         _expandUp = false;
+        ApplyExpandedContentOrder();
         _collapsedAnchorTop = Top;
         SavePosition();
     }
@@ -379,8 +412,23 @@ public partial class MainWindow : Window
             HeadlineText.Foreground = ErrorBrush;
             SetPlainSummary(error.GetType().Name);
         }
-        finally { _refreshing = false; }
+        finally
+        {
+            _refreshing = false;
+            if (_refreshAfterCurrent)
+            {
+                _refreshAfterCurrent = false;
+                _ = RefreshStatusAsync();
+            }
+        }
     }
+
+    private void CodexLimitsUpdated(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(() =>
+        {
+            if (_refreshing) _refreshAfterCurrent = true;
+            else _ = RefreshStatusAsync();
+        });
 
     private void ApplyCodexVisualState(CodexStatus codex, bool provisional)
     {
@@ -576,6 +624,23 @@ public partial class MainWindow : Window
             HideIslandForFocusMode(animate: _inactivityHidden);
         }
         else if (!Island.IsMouseOver) CollapseIsland();
+    }
+
+    private void CollapseHandle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressCollapseHandleClick)
+        {
+            _suppressCollapseHandleClick = false;
+            e.Handled = true;
+            return;
+        }
+        _manualCollapseUntilPointerExit = true;
+        _completionTimer.Stop();
+        _notificationHoldActive = false;
+        _activeCompletionNotice = null;
+        RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+        CollapseIsland(true);
+        e.Handled = true;
     }
 
     private void UpdateDisplayMode()
@@ -808,6 +873,8 @@ public partial class MainWindow : Window
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
+        _suppressCollapseHandleClick = false;
+        _collapseHandlePressed = _expanded && CollapseHandleButton.IsMouseOver;
         _enterTimer.Stop(); _leaveTimer.Stop();
         _dragging = false; _holdArmed = false;
         _holdTimer.Start();
@@ -817,6 +884,7 @@ public partial class MainWindow : Window
     {
         _holdTimer.Stop();
         if (Mouse.LeftButton != MouseButtonState.Pressed || !Island.IsMouseOver) return;
+        if (_collapseHandlePressed) _suppressCollapseHandleClick = true;
         _holdArmed = true;
         if (_expanded || _expandUp) CollapseIslandImmediatelyForDrag();
         _dragging = true;
@@ -833,6 +901,7 @@ public partial class MainWindow : Window
         if (_finishingGesture) return;
         _finishingGesture = true;
         _holdTimer.Stop(); _holdArmed = false; Island.Cursor = Cursors.Arrow; Island.Opacity = _settings.Opacity;
+        _collapseHandlePressed = false;
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
         if (_dragging)
         {
@@ -855,6 +924,7 @@ public partial class MainWindow : Window
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
         _leaveTimer.Stop();
+        if (_manualCollapseUntilPointerExit) return;
         if (_settings.EnableReverseHover && !_notificationHoldActive)
         {
             HideIslandForReverseHover();
@@ -865,6 +935,7 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeave(object sender, MouseEventArgs e)
     {
+        _manualCollapseUntilPointerExit = false;
         _enterTimer.Stop();
         if (!_dragging && !_holdArmed && _expanded && !_islandAnimationInProgress && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
     }
@@ -897,12 +968,14 @@ public partial class MainWindow : Window
         ExpandedPanel.BeginAnimation(OpacityProperty, null);
         ExpandedPanel.Opacity = 0;
         ExpandedPanel.Visibility = Visibility.Collapsed;
+        CollapseHandleButton.Visibility = Visibility.Collapsed;
         Island.Width = _settings.IslandWidth;
         Island.Height = CollapsedHeight;
         Island.VerticalAlignment = VerticalAlignment.Top;
         Island.Margin = new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
         _expandUp = false;
+        ApplyExpandedContentOrder();
 
         var collapsedLeft = (Width - _settings.IslandWidth) / 2;
         var targetX = Math.Clamp(pointer.X, 10, _settings.IslandWidth - 10);
@@ -929,6 +1002,7 @@ public partial class MainWindow : Window
         _islandAnimationInProgress = true;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.Visibility = Visibility.Visible;
+        CollapseHandleButton.Visibility = Visibility.Visible;
         StartExpandAnimations(animationVersion);
     }
 
@@ -959,6 +1033,7 @@ public partial class MainWindow : Window
         Island.Height = CollapsedHeight;
         ExpandedPanel.Opacity = 0;
         ExpandedPanel.Visibility = Visibility.Collapsed;
+        CollapseHandleButton.Visibility = Visibility.Collapsed;
         Island.VerticalAlignment = _expandUp ? VerticalAlignment.Bottom : VerticalAlignment.Top;
         Island.Margin = _expandUp ? new Thickness(0, 0, 0, IslandMargin) : new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
@@ -972,6 +1047,7 @@ public partial class MainWindow : Window
         _leaveTimer.Stop();
         _expanded = false;
         _islandAnimationInProgress = true;
+        CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
         IEasingFunction easing = _settings.EnableSpringAnimation
@@ -990,7 +1066,7 @@ public partial class MainWindow : Window
             _islandAnimationInProgress = false;
             ScheduleSummaryMarquee();
             if ((_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy)) && _activeCompletionNotice is null && _activeConfirmationNotice is null) HideIslandForFocusMode();
-            else if (IsCursorNearIsland() && _settings.EnableHoverExpansion && !_settings.EnableReverseHover) _enterTimer.Start();
+            else if (!_manualCollapseUntilPointerExit && IsCursorNearIsland() && _settings.EnableHoverExpansion && !_settings.EnableReverseHover) _enterTimer.Start();
         };
         Island.BeginAnimation(WidthProperty, width);
         Island.BeginAnimation(HeightProperty, height);
@@ -1055,6 +1131,7 @@ public partial class MainWindow : Window
             Island.Margin = new Thickness(0, IslandMargin, 0, 0);
         }
         _expandUp = expandUp;
+        ApplyExpandedContentOrder();
         Island.UpdateLayout();
         Dispatcher.BeginInvoke(() => Opacity = 1, DispatcherPriority.Render);
     }
@@ -1154,7 +1231,7 @@ public partial class MainWindow : Window
         if (!status.IsRunning) return "未运行";
         var state = _settings.EnableCodexActivityDetection ? (status.IsBusy ? "执行中" : "空闲") : "已打开";
         if (!_settings.ShowCodexLimits) return state;
-        if (!status.LimitsAvailable) return $"{state} · 限额不可用";
+        if (!status.LimitsAvailable) return $"{state} · {(status.LimitsLoading ? "限额读取中" : "限额不可用")}";
         var pieces = new List<string> { state };
         if (status.FiveHourRemainingPercent is int fiveHour) pieces.Add($"5小时 {fiveHour}%");
         if (status.WeeklyRemainingPercent is int weekly) pieces.Add($"本周 {weekly}%");
@@ -1171,7 +1248,7 @@ public partial class MainWindow : Window
         CodexStateText.Inlines.Add(new Run(" · ") { Foreground = _secondaryTextBrush });
         if (!status.LimitsAvailable)
         {
-            CodexStateText.Inlines.Add(new Run("限额不可用") { Foreground = ErrorBrush });
+            CodexStateText.Inlines.Add(new Run(status.LimitsLoading ? "限额读取中" : "限额不可用") { Foreground = status.LimitsLoading ? _secondaryTextBrush : ErrorBrush });
             return;
         }
         var quota = new List<string>();
@@ -1320,6 +1397,8 @@ public partial class MainWindow : Window
                     busy = codex.IsBusy,
                     fiveHourRemainingPercent = codex.FiveHourRemainingPercent,
                     weeklyRemainingPercent = codex.WeeklyRemainingPercent,
+                    limitsLoading = codex.LimitsLoading,
+                    limitsError = codex.LimitsError,
                     recentResponseAt = codex.RecentResponseAt,
                     readMilliseconds = timings.CodexReadMilliseconds,
                     activityReadMilliseconds = codex.ActivityReadMilliseconds,

@@ -17,6 +17,7 @@ internal sealed class IslandSettings
     public bool ShowWorkBuddy { get; set; } = true;
     public bool ShowShadow { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
+    public bool StartWithWindows { get; set; }
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowCodexLimits { get; set; } = true;
@@ -29,6 +30,7 @@ internal sealed class IslandSettings
     public bool EnableReverseHover { get; set; }
     public bool EnableFullscreenActiveOnly { get; set; }
     public bool EnableUnchangedAutoHide { get; set; }
+    public bool PutReplyFirstWhenExpandedUp { get; set; }
     public double UnchangedAutoHideMinutes { get; set; } = 5;
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;

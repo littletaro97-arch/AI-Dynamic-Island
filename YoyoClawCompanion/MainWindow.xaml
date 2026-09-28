@@ -111,7 +111,7 @@
                     </StackPanel>
                 </Grid>
                 <Grid x:Name="ExpandedPanel" Grid.Row="1" Opacity="0" Visibility="Collapsed" Margin="1,4,1,12" IsHitTestVisible="True">
-                    <Grid.RowDefinitions><RowDefinition x:Name="ExpandedYoyoRow" Height="24"/><RowDefinition x:Name="ExpandedCodexRow" Height="24"/><RowDefinition x:Name="ExpandedWorkBuddyRow" Height="24"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition x:Name="ExpandedRow0" Height="24"/><RowDefinition x:Name="ExpandedRow1" Height="24"/><RowDefinition x:Name="ExpandedRow2" Height="24"/><RowDefinition x:Name="ExpandedRow3" Height="*"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="YoyoLabel" Grid.Column="1" Text="YOYO Claw" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
@@ -131,6 +131,20 @@
                     <RadioButton x:Name="CodexRowButton" Grid.Row="1" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenCodex_Click"/>
                     <RadioButton x:Name="WorkBuddyRowButton" Grid.Row="2" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenWorkBuddy_Click"/>
                 </Grid>
+                <Button x:Name="CollapseHandleButton" Grid.Row="0" Width="120" Height="18" HorizontalAlignment="Center" VerticalAlignment="Top"
+                        VerticalContentAlignment="Top"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand" Visibility="Collapsed" Click="CollapseHandle_Click" ToolTip="收起灵动岛"
+                        AutomationProperties.Name="收起灵动岛">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Grid Background="Transparent"><Border x:Name="Handle" Width="46" Height="4" CornerRadius="2" Background="#66727C90" HorizontalAlignment="Center" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" Margin="0,3"/></Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Handle" Property="Background" Value="#AA727C90"/></Trigger>
+                                <Trigger Property="IsPressed" Value="True"><Setter TargetName="Handle" Property="Background" Value="#CC3ED598"/></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
             </Grid>
         </Border>
     </Grid>
