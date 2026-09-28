@@ -1,4 +1,4 @@
-# AI Dynamic Island
+# AI Dynamic Island v0.6.0
 
 独立、只读的 YOYO Claw 伴生悬浮球。它不修改 `app.asar`，不写入积分或任务数据库。
 
@@ -35,6 +35,12 @@
 - 设置主页采用左右双栏结构，左侧按外观、组件、行为、提醒和位置快速跳转，右侧使用预览图形与精简设置项；用户可见名称统一为 `AI Dynamic Island`。
 - 布尔设置采用本地 XAML 矢量图标卡片和滑动开关，不依赖外部图片文件；选中、悬停和禁用状态分别显示。
 
+## 使用发布包
+
+- 适用于 Windows x64；需要安装 .NET 8 Desktop Runtime 和 Node.js。
+- 解压发布 ZIP 后运行 `YoyoClawCompanion.exe`，并保留同目录下的 `magicore-bridge` 文件夹。
+- YOYO 积分与 Magicore 任务状态依赖本机 YOYO Claw 安装及其登录状态；不影响应用启动。
+
 ## 构建与运行
 
 ```powershell
@@ -42,7 +48,7 @@ dotnet build .\YoyoClawCompanion.sln -c Release
 dotnet run --project .\YoyoClawCompanion\YoyoClawCompanion.csproj -c Release
 ```
 
-也可以运行 `Build-Release.ps1` 生成 `publish-v0.5\YoyoClawCompanion.exe`，之后通过
+也可以运行 `Build-Release.ps1` 生成 `publish-v0.6.0\YoyoClawCompanion.exe`，之后通过
 `Start-YoyoClawCompanion.ps1` 启动。
 
 ## 已知边界
