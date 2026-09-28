@@ -52,6 +52,8 @@ public partial class SettingsWindow : Window
         if (MaxResponseLinesCombo.SelectedIndex < 0) MaxResponseLinesCombo.SelectedIndex = 2;
         foreach (ComboBoxItem item in DisplayModeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.DisplayMode, StringComparison.OrdinalIgnoreCase)) DisplayModeCombo.SelectedItem = item;
         if (DisplayModeCombo.SelectedIndex < 0) DisplayModeCombo.SelectedIndex = 0;
+        foreach (ComboBoxItem item in ProviderOrderCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ProviderOrder, StringComparison.OrdinalIgnoreCase)) ProviderOrderCombo.SelectedItem = item;
+        if (ProviderOrderCombo.SelectedIndex < 0) ProviderOrderCombo.SelectedIndex = 0;
     }
 
     private void Setting_ValueChanged(object sender, RoutedEventArgs e)
@@ -83,11 +85,13 @@ public partial class SettingsWindow : Window
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
         current.MaxResponseLines = int.TryParse((MaxResponseLinesCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var lines) ? lines : 3;
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
+        current.ProviderOrder = (ProviderOrderCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "yoyo,codex,workbuddy";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
             || ReferenceEquals(sender, CodexLimitsCheck)
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
-            || ReferenceEquals(sender, ConfirmationNotificationsCheck);
-        _island.ApplySettings(current, refreshStatus: refreshStatus);
+            || ReferenceEquals(sender, ConfirmationNotificationsCheck)
+            || ReferenceEquals(sender, ProviderOrderCombo);
+        _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
         UpdateLabels();
         ApplyPanelTheme();
     }
@@ -119,6 +123,7 @@ public partial class SettingsWindow : Window
         current.EnableCompletionNotifications = true;
         current.EnableConfirmationNotifications = true;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
+        current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
         _loading = false;
         _island.ApplySettings(current, refreshStatus: true);

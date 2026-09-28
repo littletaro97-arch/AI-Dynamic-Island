@@ -30,6 +30,41 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="AssistantRowButton" TargetType="RadioButton">
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/><Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="SelectionBorder" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                                CornerRadius="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}">
+                            <Grid>
+                                <Border x:Name="SelectionStripe" Width="3" HorizontalAlignment="Left" Margin="-1,7,0,7"
+                                        CornerRadius="0,3,3,0" Background="#32C995" Visibility="Collapsed"/>
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#8FC9E7DA"/>
+                                <Setter TargetName="SelectionBorder" Property="Background" Value="#0C32C995"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#35C998"/>
+                                <Setter TargetName="SelectionBorder" Property="Background" Value="#1832C995"/>
+                                <Setter TargetName="SelectionStripe" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="SelectionBorder" Property="BorderBrush" Value="#35C998"/>
+                                <Setter TargetName="SelectionBorder" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="SelectionBorder" Property="Background" Value="#2432C995"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <ContextMenu x:Key="IslandMenu">
             <MenuItem Header="打开主页" Click="OpenHome_Click"/><Separator/>
             <MenuItem Header="打开 YOYO Claw" Click="OpenYoyo_Click"/>
@@ -46,30 +81,36 @@
                 MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
                 PreviewMouseLeftButtonDown="Island_MouseLeftButtonDown" PreviewMouseLeftButtonUp="Island_MouseLeftButtonUp"
                 PreviewMouseMove="Island_MouseMove" LostMouseCapture="Island_LostMouseCapture">
-            <Grid Margin="14,0">
+            <Grid Margin="10,0">
                 <Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <Button x:Name="YoyoButton" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click" Padding="0">
-                    <Grid x:Name="QuotaDial" Width="32" Height="32">
-                        <Ellipse Fill="#1A7188FF"/><Ellipse Stroke="#1AFFFFFF" StrokeThickness="2" Margin="1"/>
-                        <Path x:Name="QuotaArc" Stroke="#8FA0FF" StrokeThickness="2" StrokeStartLineCap="Flat" StrokeEndLineCap="Flat" Fill="Transparent"/>
-                        <Path x:Name="BusyGlyph" Data="M 16,34 C 10,30 9,20 16,15 C 22,9 31,10 36,15 C 41,20 40,29 35,34 C 31,38 21,39 16,34 Z" Fill="#8FA0FF" Stretch="Uniform" Margin="8"/>
-                    </Grid>
-                    </Button>
-                    <StackPanel x:Name="CollapsedTextPanel" Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel x:Name="CollapsedTextPanel" Margin="4,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
                     <TextBlock x:Name="HeadlineText" Text="正在读取状态…" Foreground="#F2F5FF" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <Grid x:Name="SummaryViewport" Height="15" ClipToBounds="True">
                         <Canvas x:Name="SummaryMarqueeCanvas" ClipToBounds="True">
-                            <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap"/>
-                            <TextBlock x:Name="SummaryTextClone" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap" Visibility="Collapsed"/>
+                            <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap">
+                                <TextBlock.RenderTransform><TranslateTransform x:Name="SummaryPrimaryTranslate"/></TextBlock.RenderTransform>
+                            </TextBlock>
+                            <TextBlock x:Name="SummaryTextClone" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap" Visibility="Collapsed">
+                                <TextBlock.RenderTransform><TranslateTransform x:Name="SummaryCloneTranslate"/></TextBlock.RenderTransform>
+                            </TextBlock>
                         </Canvas>
                     </Grid>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
-                    <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
-                    <Button x:Name="WorkBuddyIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenWorkBuddy_Click"><Ellipse x:Name="WorkBuddyMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="YoyoButton" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click" Padding="0" Margin="0,0,3,0">
+                        <Grid x:Name="QuotaDial" Width="26" Height="26">
+                            <Ellipse Fill="#1A7188FF"/><Ellipse Stroke="#1AFFFFFF" StrokeThickness="2" Margin="1"/>
+                            <Path x:Name="QuotaArc" Stroke="#8FA0FF" StrokeThickness="2" StrokeStartLineCap="Flat" StrokeEndLineCap="Flat" Fill="Transparent"/>
+                            <Path x:Name="BusyGlyph" Data="M 16,34 C 10,30 9,20 16,15 C 22,9 31,10 36,15 C 41,20 40,29 35,34 C 31,38 21,39 16,34 Z" Fill="#8FA0FF" Stretch="Uniform" Margin="8"/>
+                        </Grid>
+                    </Button>
+                    <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                        <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                        <Button x:Name="WorkBuddyIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenWorkBuddy_Click"><Ellipse x:Name="WorkBuddyMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                    </StackPanel>
                     </StackPanel>
                 </Grid>
                 <Grid x:Name="ExpandedPanel" Grid.Row="1" Opacity="0" Visibility="Collapsed" Margin="1,4,1,12" IsHitTestVisible="True">
@@ -89,9 +130,9 @@
                         <TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="10.5" FontWeight="SemiBold"
                                    TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="15" VerticalAlignment="Center"/>
                     </Border>
-                    <Button x:Name="YoyoRowButton" Grid.Row="0" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click"/>
-                    <Button x:Name="CodexRowButton" Grid.Row="1" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenCodex_Click"/>
-                    <Button x:Name="WorkBuddyRowButton" Grid.Row="2" Grid.ColumnSpan="4" Style="{StaticResource RowLaunchButton}" Click="OpenWorkBuddy_Click"/>
+                    <RadioButton x:Name="YoyoRowButton" Grid.Row="0" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenYoyo_Click"/>
+                    <RadioButton x:Name="CodexRowButton" Grid.Row="1" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenCodex_Click"/>
+                    <RadioButton x:Name="WorkBuddyRowButton" Grid.Row="2" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenWorkBuddy_Click"/>
                 </Grid>
             </Grid>
         </Border>

@@ -45,6 +45,7 @@
                 <StackPanel>
                     <TextBlock Text="功能与交互" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10"/>
                     <DockPanel Margin="0,0,0,8"><TextBlock Text="显示模式" VerticalAlignment="Center"/><ComboBox x:Name="DisplayModeCombo" DockPanel.Dock="Right" Width="180" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="always" Content="始终显示"/><ComboBoxItem Tag="activeOnly" Content="仅任务活动时显示"/></ComboBox></DockPanel>
+                    <DockPanel Margin="0,0,0,8"><TextBlock Text="程序显示顺序" VerticalAlignment="Center"/><ComboBox x:Name="ProviderOrderCombo" DockPanel.Dock="Right" Width="230" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="yoyo,codex,workbuddy" Content="YOYO → Codex → WorkBuddy"/><ComboBoxItem Tag="yoyo,workbuddy,codex" Content="YOYO → WorkBuddy → Codex"/><ComboBoxItem Tag="codex,yoyo,workbuddy" Content="Codex → YOYO → WorkBuddy"/><ComboBoxItem Tag="codex,workbuddy,yoyo" Content="Codex → WorkBuddy → YOYO"/><ComboBoxItem Tag="workbuddy,yoyo,codex" Content="WorkBuddy → YOYO → Codex"/><ComboBoxItem Tag="workbuddy,codex,yoyo" Content="WorkBuddy → Codex → YOYO"/></ComboBox></DockPanel>
                     <CheckBox x:Name="CodexActivityCheck" Content="检测 Codex 是否正在执行任务" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="CodexLimitsCheck" Content="显示 Codex 5 小时与周限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="WorkBuddyCreditsCheck" Content="显示 WorkBuddy 剩余积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
@@ -56,7 +57,7 @@
                     <DockPanel Margin="0,2,0,8"><TextBlock Text="回复最大显示行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" DockPanel.Dock="Right" Width="110" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></DockPanel>
                     <DockPanel><TextBlock Text="悬停展开延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
-                    <DockPanel><TextBlock Text="折叠态额度滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
+                    <DockPanel><TextBlock Text="折叠态文字滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="QuotaScrollSpeedSlider" Minimum="8" Maximum="80" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                     <DockPanel><TextBlock Text="任务完成展开时间"/><TextBlock x:Name="CompletionDisplayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="CompletionDisplaySlider" Minimum="3" Maximum="30" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>

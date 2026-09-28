@@ -32,6 +32,7 @@ internal sealed class IslandSettings
     public int MaxResponseLines { get; set; } = 3;
     public double TextSize { get; set; } = 11;
     public string DisplayMode { get; set; } = "always";
+    public string ProviderOrder { get; set; } = "yoyo,codex,workbuddy";
     public string? YoyoExecutablePath { get; set; }
     public string? CodexExecutablePath { get; set; }
     public string? WorkBuddyExecutablePath { get; set; }

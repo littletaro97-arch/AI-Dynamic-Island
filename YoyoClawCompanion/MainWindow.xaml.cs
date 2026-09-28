@@ -35,7 +35,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
     private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(10) };
-    private readonly DispatcherTimer _marqueeTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private Point _dragCursorStart;
@@ -51,7 +50,9 @@ public partial class MainWindow : Window
     private bool _anyBusy;
     private string? _balanceSummaryKey;
     private double _marqueeOffset, _marqueeCycleWidth;
-    private DateTimeOffset _lastMarqueeTick;
+    private long _lastMarqueeTick;
+    private bool _marqueeRenderingSubscribed;
+    private string? _appliedProviderOrder;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -64,16 +65,15 @@ public partial class MainWindow : Window
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
         _completionTimer.Tick += (_, _) => EndCompletionNotice();
-        _marqueeTimer.Tick += (_, _) => AdvanceSummaryMarquee();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _marqueeTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { StopSummaryMarquee(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
     internal void OpenHomeFromExternalRequest() => OpenHome();
     internal void RefreshFromExternalRequest() => _ = RefreshStatusAsync();
 
-    internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false)
+    internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false, bool preserveMarquee = false)
     {
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
+        settings.ProviderOrder = NormalizeProviderOrder(settings.ProviderOrder);
         _settings = settings;
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         var selectionRadius = new CornerRadius(settings.CornerRadius);
@@ -103,6 +104,7 @@ public partial class MainWindow : Window
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
+        ApplyProviderOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
         _completionTimer.Interval = TimeSpan.FromSeconds(settings.CompletionDisplaySeconds);
         ApplyTypography();
@@ -114,7 +116,7 @@ public partial class MainWindow : Window
         if (persist) AppSettings.Save(_settings);
         if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
         if (IsLoaded) UpdateDisplayMode();
-        ScheduleSummaryMarquee();
+        if (!preserveMarquee) ScheduleSummaryMarquee();
     }
 
     private void ApplyTypography()
@@ -148,6 +150,51 @@ public partial class MainWindow : Window
         var rowHeight = Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
         var lineHeight = Math.Ceiling(_settings.TextSize * 1.45);
         return Math.Min(Height - IslandMargin * 2, 90 + rowHeight * 3 + lineHeight * _settings.MaxResponseLines);
+    }
+
+    private static string NormalizeProviderOrder(string? value)
+    {
+        var providers = value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(item => item.ToLowerInvariant()).ToArray() ?? [];
+        return providers.Length == 3 && providers.Distinct(StringComparer.Ordinal).Count() == 3
+            && providers.All(item => item is "yoyo" or "codex" or "workbuddy")
+            ? string.Join(',', providers)
+            : "yoyo,codex,workbuddy";
+    }
+
+    private string[] ProviderOrder() => _settings.ProviderOrder.Split(',');
+
+    private static string ProviderLabel(string provider) => provider switch
+    {
+        "yoyo" => "YOYO Claw",
+        "codex" => "Codex",
+        _ => "WorkBuddy"
+    };
+
+    private void ApplyProviderOrder()
+    {
+        if (string.Equals(_appliedProviderOrder, _settings.ProviderOrder, StringComparison.Ordinal)) return;
+        var indicators = new Dictionary<string, UIElement>
+        {
+            ["yoyo"] = YoyoIndicatorButton,
+            ["codex"] = CodexIndicatorButton,
+            ["workbuddy"] = WorkBuddyIndicatorButton
+        };
+        foreach (var indicator in indicators.Values) IndicatorPanel.Children.Remove(indicator);
+        foreach (var provider in ProviderOrder()) IndicatorPanel.Children.Add(indicators[provider]);
+
+        var rows = new Dictionary<string, UIElement[]>
+        {
+            ["yoyo"] = [StateDot, YoyoLabel, StateText, PointsText, YoyoRowButton],
+            ["codex"] = [CodexDot, CodexLabel, CodexStateText, CodexRowButton],
+            ["workbuddy"] = [WorkBuddyDot, WorkBuddyLabel, WorkBuddyStateText, WorkBuddyRowButton]
+        };
+        var order = ProviderOrder();
+        for (var row = 0; row < order.Length; row++)
+            foreach (var element in rows[order[row]]) System.Windows.Controls.Grid.SetRow(element, row);
+
+        _appliedProviderOrder = _settings.ProviderOrder;
+        _balanceSummaryKey = null;
     }
 
     internal void ResetPosition()
@@ -244,10 +291,8 @@ public partial class MainWindow : Window
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
-        var busyProviders = new List<string>();
-        if (yoyo.IsBusy) busyProviders.Add("YOYO Claw");
-        if (codex.IsBusy) busyProviders.Add("Codex");
-        if (workBuddy.IsBusy) busyProviders.Add("WorkBuddy");
+        var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
+        var busyProviders = ProviderOrder().Where(provider => busyByProvider[provider]).Select(ProviderLabel).ToList();
         if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
@@ -261,29 +306,32 @@ public partial class MainWindow : Window
 
     private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
     {
-        var yoyoValue = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--";
-        var codexValue = codex.FiveHourRemainingPercent is int fiveHour
-            ? $"5小时 {fiveHour}%"
-            : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--";
-        var workBuddyValue = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--";
-        var key = $"{yoyoValue}|{codexValue}|{workBuddyValue}";
+        var values = new Dictionary<string, string>
+        {
+            ["yoyo"] = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--",
+            ["codex"] = codex.FiveHourRemainingPercent is int fiveHour ? $"5小时 {fiveHour}%" : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--",
+            ["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--"
+        };
+        var key = $"{_settings.ProviderOrder}|{string.Join('|', ProviderOrder().Select(provider => values[provider]))}";
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
 
         _isBalanceSummary = true;
         _balanceSummaryKey = key;
-        PopulateBalanceSummary(SummaryText, yoyoValue, codexValue, workBuddyValue);
-        PopulateBalanceSummary(SummaryTextClone, yoyoValue, codexValue, workBuddyValue);
+        PopulateBalanceSummary(SummaryText, values);
+        PopulateBalanceSummary(SummaryTextClone, values);
         ScheduleSummaryMarquee();
     }
 
-    private void PopulateBalanceSummary(TextBlock target, string yoyoValue, string codexValue, string workBuddyValue)
+    private void PopulateBalanceSummary(TextBlock target, IReadOnlyDictionary<string, string> values)
     {
         target.Inlines.Clear();
-        AddSummaryPart(target, "YOYO Claw ", yoyoValue);
-        target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart(target, "Codex ", codexValue);
-        target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart(target, "WorkBuddy ", workBuddyValue);
+        var first = true;
+        foreach (var provider in ProviderOrder())
+        {
+            if (!first) target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+            AddSummaryPart(target, ProviderLabel(provider) + " ", values[provider]);
+            first = false;
+        }
     }
 
     private void AddSummaryPart(TextBlock target, string label, string value)
@@ -738,11 +786,17 @@ public partial class MainWindow : Window
         _marqueeOffset = 0;
         Canvas.SetLeft(SummaryText, 0);
         Canvas.SetLeft(SummaryTextClone, _marqueeCycleWidth);
-        _lastMarqueeTick = DateTimeOffset.UtcNow;
-        _marqueeTimer.Start();
+        SummaryPrimaryTranslate.X = 0;
+        SummaryCloneTranslate.X = 0;
+        _lastMarqueeTick = Stopwatch.GetTimestamp();
+        if (!_marqueeRenderingSubscribed)
+        {
+            CompositionTarget.Rendering += AdvanceSummaryMarquee;
+            _marqueeRenderingSubscribed = true;
+        }
     }
 
-    private void AdvanceSummaryMarquee()
+    private void AdvanceSummaryMarquee(object? sender, EventArgs e)
     {
         if (!_isBalanceSummary || _expanded || _focusModeHidden || _marqueeCycleWidth <= 0)
         {
@@ -750,21 +804,27 @@ public partial class MainWindow : Window
             return;
         }
 
-        var now = DateTimeOffset.UtcNow;
-        var elapsed = Math.Min(.1, Math.Max(0, (now - _lastMarqueeTick).TotalSeconds));
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = Math.Min(.1, Math.Max(0, (now - _lastMarqueeTick) / (double)Stopwatch.Frequency));
         _lastMarqueeTick = now;
         _marqueeOffset = (_marqueeOffset + _settings.QuotaScrollSpeed * elapsed) % _marqueeCycleWidth;
-        Canvas.SetLeft(SummaryText, -_marqueeOffset);
-        Canvas.SetLeft(SummaryTextClone, _marqueeCycleWidth - _marqueeOffset);
+        SummaryPrimaryTranslate.X = -_marqueeOffset;
+        SummaryCloneTranslate.X = -_marqueeOffset;
     }
 
     private void StopSummaryMarquee()
     {
-        _marqueeTimer.Stop();
+        if (_marqueeRenderingSubscribed)
+        {
+            CompositionTarget.Rendering -= AdvanceSummaryMarquee;
+            _marqueeRenderingSubscribed = false;
+        }
         _marqueeOffset = 0;
         _marqueeCycleWidth = 0;
         Canvas.SetLeft(SummaryText, 0);
         Canvas.SetLeft(SummaryTextClone, 0);
+        SummaryPrimaryTranslate.X = 0;
+        SummaryCloneTranslate.X = 0;
     }
 
     private void SetLaunchControls(bool enabled)
@@ -804,7 +864,6 @@ public partial class MainWindow : Window
         WorkBuddyLabel.Foreground = primary;
         RecentResultText.Foreground = Brush(light ? "#59657A" : "#B9C2D4");
         RecentBorder.Background = Brush(light ? "#CCEAF0F7" : "#B8182033");
-        if (_isBalanceSummary) ScheduleSummaryMarquee();
     }
 
     private static bool SystemUsesLightTheme()
