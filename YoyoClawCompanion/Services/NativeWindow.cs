@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using Point = System.Windows.Point;
 
 namespace YoyoClawCompanion.Services;
 

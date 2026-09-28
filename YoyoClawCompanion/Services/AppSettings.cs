@@ -16,6 +16,7 @@ internal sealed class IslandSettings
     public bool ShowCodex { get; set; } = true;
     public bool ShowWorkBuddy { get; set; } = true;
     public bool ShowShadow { get; set; } = true;
+    public bool ShowTrayIcon { get; set; } = true;
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowCodexLimits { get; set; } = true;
@@ -27,6 +28,8 @@ internal sealed class IslandSettings
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;
     public double CompletionDisplaySeconds { get; set; } = 10;
+    public int MaxResponseLines { get; set; } = 3;
+    public double TextSize { get; set; } = 11;
     public string DisplayMode { get; set; } = "always";
     public string? YoyoExecutablePath { get; set; }
     public string? CodexExecutablePath { get; set; }

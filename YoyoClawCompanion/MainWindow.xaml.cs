@@ -10,12 +10,19 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using YoyoClawCompanion.Services;
+using Brush = System.Windows.Media.Brush;
+using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using Point = System.Windows.Point;
+using Size = System.Windows.Size;
+using Application = System.Windows.Application;
+using Cursors = System.Windows.Input.Cursors;
+using NativeWindow = YoyoClawCompanion.Services.NativeWindow;
 
 namespace YoyoClawCompanion;
 
 public partial class MainWindow : Window
 {
-    private const double CollapsedHeight = 48, ExpandedHeight = 210, IslandMargin = 16;
+    private const double CollapsedHeight = 48, IslandMargin = 16;
     private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#F2C94C"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
     private readonly YoyoStatusService _statusService = new();
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
@@ -38,6 +45,7 @@ public partial class MainWindow : Window
     private Brush _secondaryTextBrush = Brush("#9AA5BC");
     private bool _isBalanceSummary, _focusModeHidden, _expandUp;
     private bool _anyBusy;
+    private string? _balanceSummaryKey;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -56,8 +64,9 @@ public partial class MainWindow : Window
 
     internal IslandSettings CurrentSettings => _settings;
     internal void OpenHomeFromExternalRequest() => OpenHome();
+    internal void RefreshFromExternalRequest() => _ = RefreshStatusAsync();
 
-    internal void ApplySettings(IslandSettings settings, bool persist = true)
+    internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false)
     {
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
@@ -65,6 +74,8 @@ public partial class MainWindow : Window
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
         settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
+        settings.MaxResponseLines = Math.Clamp(settings.MaxResponseLines, 1, 6);
+        settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
         _settings = settings;
@@ -75,7 +86,11 @@ public partial class MainWindow : Window
         CodexRowButton.Tag = selectionRadius;
         WorkBuddyRowButton.Tag = selectionRadius;
         Island.Opacity = settings.Opacity;
-        if (!_expanded) Island.Width = settings.IslandWidth;
+        if (!_expanded)
+        {
+            Island.BeginAnimation(WidthProperty, null);
+            Island.Width = settings.IslandWidth;
+        }
         Topmost = settings.Topmost;
         QuotaDial.Visibility = settings.ShowQuota ? Visibility.Visible : Visibility.Collapsed;
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
@@ -83,13 +98,49 @@ public partial class MainWindow : Window
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
         _completionTimer.Interval = TimeSpan.FromSeconds(settings.CompletionDisplaySeconds);
+        ApplyTypography();
         SetLaunchControls(settings.EnableAppLaunch);
         if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
         ApplyTheme();
         Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
+        ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
         if (persist) AppSettings.Save(_settings);
-        if (persist && IsLoaded) _ = RefreshStatusAsync();
+        if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
+        if (IsLoaded) UpdateDisplayMode();
         ScheduleSummaryMarquee();
+    }
+
+    private void ApplyTypography()
+    {
+        var textSize = _settings.TextSize;
+        HeadlineText.FontSize = textSize + 2;
+        SummaryText.FontSize = textSize;
+        YoyoLabel.FontSize = CodexLabel.FontSize = WorkBuddyLabel.FontSize = textSize + 1;
+        StateText.FontSize = PointsText.FontSize = CodexStateText.FontSize = WorkBuddyStateText.FontSize = textSize;
+        RecentResultText.FontSize = textSize;
+
+        var lineHeight = Math.Ceiling(textSize * 1.45);
+        var rowHeight = Math.Max(24, Math.Ceiling(textSize * 1.7));
+        RecentResultText.LineHeight = lineHeight;
+        RecentResultText.MaxHeight = lineHeight * _settings.MaxResponseLines;
+        ExpandedYoyoRow.Height = ExpandedCodexRow.Height = ExpandedWorkBuddyRow.Height = new GridLength(rowHeight);
+
+        var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= 42;
+        HeadlineText.Visibility = showTwoRows ? Visibility.Visible : Visibility.Collapsed;
+        SummaryViewport.Height = Math.Ceiling(textSize * (showTwoRows ? 1.45 : 1.7));
+
+        if (_expanded)
+        {
+            Island.BeginAnimation(HeightProperty, null);
+            Island.Height = GetExpandedHeight();
+        }
+    }
+
+    private double GetExpandedHeight()
+    {
+        var rowHeight = Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
+        var lineHeight = Math.Ceiling(_settings.TextSize * 1.45);
+        return Math.Min(Height - IslandMargin * 2, 90 + rowHeight * 3 + lineHeight * _settings.MaxResponseLines);
     }
 
     internal void ResetPosition()
@@ -196,15 +247,22 @@ public partial class MainWindow : Window
 
     private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
     {
-        _isBalanceSummary = true;
-        SummaryText.Inlines.Clear();
-        AddSummaryPart("YOYO Claw ", yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--");
-        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart("Codex ", codex.FiveHourRemainingPercent is int fiveHour
+        var yoyoValue = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--";
+        var codexValue = codex.FiveHourRemainingPercent is int fiveHour
             ? $"5小时 {fiveHour}%"
-            : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--");
+            : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--";
+        var workBuddyValue = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--";
+        var key = $"{yoyoValue}|{codexValue}|{workBuddyValue}";
+        if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
+
+        _isBalanceSummary = true;
+        _balanceSummaryKey = key;
+        SummaryText.Inlines.Clear();
+        AddSummaryPart("YOYO Claw ", yoyoValue);
         SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-        AddSummaryPart("WorkBuddy ", workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--");
+        AddSummaryPart("Codex ", codexValue);
+        SummaryText.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
+        AddSummaryPart("WorkBuddy ", workBuddyValue);
         ScheduleSummaryMarquee();
     }
 
@@ -217,6 +275,7 @@ public partial class MainWindow : Window
     private void SetPlainSummary(string value, Brush? foreground = null)
     {
         _isBalanceSummary = false;
+        _balanceSummaryKey = null;
         StopSummaryMarquee();
         SummaryText.Inlines.Clear();
         var run = new Run(value);
@@ -417,7 +476,7 @@ public partial class MainWindow : Window
             ? new BackEase { Amplitude = .28, EasingMode = EasingMode.EaseOut }
             : new CubicEase { EasingMode = EasingMode.EaseOut };
         Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, Math.Max(408, _settings.IslandWidth), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
-        Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, ExpandedHeight, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
+        Island.BeginAnimation(HeightProperty, new DoubleAnimation(Island.ActualHeight, GetExpandedHeight(), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
     }
 
@@ -433,6 +492,10 @@ public partial class MainWindow : Window
         var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
         height.Completed += (_, _) =>
         {
+            Island.BeginAnimation(WidthProperty, null);
+            Island.Width = _settings.IslandWidth;
+            Island.BeginAnimation(HeightProperty, null);
+            Island.Height = CollapsedHeight;
             ExpandedPanel.Visibility = Visibility.Collapsed;
             if (_expandUp)
             {
@@ -489,7 +552,7 @@ public partial class MainWindow : Window
         var workArea = GetCurrentWorkArea();
         var bounds = GetIslandWindowBounds();
         var availableBelow = workArea.Bottom - (Top + bounds.Bottom);
-        return availableBelow < ExpandedHeight - CollapsedHeight + 12;
+        return availableBelow < GetExpandedHeight() - CollapsedHeight + 12;
     }
 
     private static bool ActivateProcess(string name, Func<Process, bool>? predicate = null)
@@ -605,16 +668,14 @@ public partial class MainWindow : Window
     {
         StopSummaryMarquee();
         if (!_isBalanceSummary || _expanded || _focusModeHidden || SummaryViewport.ActualWidth <= 0) return;
-        SummaryText.Measure(new Size(double.PositiveInfinity, SummaryViewport.ActualHeight));
-        var overflow = SummaryText.DesiredSize.Width - SummaryViewport.ActualWidth;
-        if (overflow <= 2) return;
-        var seconds = Math.Max(2.5, overflow / _settings.QuotaScrollSpeed);
-        var animation = new DoubleAnimation(0, -overflow, TimeSpan.FromSeconds(seconds))
+        SummaryText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var textWidth = SummaryText.DesiredSize.Width;
+        if (textWidth <= SummaryViewport.ActualWidth) return;
+        var distance = SummaryViewport.ActualWidth + textWidth;
+        var seconds = Math.Max(2.5, distance / _settings.QuotaScrollSpeed);
+        var animation = new DoubleAnimation(SummaryViewport.ActualWidth, -textWidth, TimeSpan.FromSeconds(seconds))
         {
-            BeginTime = TimeSpan.FromSeconds(.8),
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            RepeatBehavior = RepeatBehavior.Forever
         };
         SummaryTranslate.BeginAnimation(TranslateTransform.XProperty, animation);
     }
@@ -650,11 +711,10 @@ public partial class MainWindow : Window
         _secondaryTextBrush = secondary;
         Island.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         Island.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
-        HeadlineText.Foreground = primary;
         SummaryText.Foreground = secondary;
         if (_isBalanceSummary)
         {
-            foreach (var run in SummaryText.Inlines.OfType<Run>().Where(run => run.FontWeight != FontWeights.SemiBold)) run.Foreground = secondary;
+            foreach (var run in SummaryText.Inlines.OfType<Run>().Where(run => !ReferenceEquals(run.Foreground, AccentBrush))) run.Foreground = secondary;
         }
         YoyoLabel.Foreground = primary;
         CodexLabel.Foreground = primary;

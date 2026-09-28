@@ -1,6 +1,8 @@
 using System.IO;
 using System.Threading;
 using System.Windows;
+using YoyoClawCompanion.Services;
+using Application = System.Windows.Application;
 
 namespace YoyoClawCompanion;
 
@@ -11,6 +13,8 @@ public partial class App : Application
     private Mutex? _singleInstanceMutex;
     private EventWaitHandle? _showSettingsEvent;
     private RegisteredWaitHandle? _showSettingsRegistration;
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private System.Drawing.Icon? _trayDrawingIcon;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -33,8 +37,61 @@ public partial class App : Application
         try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
         _showSettingsRegistration?.Unregister(null);
         _showSettingsEvent?.Dispose();
+        DisposeTrayIcon();
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);
+    }
+
+    internal void SetTrayIconVisible(bool visible)
+    {
+        if (!visible)
+        {
+            DisposeTrayIcon();
+            return;
+        }
+        if (_trayIcon is not null) return;
+
+        _trayDrawingIcon = LoadTrayIcon();
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add("打开主页", null, (_, _) => Dispatcher.BeginInvoke(OpenHome));
+        menu.Items.Add("刷新全部状态", null, (_, _) => Dispatcher.BeginInvoke(RefreshStatus));
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("退出 AI 灵动岛", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        _trayIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = _trayDrawingIcon,
+            Text = "AI 灵动岛",
+            ContextMenuStrip = menu,
+            Visible = true
+        };
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(OpenHome);
+    }
+
+    private void OpenHome() => (MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest();
+    private void RefreshStatus() => (MainWindow as YoyoClawCompanion.MainWindow)?.RefreshFromExternalRequest();
+
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            var executable = ApplicationLocator.FindYoyoExecutable(null);
+            if (executable is not null && System.Drawing.Icon.ExtractAssociatedIcon(executable) is { } icon) return icon;
+        }
+        catch { }
+        return (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
+    }
+
+    private void DisposeTrayIcon()
+    {
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.ContextMenuStrip?.Dispose();
+            _trayIcon.Dispose();
+            _trayIcon = null;
+        }
+        _trayDrawingIcon?.Dispose();
+        _trayDrawingIcon = null;
     }
 
     private static void CleanupStaleSnapshots()

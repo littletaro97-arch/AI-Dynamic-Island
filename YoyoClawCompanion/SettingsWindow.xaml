@@ -23,6 +23,8 @@
                     <Slider x:Name="OpacitySlider" Minimum="55" Maximum="100" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
                     <DockPanel><TextBlock Text="宽度"/><TextBlock x:Name="WidthValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="WidthSlider" Minimum="190" Maximum="340" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
+                    <DockPanel><TextBlock Text="文本大小"/><TextBlock x:Name="TextSizeValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
+                    <Slider x:Name="TextSizeSlider" Minimum="9" Maximum="16" TickFrequency="0.5" ValueChanged="Setting_ValueChanged"/>
                     <CheckBox x:Name="ShadowCheck" Content="显示阴影" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="TopmostCheck" Content="始终置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                 </StackPanel>
@@ -35,6 +37,7 @@
                     <CheckBox x:Name="YoyoCheck" Content="显示 YOYO 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="CodexCheck" Content="显示 Codex 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="WorkBuddyCheck" Content="显示 WorkBuddy 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
+                    <CheckBox x:Name="TrayIconCheck" Content="在系统托盘显示 AI 灵动岛" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                 </StackPanel>
             </Border>
 
@@ -49,6 +52,7 @@
                     <CheckBox x:Name="HoverExpansionCheck" Content="鼠标悬停时展开灵动岛" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="SpringAnimationCheck" Content="展开和收回使用回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="CompletionNotificationsCheck" Content="任务完成时自动展开并显示回复" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
+                    <DockPanel Margin="0,2,0,8"><TextBlock Text="回复最大显示行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" DockPanel.Dock="Right" Width="110" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></DockPanel>
                     <DockPanel><TextBlock Text="悬停展开延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
                     <DockPanel><TextBlock Text="折叠态额度滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
