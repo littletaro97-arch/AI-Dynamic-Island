@@ -35,10 +35,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
     private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _passThroughTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
-    private Point _dragCursorStart;
-    private Point _dragWindowStart;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
     private bool _completionBaselineReady;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
@@ -53,6 +52,8 @@ public partial class MainWindow : Window
     private long _lastMarqueeTick;
     private bool _marqueeRenderingSubscribed;
     private string? _appliedProviderOrder;
+    private bool _reverseHoverHidden;
+    private Rect _reverseHoverBoundsPixels;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -65,8 +66,9 @@ public partial class MainWindow : Window
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
         _completionTimer.Tick += (_, _) => EndCompletionNotice();
+        _passThroughTimer.Tick += (_, _) => CheckReverseHoverExit();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { StopSummaryMarquee(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -87,6 +89,12 @@ public partial class MainWindow : Window
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
         settings.ProviderOrder = NormalizeProviderOrder(settings.ProviderOrder);
         _settings = settings;
+        if (!settings.EnableReverseHover) RestoreReverseHoverIsland();
+        else if (_activeCompletionNotice is null)
+        {
+            if (_expanded) CollapseIsland(true);
+            if (IsLoaded && Island.IsMouseOver) Dispatcher.BeginInvoke(HideIslandForReverseHover, DispatcherPriority.Input);
+        }
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         var selectionRadius = new CornerRadius(settings.CornerRadius);
         YoyoButton.Tag = selectionRadius;
@@ -210,6 +218,11 @@ public partial class MainWindow : Window
     private IntPtr WindowProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (message != 0x0084) return IntPtr.Zero;
+        if (_focusModeHidden || _reverseHoverHidden || Island.Visibility != Visibility.Visible)
+        {
+            handled = true;
+            return new IntPtr(-1);
+        }
         var packed = lParam.ToInt64();
         var point = PointFromScreen(new Point((short)(packed & 0xFFFF), (short)((packed >> 16) & 0xFFFF)));
         var bounds = Island.TransformToAncestor(this).TransformBounds(new Rect(0, 0, Island.ActualWidth, Island.ActualHeight));
@@ -225,7 +238,7 @@ public partial class MainWindow : Window
         {
             Left = x;
             Top = y;
-            ClampCollapsedPosition();
+            await Dispatcher.InvokeAsync(ClampCollapsedPosition, DispatcherPriority.Loaded);
         }
         else ResetPosition();
         await RefreshStatusAsync();
@@ -401,6 +414,7 @@ public partial class MainWindow : Window
         _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
         RecentResultText.Text = _activeCompletionNotice;
         _completionTimer.Stop();
+        RestoreReverseHoverIsland();
         ShowIslandForFocusMode();
         ExpandIsland(true);
         _completionTimer.Start();
@@ -424,7 +438,7 @@ public partial class MainWindow : Window
         _activeCompletionNotice = null;
         RecentResultText.Text = _activeConfirmationNotice;
         ShowIslandForFocusMode();
-        ExpandIsland(true);
+        if (!_settings.EnableReverseHover) ExpandIsland(true);
     }
 
     private void EndCompletionNotice()
@@ -432,6 +446,12 @@ public partial class MainWindow : Window
         _completionTimer.Stop();
         _activeCompletionNotice = null;
         RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+        if (_settings.EnableReverseHover && Island.IsMouseOver)
+        {
+            CollapseIsland(true);
+            HideIslandForReverseHover();
+            return;
+        }
         if (_settings.DisplayMode == "activeOnly" && !_anyBusy)
         {
             CollapseIsland(true);
@@ -467,9 +487,45 @@ public partial class MainWindow : Window
     private void ShowIslandForFocusMode()
     {
         if (!_focusModeHidden) return;
-        Island.Visibility = Visibility.Visible;
         _focusModeHidden = false;
-        ScheduleSummaryMarquee();
+        if (!_reverseHoverHidden)
+        {
+            Island.Visibility = Visibility.Visible;
+            ScheduleSummaryMarquee();
+        }
+    }
+
+    private void HideIslandForReverseHover()
+    {
+        if (!_settings.EnableReverseHover || _reverseHoverHidden || _activeCompletionNotice is not null) return;
+        _enterTimer.Stop();
+        _leaveTimer.Stop();
+        StopSummaryMarquee();
+        _reverseHoverBoundsPixels = GetIslandScreenPixelBounds();
+        _reverseHoverBoundsPixels.Inflate(6, 6);
+        _reverseHoverHidden = true;
+        Island.Visibility = Visibility.Hidden;
+        _passThroughTimer.Start();
+    }
+
+    private void CheckReverseHoverExit()
+    {
+        if (!_reverseHoverHidden) { _passThroughTimer.Stop(); return; }
+        var cursor = NativeWindow.GetCursorPosition();
+        if (double.IsNaN(cursor.X) || _reverseHoverBoundsPixels.Contains(cursor)) return;
+        RestoreReverseHoverIsland();
+    }
+
+    private void RestoreReverseHoverIsland()
+    {
+        if (!_reverseHoverHidden) return;
+        _passThroughTimer.Stop();
+        _reverseHoverHidden = false;
+        if (!_focusModeHidden)
+        {
+            Island.Visibility = Visibility.Visible;
+            ScheduleSummaryMarquee();
+        }
     }
 
     private void UpdateQuotaDial(YoyoStatus status)
@@ -508,24 +564,12 @@ public partial class MainWindow : Window
         _holdTimer.Stop();
         if (Mouse.LeftButton != MouseButtonState.Pressed || !Island.IsMouseOver) return;
         _holdArmed = true;
-        _dragCursorStart = PointToScreen(Mouse.GetPosition(this));
-        _dragWindowStart = new Point(Left, Top);
-        Island.CaptureMouse();
-        Island.Cursor = Cursors.SizeAll; Island.Opacity = Math.Max(.55, _settings.Opacity - .15);
-    }
-
-    private void Island_MouseMove(object sender, MouseEventArgs e)
-    {
-        if (!_holdArmed || e.LeftButton != MouseButtonState.Pressed) return;
-        var cursor = PointToScreen(e.GetPosition(this));
-        var dx = cursor.X - _dragCursorStart.X;
-        var dy = cursor.Y - _dragCursorStart.Y;
-        if (!_dragging && Math.Abs(dx) < 2 && Math.Abs(dy) < 2) return;
+        if (_expanded) CollapseIslandImmediatelyForDrag();
         _dragging = true;
-        var workArea = GetCurrentWorkArea();
-        var bounds = GetIslandWindowBounds();
-        Left = Math.Clamp(_dragWindowStart.X + dx, workArea.Left - bounds.Left, workArea.Right - bounds.Right);
-        Top = Math.Clamp(_dragWindowStart.Y + dy, workArea.Top - bounds.Top, workArea.Bottom - bounds.Bottom);
+        Island.Cursor = Cursors.SizeAll; Island.Opacity = Math.Max(.55, _settings.Opacity - .15);
+        try { DragMove(); }
+        catch (InvalidOperationException) { }
+        finally { FinishPointerGesture(); }
     }
 
     private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => FinishPointerGesture();
@@ -538,17 +582,27 @@ public partial class MainWindow : Window
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
         if (_dragging)
         {
+            ClampCollapsedPosition();
             SnapToHorizontalCenter();
             SavePosition();
         }
         _dragging = false;
         _finishingGesture = false;
-        if (Island.IsMouseOver) _enterTimer.Start();
+        if (Island.IsMouseOver)
+        {
+            if (_settings.EnableReverseHover) HideIslandForReverseHover();
+            else _enterTimer.Start();
+        }
     }
 
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
         _leaveTimer.Stop();
+        if (_settings.EnableReverseHover && _activeCompletionNotice is null)
+        {
+            HideIslandForReverseHover();
+            return;
+        }
         if (_settings.EnableHoverExpansion && !_dragging && !_holdArmed && !_expanded) _enterTimer.Start();
     }
 
@@ -558,9 +612,36 @@ public partial class MainWindow : Window
         if (!_dragging && !_holdArmed && _expanded && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
     }
 
+    private void CollapseIslandImmediatelyForDrag()
+    {
+        if (!_expanded) return;
+        var bounds = GetIslandWindowBounds();
+        var pointer = Mouse.GetPosition(Island);
+        var pointerScreen = new Point(Left + bounds.Left + pointer.X, Top + bounds.Top + pointer.Y);
+
+        Island.BeginAnimation(WidthProperty, null);
+        Island.BeginAnimation(HeightProperty, null);
+        ExpandedPanel.BeginAnimation(OpacityProperty, null);
+        ExpandedPanel.Opacity = 0;
+        ExpandedPanel.Visibility = Visibility.Collapsed;
+        Island.Width = _settings.IslandWidth;
+        Island.Height = CollapsedHeight;
+        Island.VerticalAlignment = VerticalAlignment.Top;
+        Island.Margin = new Thickness(0, IslandMargin, 0, 0);
+        _expanded = false;
+        _expandUp = false;
+
+        var collapsedLeft = (Width - _settings.IslandWidth) / 2;
+        var targetX = Math.Clamp(pointer.X, 10, _settings.IslandWidth - 10);
+        var targetY = Math.Clamp(pointer.Y, 8, CollapsedHeight - 8);
+        Left = pointerScreen.X - collapsedLeft - targetX;
+        Top = pointerScreen.Y - IslandMargin - targetY;
+        ScheduleSummaryMarquee();
+    }
+
     private void ExpandIsland(bool force = false)
     {
-        if ((!force && !_settings.EnableHoverExpansion) || _expanded || _dragging || _holdArmed) return;
+        if ((!force && (!_settings.EnableHoverExpansion || _settings.EnableReverseHover)) || _expanded || _dragging || _holdArmed) return;
         StopSummaryMarquee();
         SummaryTextClone.Visibility = Visibility.Collapsed;
         _expandUp = ShouldExpandUp();
@@ -623,41 +704,54 @@ public partial class MainWindow : Window
         return Island.TransformToAncestor(this).TransformBounds(new Rect(0, 0, Island.ActualWidth, Island.ActualHeight));
     }
 
-    private Rect GetCurrentWorkArea()
+    private Rect GetIslandScreenPixelBounds()
     {
-        var screenPoint = PointToScreen(new Point(Width / 2, Height / 2));
-        var pixelArea = NativeWindow.GetMonitorWorkArea(screenPoint);
-        var source = PresentationSource.FromVisual(this);
-        if (source?.CompositionTarget is null) return SystemParameters.WorkArea;
-        var transform = source.CompositionTarget.TransformFromDevice;
-        var topLeft = transform.Transform(pixelArea.TopLeft);
-        var bottomRight = transform.Transform(pixelArea.BottomRight);
+        var topLeft = Island.PointToScreen(new Point(0, 0));
+        var bottomRight = Island.PointToScreen(new Point(Island.ActualWidth, Island.ActualHeight));
         return new Rect(topLeft, bottomRight);
+    }
+
+    private Vector DevicePixelsToDips(Vector pixels)
+    {
+        var source = PresentationSource.FromVisual(this);
+        return source?.CompositionTarget is null ? pixels : source.CompositionTarget.TransformFromDevice.Transform(pixels);
+    }
+
+    private Vector DipsToDevicePixels(Vector dips)
+    {
+        var source = PresentationSource.FromVisual(this);
+        return source?.CompositionTarget is null ? dips : source.CompositionTarget.TransformToDevice.Transform(dips);
     }
 
     private void ClampCollapsedPosition()
     {
-        var workArea = GetCurrentWorkArea();
-        var leftOffset = (Width - _settings.IslandWidth) / 2;
-        Left = Math.Clamp(Left, workArea.Left - leftOffset, workArea.Right - leftOffset - _settings.IslandWidth);
-        Top = Math.Clamp(Top, workArea.Top - IslandMargin, workArea.Bottom - IslandMargin - CollapsedHeight);
+        var bounds = GetIslandScreenPixelBounds();
+        var workArea = NativeWindow.GetMonitorWorkArea(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        var correctionX = bounds.Left < workArea.Left ? workArea.Left - bounds.Left : bounds.Right > workArea.Right ? workArea.Right - bounds.Right : 0;
+        var correctionY = bounds.Top < workArea.Top ? workArea.Top - bounds.Top : bounds.Bottom > workArea.Bottom ? workArea.Bottom - bounds.Bottom : 0;
+        var correction = DevicePixelsToDips(new Vector(correctionX, correctionY));
+        Left += correction.X;
+        Top += correction.Y;
     }
 
     private void SnapToHorizontalCenter()
     {
-        var workArea = GetCurrentWorkArea();
-        var bounds = GetIslandWindowBounds();
-        var islandCenter = Left + bounds.Left + bounds.Width / 2;
+        var bounds = GetIslandScreenPixelBounds();
+        var workArea = NativeWindow.GetMonitorWorkArea(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        var islandCenter = bounds.Left + bounds.Width / 2;
         var screenCenter = workArea.Left + workArea.Width / 2;
-        if (Math.Abs(islandCenter - screenCenter) <= 36) Left += screenCenter - islandCenter;
+        var threshold = Math.Abs(DipsToDevicePixels(new Vector(36, 0)).X);
+        if (Math.Abs(islandCenter - screenCenter) <= threshold)
+            Left += DevicePixelsToDips(new Vector(screenCenter - islandCenter, 0)).X;
     }
 
     private bool ShouldExpandUp()
     {
-        var workArea = GetCurrentWorkArea();
-        var bounds = GetIslandWindowBounds();
-        var availableBelow = workArea.Bottom - (Top + bounds.Bottom);
-        return availableBelow < GetExpandedHeight() - CollapsedHeight + 12;
+        var bounds = GetIslandScreenPixelBounds();
+        var workArea = NativeWindow.GetMonitorWorkArea(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        var availableBelow = workArea.Bottom - bounds.Bottom;
+        var required = Math.Abs(DipsToDevicePixels(new Vector(0, GetExpandedHeight() - CollapsedHeight + 12)).Y);
+        return availableBelow < required;
     }
 
     private static bool ActivateProcess(string name, Func<Process, bool>? predicate = null)

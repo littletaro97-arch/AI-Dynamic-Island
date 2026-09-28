@@ -26,6 +26,7 @@ internal sealed class IslandSettings
     public bool EnableSpringAnimation { get; set; } = true;
     public bool EnableCompletionNotifications { get; set; } = true;
     public bool EnableConfirmationNotifications { get; set; } = true;
+    public bool EnableReverseHover { get; set; }
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;
     public double CompletionDisplaySeconds { get; set; } = 10;

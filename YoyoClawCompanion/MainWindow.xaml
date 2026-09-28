@@ -80,7 +80,7 @@
                 Effect="{StaticResource IslandShadow}" ContextMenu="{StaticResource IslandMenu}"
                 MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
                 PreviewMouseLeftButtonDown="Island_MouseLeftButtonDown" PreviewMouseLeftButtonUp="Island_MouseLeftButtonUp"
-                PreviewMouseMove="Island_MouseMove" LostMouseCapture="Island_LostMouseCapture">
+                LostMouseCapture="Island_LostMouseCapture">
             <Grid Margin="10,0">
                 <Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>

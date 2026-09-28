@@ -45,6 +45,7 @@ public partial class SettingsWindow : Window
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
         CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
         ConfirmationNotificationsCheck.IsChecked = value.EnableConfirmationNotifications;
+        ReverseHoverCheck.IsChecked = value.EnableReverseHover;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
@@ -80,6 +81,7 @@ public partial class SettingsWindow : Window
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
         current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
         current.EnableConfirmationNotifications = ConfirmationNotificationsCheck.IsChecked == true;
+        current.EnableReverseHover = ReverseHoverCheck.IsChecked == true;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
@@ -122,6 +124,7 @@ public partial class SettingsWindow : Window
         current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
         current.EnableCompletionNotifications = true;
         current.EnableConfirmationNotifications = true;
+        current.EnableReverseHover = false;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
