@@ -61,8 +61,11 @@ public partial class MainWindow : Window
     private bool _fullscreenOverrideActive, _islandAnimationInProgress;
     private bool _inactivityHidden;
     private bool _taskbarTopmostOverride;
+    private bool _horizontalExpansionCompensated;
+    private bool _positionInitialized;
     private int _islandAnimationVersion, _reverseFadeVersion, _focusAnimationVersion;
     private double _collapsedAnchorTop;
+    private double _collapsedLeftBeforeExpansion;
     private string? _stateFingerprint;
     private DateTimeOffset _lastStateChangeAt = DateTimeOffset.Now;
     private bool _appliedUnchangedAutoHide;
@@ -88,6 +91,7 @@ public partial class MainWindow : Window
     }
 
     internal IslandSettings CurrentSettings => _settings;
+    internal event EventHandler? PositionChanged;
     private double CollapsedHeight => _settings.IslandHeight;
     internal void OpenHomeFromExternalRequest() => OpenHome();
     internal void RefreshFromExternalRequest() => _ = RefreshStatusAsync();
@@ -114,6 +118,7 @@ public partial class MainWindow : Window
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
         settings.ProviderOrder = NormalizeProviderOrder(settings.ProviderOrder);
+        settings.PositionPreset = NormalizePositionPreset(settings.PositionPreset);
         _settings = settings;
         if (_appliedUnchangedAutoHide != settings.EnableUnchangedAutoHide
             || Math.Abs(_appliedUnchangedAutoHideMinutes - settings.UnchangedAutoHideMinutes) > .01)
@@ -171,7 +176,7 @@ public partial class MainWindow : Window
         }
         if (persist) AppSettings.Save(_settings);
         if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
-        if (IsLoaded)
+        if (IsLoaded && _positionInitialized)
         {
             if (!_expanded)
             {
@@ -240,6 +245,11 @@ public partial class MainWindow : Window
             : "yoyo,codex,workbuddy";
     }
 
+    private static string NormalizePositionPreset(string? value)
+        => value is "topLeft" or "topCenter" or "topRight" or "bottomLeft" or "bottomCenter" or "bottomRight"
+            ? value
+            : "custom";
+
     private string[] ProviderOrder() => _settings.ProviderOrder.Split(',');
 
     private static string ProviderLabel(string provider) => provider switch
@@ -303,16 +313,49 @@ public partial class MainWindow : Window
     }
 
     internal void ResetPosition()
+        => MoveToPositionPreset("topCenter");
+
+    internal void MoveToPositionPreset(string preset)
+    {
+        preset = NormalizePositionPreset(preset);
+        if (preset == "custom") return;
+        if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
+        Island.UpdateLayout();
+        var bounds = GetIslandScreenPixelBounds();
+        var monitor = NativeWindow.GetMonitorBounds(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        const double edgePadding = 8;
+        var targetLeft = preset switch
+        {
+            "topLeft" or "bottomLeft" => monitor.Left + edgePadding,
+            "topRight" or "bottomRight" => monitor.Right - bounds.Width - edgePadding,
+            _ => monitor.Left + (monitor.Width - bounds.Width) / 2
+        };
+        var targetTop = preset.StartsWith("bottom", StringComparison.Ordinal)
+            ? monitor.Bottom - bounds.Height - edgePadding
+            : monitor.Top + edgePadding;
+        var correction = DevicePixelsToDips(new Vector(targetLeft - bounds.Left, targetTop - bounds.Top));
+        Left += correction.X;
+        Top += correction.Y;
+        _settings.PositionPreset = preset;
+        UpdateCollapsedAnchorFromCurrentGeometry();
+        OrientCollapsedIsland();
+        ClampCollapsedPosition();
+        UpdateCollapsedAnchorFromCurrentGeometry();
+        SavePosition();
+        PositionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void NudgePosition(double horizontal, double vertical)
     {
         if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
-        Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2;
-        Top = SystemParameters.WorkArea.Top;
-        Island.VerticalAlignment = VerticalAlignment.Top;
-        Island.Margin = new Thickness(0, IslandMargin, 0, 0);
-        _expandUp = false;
-        ApplyExpandedContentOrder();
-        _collapsedAnchorTop = Top;
+        Left += horizontal;
+        Top += vertical;
+        _settings.PositionPreset = "custom";
+        ClampCollapsedPosition();
+        UpdateCollapsedAnchorFromCurrentGeometry();
+        OrientCollapsedIsland();
         SavePosition();
+        PositionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private IntPtr WindowProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -333,8 +376,10 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        var savedX = _settings.X;
+        var savedY = _settings.Y;
         ApplySettings(_settings, false);
-        if (_settings.X is double x && _settings.Y is double y)
+        if (savedX is double x && savedY is double y)
         {
             Left = x;
             Top = y;
@@ -343,6 +388,10 @@ public partial class MainWindow : Window
         else ResetPosition();
         _collapsedAnchorTop = Top;
         OrientCollapsedIsland();
+        _positionInitialized = true;
+        if (NormalizePositionPreset(_settings.PositionPreset) != "custom")
+            MoveToPositionPreset(_settings.PositionPreset);
+        else SavePosition();
         await RefreshStatusAsync();
         _refreshTimer.Start();
         _zOrderTimer.Start();
@@ -905,11 +954,13 @@ public partial class MainWindow : Window
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
         if (_dragging)
         {
+            _settings.PositionPreset = "custom";
             ClampCollapsedPosition();
             SnapToHorizontalCenter();
             UpdateCollapsedAnchorFromCurrentGeometry();
             OrientCollapsedIsland();
             SavePosition();
+            PositionChanged?.Invoke(this, EventArgs.Empty);
             EnsureTaskbarZOrder();
         }
         _dragging = false;
@@ -963,6 +1014,8 @@ public partial class MainWindow : Window
         var pointer = Mouse.GetPosition(Island);
         var pointerScreen = new Point(Left + bounds.Left + pointer.X, Top + bounds.Top + pointer.Y);
 
+        BeginAnimation(LeftProperty, null);
+        _horizontalExpansionCompensated = false;
         Island.BeginAnimation(WidthProperty, null);
         Island.BeginAnimation(HeightProperty, null);
         ExpandedPanel.BeginAnimation(OpacityProperty, null);
@@ -998,6 +1051,8 @@ public partial class MainWindow : Window
         SummaryTextClone.Visibility = Visibility.Collapsed;
         if (!_expandUp) _collapsedAnchorTop = Top;
         OrientCollapsedIsland();
+        _collapsedLeftBeforeExpansion = Left;
+        _horizontalExpansionCompensated = false;
         _expanded = true;
         _islandAnimationInProgress = true;
         var animationVersion = ++_islandAnimationVersion;
@@ -1008,10 +1063,23 @@ public partial class MainWindow : Window
 
     private void StartExpandAnimations(int animationVersion)
     {
-        IEasingFunction easing = _settings.EnableSpringAnimation
+        var targetWidth = Math.Max(408, _settings.IslandWidth);
+        var constrainToScreen = !_settings.AllowExpandedBeyondScreen;
+        IEasingFunction easing = constrainToScreen
+            ? new CubicEase { EasingMode = EasingMode.EaseOut }
+            : _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .28, EasingMode = EasingMode.EaseOut }
             : new CubicEase { EasingMode = EasingMode.EaseOut };
-        Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, Math.Max(408, _settings.IslandWidth), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
+        if (constrainToScreen)
+        {
+            var targetLeft = GetConstrainedExpansionLeft(targetWidth);
+            if (Math.Abs(targetLeft - Left) > .1)
+            {
+                _horizontalExpansionCompensated = true;
+                BeginAnimation(LeftProperty, new DoubleAnimation(Left, targetLeft, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
+            }
+        }
+        Island.BeginAnimation(WidthProperty, new DoubleAnimation(Island.ActualWidth, targetWidth, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         var height = new DoubleAnimation(Island.ActualHeight, GetExpandedHeight(), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         height.Completed += (_, _) =>
         {
@@ -1023,9 +1091,28 @@ public partial class MainWindow : Window
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
     }
 
+    private double GetConstrainedExpansionLeft(double targetWidth)
+    {
+        var bounds = GetIslandScreenPixelBounds();
+        var monitor = NativeWindow.GetMonitorBounds(new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2));
+        var expansionPixels = Math.Abs(DipsToDevicePixels(new Vector(Math.Max(0, targetWidth - Island.ActualWidth), 0)).X);
+        var projectedLeft = bounds.Left - expansionPixels / 2;
+        var projectedRight = bounds.Right + expansionPixels / 2;
+        const double edgePadding = 2;
+        var correctionPixels = projectedLeft < monitor.Left + edgePadding
+            ? monitor.Left + edgePadding - projectedLeft
+            : projectedRight > monitor.Right - edgePadding
+                ? monitor.Right - edgePadding - projectedRight
+                : 0;
+        return Left + DevicePixelsToDips(new Vector(correctionPixels, 0)).X;
+    }
+
     private void CompleteCollapseImmediately()
     {
         _islandAnimationVersion++;
+        BeginAnimation(LeftProperty, null);
+        if (_horizontalExpansionCompensated) Left = _collapsedLeftBeforeExpansion;
+        _horizontalExpansionCompensated = false;
         Island.BeginAnimation(WidthProperty, null);
         Island.BeginAnimation(HeightProperty, null);
         ExpandedPanel.BeginAnimation(OpacityProperty, null);
@@ -1050,9 +1137,13 @@ public partial class MainWindow : Window
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
-        IEasingFunction easing = _settings.EnableSpringAnimation
+        IEasingFunction easing = _horizontalExpansionCompensated
+            ? new CubicEase { EasingMode = EasingMode.EaseIn }
+            : _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .22, EasingMode = EasingMode.EaseIn }
             : new CubicEase { EasingMode = EasingMode.EaseIn };
+        if (_horizontalExpansionCompensated)
+            BeginAnimation(LeftProperty, new DoubleAnimation(Left, _collapsedLeftBeforeExpansion, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
         var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
         var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
         height.Completed += (_, _) =>
@@ -1062,6 +1153,9 @@ public partial class MainWindow : Window
             Island.Width = _settings.IslandWidth;
             Island.BeginAnimation(HeightProperty, null);
             Island.Height = CollapsedHeight;
+            BeginAnimation(LeftProperty, null);
+            if (_horizontalExpansionCompensated) Left = _collapsedLeftBeforeExpansion;
+            _horizontalExpansionCompensated = false;
             ExpandedPanel.Visibility = Visibility.Collapsed;
             _islandAnimationInProgress = false;
             ScheduleSummaryMarquee();

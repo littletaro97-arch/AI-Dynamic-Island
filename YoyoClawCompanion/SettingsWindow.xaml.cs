@@ -26,6 +26,8 @@ public partial class SettingsWindow : Window
         _island = island;
         InitializeComponent();
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
+        _island.PositionChanged += Island_PositionChanged;
+        Closed += (_, _) => _island.PositionChanged -= Island_PositionChanged;
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
@@ -60,6 +62,7 @@ public partial class SettingsWindow : Window
         FullscreenActiveOnlyCheck.IsChecked = value.EnableFullscreenActiveOnly;
         UnchangedAutoHideCheck.IsChecked = value.EnableUnchangedAutoHide;
         ReplyFirstWhenExpandedUpCheck.IsChecked = value.PutReplyFirstWhenExpandedUp;
+        AllowExpandedBeyondScreenCheck.IsChecked = value.AllowExpandedBeyondScreen;
         UnchangedAutoHideSlider.Value = value.UnchangedAutoHideMinutes;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
@@ -70,6 +73,7 @@ public partial class SettingsWindow : Window
         if (DisplayModeCombo.SelectedIndex < 0) DisplayModeCombo.SelectedIndex = 0;
         foreach (ComboBoxItem item in ProviderOrderCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ProviderOrder, StringComparison.OrdinalIgnoreCase)) ProviderOrderCombo.SelectedItem = item;
         if (ProviderOrderCombo.SelectedIndex < 0) ProviderOrderCombo.SelectedIndex = 0;
+        UpdatePositionControls(value.PositionPreset);
     }
 
     private void Setting_ValueChanged(object sender, RoutedEventArgs e)
@@ -101,6 +105,7 @@ public partial class SettingsWindow : Window
         current.EnableFullscreenActiveOnly = FullscreenActiveOnlyCheck.IsChecked == true;
         current.EnableUnchangedAutoHide = UnchangedAutoHideCheck.IsChecked == true;
         current.PutReplyFirstWhenExpandedUp = ReplyFirstWhenExpandedUpCheck.IsChecked == true;
+        current.AllowExpandedBeyondScreen = AllowExpandedBeyondScreenCheck.IsChecked == true;
         current.UnchangedAutoHideMinutes = UnchangedAutoHideSlider.Value;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
@@ -135,7 +140,54 @@ public partial class SettingsWindow : Window
         PreviewIsland.Opacity = OpacitySlider.Value / 100;
     }
 
-    private void ResetPosition_Click(object sender, RoutedEventArgs e) => _island.ResetPosition();
+    private void ResetPosition_Click(object sender, RoutedEventArgs e)
+    {
+        _island.ResetPosition();
+        UpdatePositionControls(_island.CurrentSettings.PositionPreset);
+    }
+
+    private void PositionPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string preset }) return;
+        _island.MoveToPositionPreset(preset);
+        UpdatePositionControls(preset);
+    }
+
+    private void NudgePosition_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        var parts = tag.Split(',');
+        if (parts.Length != 2 || !double.TryParse(parts[0], out var horizontal) || !double.TryParse(parts[1], out var vertical)) return;
+        _island.NudgePosition(horizontal, vertical);
+        UpdatePositionControls("custom");
+    }
+
+    private void Island_PositionChanged(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(() => UpdatePositionControls(_island.CurrentSettings.PositionPreset));
+
+    private void UpdatePositionControls(string? preset)
+    {
+        var controls = new Dictionary<string, System.Windows.Controls.RadioButton>
+        {
+            ["topLeft"] = TopLeftPreset,
+            ["topCenter"] = TopCenterPreset,
+            ["topRight"] = TopRightPreset,
+            ["bottomLeft"] = BottomLeftPreset,
+            ["bottomCenter"] = BottomCenterPreset,
+            ["bottomRight"] = BottomRightPreset
+        };
+        foreach (var pair in controls) pair.Value.IsChecked = string.Equals(pair.Key, preset, StringComparison.Ordinal);
+        PositionModeText.Text = preset switch
+        {
+            "topLeft" => "标准位置 · 左上",
+            "topCenter" => "标准位置 · 顶部",
+            "topRight" => "标准位置 · 右上",
+            "bottomLeft" => "标准位置 · 左下",
+            "bottomCenter" => "标准位置 · 底部",
+            "bottomRight" => "标准位置 · 右下",
+            _ => "拖动岛 · 自定义位置"
+        };
+    }
 
     private void ResetAppearance_Click(object sender, RoutedEventArgs e)
     {
@@ -154,6 +206,7 @@ public partial class SettingsWindow : Window
         current.EnableFullscreenActiveOnly = false;
         current.EnableUnchangedAutoHide = false; current.UnchangedAutoHideMinutes = 5;
         current.PutReplyFirstWhenExpandedUp = false;
+        current.AllowExpandedBeyondScreen = true;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
@@ -185,6 +238,8 @@ public partial class SettingsWindow : Window
         PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
+        PositionPreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
+        PositionPreviewSurface.BorderBrush = Brush(light ? "#263A4557" : "#4A596E");
         ApplyTitleBarTheme(light);
     }
 

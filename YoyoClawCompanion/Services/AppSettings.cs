@@ -31,6 +31,8 @@ internal sealed class IslandSettings
     public bool EnableFullscreenActiveOnly { get; set; }
     public bool EnableUnchangedAutoHide { get; set; }
     public bool PutReplyFirstWhenExpandedUp { get; set; }
+    public bool AllowExpandedBeyondScreen { get; set; } = true;
+    public string PositionPreset { get; set; } = "custom";
     public double UnchangedAutoHideMinutes { get; set; } = 5;
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;
