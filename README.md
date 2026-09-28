@@ -46,7 +46,7 @@
 ## 构建与运行
 
 ```powershell
-dotnet build .\YoyoClawCompanion.sln -c Release
+dotnet build ".\AI Dynamic Island.sln" -c Release
 dotnet run --project .\YoyoClawCompanion\YoyoClawCompanion.csproj -c Release
 ```
 
