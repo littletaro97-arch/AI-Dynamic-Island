@@ -46,6 +46,7 @@ public partial class SettingsWindow : Window
         CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
         ConfirmationNotificationsCheck.IsChecked = value.EnableConfirmationNotifications;
         ReverseHoverCheck.IsChecked = value.EnableReverseHover;
+        FullscreenActiveOnlyCheck.IsChecked = value.EnableFullscreenActiveOnly;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
@@ -82,6 +83,7 @@ public partial class SettingsWindow : Window
         current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
         current.EnableConfirmationNotifications = ConfirmationNotificationsCheck.IsChecked == true;
         current.EnableReverseHover = ReverseHoverCheck.IsChecked == true;
+        current.EnableFullscreenActiveOnly = FullscreenActiveOnlyCheck.IsChecked == true;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
@@ -125,6 +127,7 @@ public partial class SettingsWindow : Window
         current.EnableCompletionNotifications = true;
         current.EnableConfirmationNotifications = true;
         current.EnableReverseHover = false;
+        current.EnableFullscreenActiveOnly = false;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         current.ProviderOrder = "yoyo,codex,workbuddy";
         LoadValues(current);
