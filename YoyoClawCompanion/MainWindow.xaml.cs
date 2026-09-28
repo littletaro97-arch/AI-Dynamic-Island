@@ -331,26 +331,33 @@ public partial class MainWindow : Window
         try
         {
             CaptureExecutablePaths();
-            var workBuddyTask = _workBuddyStatusService.ReadAsync();
-            var workBuddyCreditsTask = _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits);
-            var codexTask = _codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits);
-            var yoyoTask = _statusService.ReadAsync();
-            var status = await yoyoTask;
-            var workBuddy = await workBuddyTask;
-            var workBuddyCredits = await workBuddyCreditsTask;
-            var codex = await codexTask;
-            CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy ? BusyBrush : OnlineBrush;
+            var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync());
+            var workBuddyCreditsTask = MeasureAsync(_workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits));
+            var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits));
+            var yoyoTask = MeasureAsync(_statusService.ReadAsync());
+
+            // Codex activity is intentionally applied first. Slow YOYO bridge or quota reads must not
+            // delay the visible busy state or active-only island wake-up.
+            var codexResult = await codexTask;
+            var codex = codexResult.Value;
+            ApplyCodexVisualState(codex, provisional: true);
+
+            var statusResult = await yoyoTask;
+            var workBuddyResult = await workBuddyTask;
+            var workBuddyCreditsResult = await workBuddyCreditsTask;
+            var status = statusResult.Value;
+            var workBuddy = workBuddyResult.Value;
+            var workBuddyCredits = workBuddyCreditsResult.Value;
             WorkBuddyMiniDot.Fill = !workBuddy.IsRunning ? OfflineBrush : !workBuddy.DataAvailable ? ErrorBrush : workBuddy.IsBusy ? BusyBrush : OnlineBrush;
             YoyoMiniDot.Fill = !status.IsYoyoRunning ? OfflineBrush : !status.TaskStatusAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : status.LastTaskFailed ? ErrorBrush : OnlineBrush;
             StateDot.Fill = YoyoMiniDot.Fill;
-            CodexDot.Fill = CodexMiniDot.Fill;
             WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
             PointsText.Inlines.Clear();
             PointsText.Inlines.Add(new Run("· ") { Foreground = Brush("#182033") });
             PointsText.Inlines.Add(new Run(status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --") { Foreground = AccentBrush });
             StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : status.LastTaskFailed ? "最近任务失败" : "空闲";
             StateText.Foreground = YoyoMiniDot.Fill;
-            SetCodexStateText(codex);
+            ApplyCodexVisualState(codex, provisional: false);
             SetWorkBuddyStateText(workBuddy, workBuddyCredits);
             _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
             UpdateConfirmationNotice(workBuddy);
@@ -358,9 +365,11 @@ public partial class MainWindow : Window
             RecentResultText.Text = _activeConfirmationNotice ?? _activeCompletionNotice ?? _latestCombinedResult;
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
             UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
-            _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
+            _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 2 : 5);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
-            WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
+            WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits,
+                new RefreshTimings(statusResult.ElapsedMilliseconds, codexResult.ElapsedMilliseconds,
+                    workBuddyResult.ElapsedMilliseconds, workBuddyCreditsResult.ElapsedMilliseconds));
             if (_activeConfirmationNotice is null && completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
             else UpdateDisplayMode();
         }
@@ -371,6 +380,29 @@ public partial class MainWindow : Window
             SetPlainSummary(error.GetType().Name);
         }
         finally { _refreshing = false; }
+    }
+
+    private void ApplyCodexVisualState(CodexStatus codex, bool provisional)
+    {
+        CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy ? BusyBrush : OnlineBrush;
+        CodexDot.Fill = CodexMiniDot.Fill;
+        SetCodexStateText(codex);
+        if (!provisional || !codex.IsBusy) return;
+
+        _anyBusy = true;
+        _refreshTimer.Interval = TimeSpan.FromSeconds(2);
+        HeadlineText.Text = "Codex 执行中";
+        HeadlineText.Foreground = BusyBrush;
+        SetPlainSummary(CodexSummary(codex), BusyBrush);
+        if (UsesActiveOnlyDisplay && !_notificationHoldActive) ShowIslandForFocusMode();
+    }
+
+    private static async Task<TimedResult<T>> MeasureAsync<T>(Task<T> task)
+    {
+        var watch = Stopwatch.StartNew();
+        var value = await task;
+        watch.Stop();
+        return new TimedResult<T>(value, watch.ElapsedMilliseconds);
     }
 
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
@@ -1273,12 +1305,32 @@ public partial class MainWindow : Window
         catch { return true; }
     }
 
-    private static void WriteStatusSnapshot(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits)
+    private static void WriteStatusSnapshot(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits, RefreshTimings timings)
     {
         try
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
-            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent, recentResponseAt = codex.RecentResponseAt }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, requiresConfirmation = workBuddy.RequiresConfirmation, confirmationId = workBuddy.ConfirmationId, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt } });
+            var json = JsonSerializer.Serialize(new
+            {
+                updatedAt = DateTimeOffset.Now,
+                yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt, readMilliseconds = timings.YoyoReadMilliseconds },
+                codex = new
+                {
+                    running = codex.IsRunning,
+                    busy = codex.IsBusy,
+                    fiveHourRemainingPercent = codex.FiveHourRemainingPercent,
+                    weeklyRemainingPercent = codex.WeeklyRemainingPercent,
+                    recentResponseAt = codex.RecentResponseAt,
+                    readMilliseconds = timings.CodexReadMilliseconds,
+                    activityReadMilliseconds = codex.ActivityReadMilliseconds,
+                    limitsReadMilliseconds = codex.LimitsReadMilliseconds,
+                    sessionsScanned = codex.SessionsScanned,
+                    activeSessions = codex.ActiveSessions,
+                    latestLifecycleAt = codex.LatestLifecycleAt,
+                    hasStaleStarted = codex.HasStaleStarted
+                },
+                workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, requiresConfirmation = workBuddy.RequiresConfirmation, confirmationId = workBuddy.ConfirmationId, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt, readMilliseconds = timings.WorkBuddyReadMilliseconds, creditsReadMilliseconds = timings.WorkBuddyCreditsReadMilliseconds }
+            });
             File.WriteAllText(Path.Combine(directory, "status.json"), json);
         }
         catch { }
@@ -1294,6 +1346,8 @@ public partial class MainWindow : Window
 
     private static SolidColorBrush Brush(string color) => (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
     private sealed record CompletionNotice(string Provider, string Response, DateTimeOffset CompletedAt);
+    private readonly record struct TimedResult<T>(T Value, long ElapsedMilliseconds);
+    private readonly record struct RefreshTimings(long YoyoReadMilliseconds, long CodexReadMilliseconds, long WorkBuddyReadMilliseconds, long WorkBuddyCreditsReadMilliseconds);
     private void OpenHome_Click(object sender, RoutedEventArgs e) => OpenHome();
     private void OpenYoyo_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenYoyo(); e.Handled = true; }
     private void OpenCodex_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenCodex(); e.Handled = true; }
