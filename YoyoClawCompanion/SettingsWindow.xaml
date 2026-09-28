@@ -14,28 +14,52 @@
         <Geometry x:Key="IconEye">M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 M12,8 A4,4 0 1 1 11.9,8</Geometry>
         <Geometry x:Key="IconScreen">M3,5 L9,5 M3,5 L3,11 M21,5 L15,5 M21,5 L21,11 M3,19 L9,19 M3,19 L3,13 M21,19 L15,19 M21,19 L21,13</Geometry>
         <Geometry x:Key="IconCheck">M3,12 L9,18 L21,5</Geometry>
+        <Geometry x:Key="IconAppearance">M4,6 L20,6 M8,3 L8,9 M4,12 L20,12 M16,9 L16,15 M4,18 L20,18 M10,15 L10,21</Geometry>
+        <Geometry x:Key="IconComponents">M3,3 L10,3 L10,10 L3,10 Z M14,3 L21,3 L21,10 L14,10 Z M3,14 L10,14 L10,21 L3,21 Z M14,14 L21,14 L21,21 L14,21 Z</Geometry>
+        <Geometry x:Key="IconBehavior">M13,2 L5,13 L11,13 L10,22 L19,10 L13,10 Z</Geometry>
+        <Geometry x:Key="IconBell">M6,17 L18,17 L16,14 L16,9 C16,4 8,4 8,9 L8,14 Z M10,20 C11,22 13,22 14,20</Geometry>
+        <Geometry x:Key="IconPosition">M12,2 L9,5 M12,2 L15,5 M12,22 L9,19 M12,22 L15,19 M2,12 L5,9 M2,12 L5,15 M22,12 L19,9 M22,12 L19,15 M12,6 L12,18 M6,12 L18,12</Geometry>
         <Style TargetType="CheckBox">
             <Setter Property="Margin" Value="5"/><Setter Property="FontSize" Value="13.5"/><Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
-                <Border x:Name="SwitchCard" Height="62" Padding="10" CornerRadius="16" Background="#083ED598" BorderBrush="#303ED598" BorderThickness="1.5">
+                <Border x:Name="SwitchCard" Height="62" Padding="10" CornerRadius="16" BorderThickness="1.5">
+                    <Border.Background><SolidColorBrush x:Name="SwitchCardBrush" Color="#083ED598"/></Border.Background>
+                    <Border.BorderBrush><SolidColorBrush x:Name="SwitchCardBorderBrush" Color="#303ED598"/></Border.BorderBrush>
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
-                        <Border x:Name="IconTile" Width="38" Height="38" CornerRadius="12" Background="#737C90">
+                        <Border x:Name="IconTile" Width="38" Height="38" CornerRadius="12">
+                            <Border.Background><SolidColorBrush x:Name="IconTileBrush" Color="#737C90"/></Border.Background>
                             <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Stroke="White" Fill="Transparent" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="21" Height="21" Stretch="Uniform"/>
                         </Border>
                         <TextBlock Grid.Column="1" Text="{TemplateBinding Content}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="10,0"/>
-                        <Border x:Name="ToggleTrack" Grid.Column="2" Width="44" Height="24" CornerRadius="12" Background="#AAB2C0" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Ellipse x:Name="ToggleKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="3,0"/>
+                        <Border x:Name="ToggleTrack" Grid.Column="2" Width="44" Height="24" CornerRadius="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Border.Background><SolidColorBrush x:Name="ToggleTrackBrush" Color="#AAB2C0"/></Border.Background>
+                            <Ellipse x:Name="ToggleKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="3,0">
+                                <Ellipse.RenderTransform><TranslateTransform x:Name="ToggleKnobTransform"/></Ellipse.RenderTransform>
+                            </Ellipse>
                         </Border>
                     </Grid>
                 </Border>
                 <ControlTemplate.Triggers>
-                    <Trigger Property="IsChecked" Value="True">
-                        <Setter TargetName="SwitchCard" Property="Background" Value="#123ED598"/><Setter TargetName="SwitchCard" Property="BorderBrush" Value="#623ED598"/>
-                        <Setter TargetName="IconTile" Property="Background" Value="#43A878"/><Setter TargetName="ToggleTrack" Property="Background" Value="#43A878"/>
-                        <Setter TargetName="ToggleKnob" Property="HorizontalAlignment" Value="Right"/>
-                    </Trigger>
-                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SwitchCard" Property="BorderBrush" Value="#9A43A878"/></Trigger>
+                    <EventTrigger RoutedEvent="CheckBox.Checked">
+                        <BeginStoryboard><Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="ToggleKnobTransform" Storyboard.TargetProperty="X" To="20" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                            <ColorAnimation Storyboard.TargetName="SwitchCardBrush" Storyboard.TargetProperty="Color" To="#123ED598" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="SwitchCardBorderBrush" Storyboard.TargetProperty="Color" To="#623ED598" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="IconTileBrush" Storyboard.TargetProperty="Color" To="#43A878" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="ToggleTrackBrush" Storyboard.TargetProperty="Color" To="#43A878" Duration="0:0:0.18"/>
+                        </Storyboard></BeginStoryboard>
+                    </EventTrigger>
+                    <EventTrigger RoutedEvent="CheckBox.Unchecked">
+                        <BeginStoryboard><Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="ToggleKnobTransform" Storyboard.TargetProperty="X" To="0" Duration="0:0:0.18"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                            <ColorAnimation Storyboard.TargetName="SwitchCardBrush" Storyboard.TargetProperty="Color" To="#083ED598" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="SwitchCardBorderBrush" Storyboard.TargetProperty="Color" To="#303ED598" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="IconTileBrush" Storyboard.TargetProperty="Color" To="#737C90" Duration="0:0:0.18"/>
+                            <ColorAnimation Storyboard.TargetName="ToggleTrackBrush" Storyboard.TargetProperty="Color" To="#AAB2C0" Duration="0:0:0.18"/>
+                        </Storyboard></BeginStoryboard>
+                    </EventTrigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SwitchCard" Property="Opacity" Value=".96"/></Trigger>
                     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchCard" Property="Opacity" Value=".45"/></Trigger>
                 </ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
@@ -75,11 +99,11 @@
                     </Border>
                     <StackPanel Margin="10,1,0,0"><TextBlock x:Name="NavTitle" Text="AI Dynamic" FontSize="15" FontWeight="SemiBold"/><TextBlock x:Name="NavSubtitle" Text="Island" Foreground="#657087" FontSize="13"/></StackPanel>
                 </StackPanel>
-                <Button Style="{StaticResource NavButton}" Tag="AppearanceCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Rectangle Width="13" Height="13" RadiusX="4" RadiusY="4" Fill="#8FA0FF" Margin="0,0,12,0"/><TextBlock Text="外观"/></StackPanel></Button>
-                <Button Style="{StaticResource NavButton}" Tag="ComponentCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Ellipse Width="13" Height="13" Fill="#3ED598" Margin="0,0,12,0"/><TextBlock Text="组件"/></StackPanel></Button>
-                <Button Style="{StaticResource NavButton}" Tag="FeatureCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Polygon Points="6.5,0 13,13 0,13" Fill="#F2C94C" Width="13" Height="13" Margin="0,0,12,0"/><TextBlock Text="行为"/></StackPanel></Button>
-                <Button Style="{StaticResource NavButton}" Tag="NotificationCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="13" Height="13" CornerRadius="7" BorderBrush="#F2686F" BorderThickness="3" Margin="0,0,12,0"/><TextBlock Text="提醒"/></StackPanel></Button>
-                <Button Style="{StaticResource NavButton}" Tag="PositionCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Path Data="M 1,6 L 12,6 M 6,1 L 6,12" Stroke="#657087" StrokeThickness="2" Width="13" Height="13" Stretch="Fill" Margin="0,0,12,0"/><TextBlock Text="位置"/></StackPanel></Button>
+                <Button Style="{StaticResource NavButton}" Tag="AppearanceCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#188FA0FF" Margin="0,0,11,0"><Path Data="{StaticResource IconAppearance}" Stroke="#8FA0FF" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Border><TextBlock Text="外观" VerticalAlignment="Center"/></StackPanel></Button>
+                <Button Style="{StaticResource NavButton}" Tag="ComponentCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#183ED598" Margin="0,0,11,0"><Path Data="{StaticResource IconComponents}" Fill="#3ED598" Width="17" Height="17" Stretch="Uniform"/></Border><TextBlock Text="组件" VerticalAlignment="Center"/></StackPanel></Button>
+                <Button Style="{StaticResource NavButton}" Tag="FeatureCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#18F2C94C" Margin="0,0,11,0"><Path Data="{StaticResource IconBehavior}" Fill="#D9A900" Width="17" Height="19" Stretch="Uniform"/></Border><TextBlock Text="行为" VerticalAlignment="Center"/></StackPanel></Button>
+                <Button Style="{StaticResource NavButton}" Tag="NotificationCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#18F2686F" Margin="0,0,11,0"><Path Data="{StaticResource IconBell}" Stroke="#F2686F" Fill="Transparent" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform" StrokeLineJoin="Round"/></Border><TextBlock Text="提醒" VerticalAlignment="Center"/></StackPanel></Button>
+                <Button Style="{StaticResource NavButton}" Tag="PositionCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#18657087" Margin="0,0,11,0"><Path Data="{StaticResource IconPosition}" Stroke="#657087" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Border><TextBlock Text="位置" VerticalAlignment="Center"/></StackPanel></Button>
             </StackPanel>
         </Border>
 
@@ -121,7 +145,7 @@
                         <UniformGrid Columns="2"><CheckBox x:Name="CompletionNotificationsCheck" Tag="{StaticResource IconCheck}" Content="任务完成提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ConfirmationNotificationsCheck" Tag="{StaticResource IconClock}" Content="WorkBuddy 待确认" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReverseHoverCheck" Tag="{StaticResource IconEye}" Content="反向选择" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="FullscreenActiveOnlyCheck" Tag="{StaticResource IconScreen}" Content="全屏时活动显示" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="UnchangedAutoHideCheck" Tag="{StaticResource IconClock}" Content="状态未变化时隐藏" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
                         <Grid Margin="0,10,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="回复行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></Grid>
                         <DockPanel><TextBlock Text="完成提醒时长"/><TextBlock x:Name="CompletionDisplayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="CompletionDisplaySlider" Minimum="3" Maximum="30" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
-                        <DockPanel><TextBlock Text="未变化隐藏"/><TextBlock x:Name="UnchangedAutoHideValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="UnchangedAutoHideSlider" Minimum="1" Maximum="60" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
+                        <DockPanel><TextBlock Text="未变化隐藏"/><TextBlock x:Name="UnchangedAutoHideValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="UnchangedAutoHideSlider" Minimum="1" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Setting_ValueChanged"/>
                     </StackPanel></Border>
 
                     <Border x:Name="PositionCard" Style="{StaticResource Card}"><StackPanel>

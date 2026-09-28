@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 using YoyoClawCompanion.Services;
 using Brush = System.Windows.Media.Brush;
@@ -9,6 +10,10 @@ namespace YoyoClawCompanion;
 
 public partial class SettingsWindow : Window
 {
+    private static readonly DependencyProperty AnimatedScrollOffsetProperty = DependencyProperty.Register(
+        nameof(AnimatedScrollOffset), typeof(double), typeof(SettingsWindow),
+        new PropertyMetadata(0d, OnAnimatedScrollOffsetChanged));
+
     private readonly MainWindow _island;
     private bool _loading = true;
 
@@ -117,7 +122,6 @@ public partial class SettingsWindow : Window
         QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
         CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
         UnchangedAutoHideValue.Text = $"{UnchangedAutoHideSlider.Value:0} 分钟";
-        UnchangedAutoHideSlider.IsEnabled = UnchangedAutoHideCheck.IsChecked == true;
         PreviewIsland.Width = Math.Min(330, Math.Max(190, WidthSlider.Value));
         PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));
         PreviewIsland.CornerRadius = new CornerRadius(Math.Min(CornerSlider.Value, PreviewIsland.Height / 2));
@@ -172,8 +176,35 @@ public partial class SettingsWindow : Window
 
     private void Nav_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { Tag: string target } && FindName(target) is FrameworkElement section)
-            section.BringIntoView();
+        if (sender is not FrameworkElement { Tag: string target } || FindName(target) is not FrameworkElement section)
+            return;
+
+        BeginAnimation(AnimatedScrollOffsetProperty, null);
+        AnimatedScrollOffset = SettingsScroll.VerticalOffset;
+        var position = section.TransformToAncestor(SettingsScroll).Transform(new System.Windows.Point(0, 0));
+        var destination = Math.Clamp(SettingsScroll.VerticalOffset + position.Y - 18, 0, SettingsScroll.ScrollableHeight);
+        var scrollAnimation = new DoubleAnimation(SettingsScroll.VerticalOffset, destination, TimeSpan.FromMilliseconds(360))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        };
+        BeginAnimation(AnimatedScrollOffsetProperty, scrollAnimation, HandoffBehavior.SnapshotAndReplace);
+
+        section.BeginAnimation(OpacityProperty, new DoubleAnimation(.72, 1, TimeSpan.FromMilliseconds(420))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    private double AnimatedScrollOffset
+    {
+        get => (double)GetValue(AnimatedScrollOffsetProperty);
+        set => SetValue(AnimatedScrollOffsetProperty, value);
+    }
+
+    private static void OnAnimatedScrollOffsetChanged(DependencyObject source, DependencyPropertyChangedEventArgs args)
+    {
+        if (source is SettingsWindow window)
+            window.SettingsScroll.ScrollToVerticalOffset((double)args.NewValue);
     }
 
     private static bool SystemUsesLightTheme()
