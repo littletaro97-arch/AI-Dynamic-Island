@@ -12,7 +12,6 @@ internal sealed class IslandSettings
     public double IslandWidth { get; set; } = 224;
     public double IslandHeight { get; set; } = 48;
     public bool Topmost { get; set; } = true;
-    public bool ShowQuota { get; set; } = true;
     public bool ShowYoyo { get; set; } = true;
     public bool ShowCodex { get; set; } = true;
     public bool ShowWorkBuddy { get; set; } = true;

@@ -36,7 +36,6 @@ public partial class SettingsWindow : Window
         TextSizeSlider.Value = value.TextSize;
         ShadowCheck.IsChecked = value.ShowShadow;
         TopmostCheck.IsChecked = value.Topmost;
-        QuotaCheck.IsChecked = value.ShowQuota;
         YoyoCheck.IsChecked = value.ShowYoyo;
         CodexCheck.IsChecked = value.ShowCodex;
         WorkBuddyCheck.IsChecked = value.ShowWorkBuddy;
@@ -77,7 +76,6 @@ public partial class SettingsWindow : Window
         current.TextSize = TextSizeSlider.Value;
         current.ShowShadow = ShadowCheck.IsChecked == true;
         current.Topmost = TopmostCheck.IsChecked == true;
-        current.ShowQuota = QuotaCheck.IsChecked == true;
         current.ShowYoyo = YoyoCheck.IsChecked == true;
         current.ShowCodex = CodexCheck.IsChecked == true;
         current.ShowWorkBuddy = WorkBuddyCheck.IsChecked == true;
@@ -122,7 +120,7 @@ public partial class SettingsWindow : Window
         QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
         CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
         UnchangedAutoHideValue.Text = $"{UnchangedAutoHideSlider.Value:0} 分钟";
-        PreviewIsland.Width = Math.Min(330, Math.Max(190, WidthSlider.Value));
+        PreviewIsland.Width = Math.Min(400, Math.Max(190, WidthSlider.Value));
         PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));
         PreviewIsland.CornerRadius = new CornerRadius(Math.Min(CornerSlider.Value, PreviewIsland.Height / 2));
         PreviewIsland.Opacity = OpacitySlider.Value / 100;
@@ -136,7 +134,7 @@ public partial class SettingsWindow : Window
         var current = _island.CurrentSettings;
         current.CornerRadius = 24; current.Opacity = .92; current.IslandWidth = 224; current.IslandHeight = 48;
         current.TextSize = 11; current.MaxResponseLines = 3;
-        current.ShowShadow = true; current.Topmost = true; current.ShowQuota = true;
+        current.ShowShadow = true; current.Topmost = true;
         current.ShowYoyo = true; current.ShowCodex = true; current.ShowWorkBuddy = true; current.ShowTrayIcon = true;
         current.ThemeMode = "system"; current.EnableCodexActivityDetection = true;
         current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;

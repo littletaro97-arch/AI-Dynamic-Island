@@ -103,13 +103,6 @@
                     </Grid>
                     </Grid>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="YoyoButton" Style="{StaticResource RowLaunchButton}" Click="OpenYoyo_Click" Padding="0" Margin="0,0,3,0">
-                        <Grid x:Name="QuotaDial" Width="26" Height="26">
-                            <Ellipse Fill="#1A7188FF"/><Ellipse Stroke="#1AFFFFFF" StrokeThickness="2" Margin="1"/>
-                            <Path x:Name="QuotaArc" Stroke="#8FA0FF" StrokeThickness="2" StrokeStartLineCap="Flat" StrokeEndLineCap="Flat" Fill="Transparent"/>
-                            <Path x:Name="BusyGlyph" Data="M 16,34 C 10,30 9,20 16,15 C 22,9 31,10 36,15 C 41,20 40,29 35,34 C 31,38 21,39 16,34 Z" Fill="#8FA0FF" Stretch="Uniform" Margin="8"/>
-                        </Grid>
-                    </Button>
                     <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
                         <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>

@@ -41,7 +41,7 @@ public partial class MainWindow : Window
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
-    private bool _completionBaselineReady;
+    private bool _completionBaselineReady, _notificationHoldActive;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
     private string? _activeConfirmationNotice, _workBuddyConfirmationId;
@@ -100,7 +100,7 @@ public partial class MainWindow : Window
     {
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
-        settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 340);
+        settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 400);
         settings.IslandHeight = Math.Clamp(settings.IslandHeight, 32, 72);
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
@@ -123,14 +123,13 @@ public partial class MainWindow : Window
             if (wasHiddenByInactivity && IsLoaded) ShowIslandForFocusMode(animate: true);
         }
         if (!settings.EnableReverseHover) RestoreReverseHoverIsland();
-        else if (_activeCompletionNotice is null)
+        else if (!_notificationHoldActive)
         {
             if (_expanded) CollapseIsland(true);
             if (IsLoaded && Island.IsMouseOver) Dispatcher.BeginInvoke(HideIslandForReverseHover, DispatcherPriority.Input);
         }
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
         var selectionRadius = new CornerRadius(settings.CornerRadius);
-        YoyoButton.Tag = selectionRadius;
         YoyoRowButton.Tag = selectionRadius;
         CodexRowButton.Tag = selectionRadius;
         WorkBuddyRowButton.Tag = selectionRadius;
@@ -147,7 +146,6 @@ public partial class MainWindow : Window
             Island.Height = CollapsedHeight;
         }
         Topmost = settings.Topmost;
-        QuotaDial.Visibility = settings.ShowQuota ? Visibility.Visible : Visibility.Collapsed;
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
@@ -358,12 +356,10 @@ public partial class MainWindow : Window
             UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
             RecentResultText.Text = _activeConfirmationNotice ?? _activeCompletionNotice ?? _latestCombinedResult;
-            UpdateQuotaDial(status);
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
             UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
-            UpdateBusyAnimation(_anyBusy);
             WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
             if (_activeConfirmationNotice is null && completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
             else UpdateDisplayMode();
@@ -489,11 +485,10 @@ public partial class MainWindow : Window
     {
         _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
         RecentResultText.Text = _activeCompletionNotice;
-        _completionTimer.Stop();
+        BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
         ExpandIsland(true);
-        _completionTimer.Start();
     }
 
     private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
@@ -503,23 +498,38 @@ public partial class MainWindow : Window
             var wasActive = _activeConfirmationNotice is not null;
             _activeConfirmationNotice = null;
             _workBuddyConfirmationId = null;
-            if (wasActive && !Island.IsMouseOver) CollapseIsland(true);
+            if (wasActive)
+            {
+                _completionTimer.Stop();
+                _notificationHoldActive = false;
+                if (!Island.IsMouseOver) CollapseIsland(true);
+            }
             return;
         }
 
         _activeConfirmationNotice = $"WorkBuddy 需要你的确认 · {workBuddy.ConfirmationPrompt ?? "请打开 WorkBuddy 查看并选择"}";
         if (workBuddy.ConfirmationId == _workBuddyConfirmationId) return;
         _workBuddyConfirmationId = workBuddy.ConfirmationId;
-        _completionTimer.Stop();
         _activeCompletionNotice = null;
         RecentResultText.Text = _activeConfirmationNotice;
+        BeginNotificationHold();
+        RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
-        if (!_settings.EnableReverseHover) ExpandIsland(true);
+        ExpandIsland(true);
+    }
+
+    private void BeginNotificationHold()
+    {
+        _completionTimer.Stop();
+        _completionTimer.Interval = TimeSpan.FromSeconds(_settings.CompletionDisplaySeconds);
+        _notificationHoldActive = true;
+        _completionTimer.Start();
     }
 
     private void EndCompletionNotice()
     {
         _completionTimer.Stop();
+        _notificationHoldActive = false;
         _activeCompletionNotice = null;
         RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
         if (_settings.EnableReverseHover && Island.IsMouseOver)
@@ -608,6 +618,8 @@ public partial class MainWindow : Window
         if (!IsLoaded) return;
         var visible = Island.Visibility == Visibility.Visible && !_focusModeHidden && !_reverseHoverHidden;
         var overlapsTaskbar = visible && NativeWindow.IntersectsTaskbar(GetIslandScreenPixelBounds());
+        var desiredInterval = TimeSpan.FromMilliseconds(overlapsTaskbar ? 120 : 750);
+        if (_zOrderTimer.Interval != desiredInterval) _zOrderTimer.Interval = desiredInterval;
         var handle = new WindowInteropHelper(this).Handle;
         if (overlapsTaskbar)
         {
@@ -703,7 +715,7 @@ public partial class MainWindow : Window
 
     private void HideIslandForReverseHover()
     {
-        if (!_settings.EnableReverseHover || _reverseHoverHidden || _activeCompletionNotice is not null) return;
+        if (!_settings.EnableReverseHover || _reverseHoverHidden || _notificationHoldActive) return;
         _enterTimer.Stop();
         _leaveTimer.Stop();
         StopSummaryMarquee();
@@ -761,29 +773,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateQuotaDial(YoyoStatus status)
-    {
-        var hasQuota = status.RemainingPoints is double && status.TotalPoints is > 0;
-        var ratio = hasQuota ? Math.Clamp(status.RemainingPoints!.Value / status.TotalPoints!.Value, 0, 1) : 0;
-        QuotaArc.Stroke = !status.IsYoyoRunning || !hasQuota ? OfflineBrush : AccentBrush;
-        const double c = 16, r = 15;
-        if (ratio <= 0) { QuotaArc.Data = Geometry.Empty; return; }
-        if (ratio >= .999) { QuotaArc.Data = new EllipseGeometry(new Point(c, c), r, r); return; }
-        var angle = ratio * 360; var radians = (angle - 90) * Math.PI / 180;
-        var figure = new PathFigure { StartPoint = new Point(c, c - r) };
-        figure.Segments.Add(new ArcSegment(new Point(c + r * Math.Cos(radians), c + r * Math.Sin(radians)), new Size(r, r), 0, angle > 180, SweepDirection.Clockwise, true));
-        QuotaArc.Data = new PathGeometry(new[] { figure });
-    }
-
-    private void UpdateBusyAnimation(bool busy)
-    {
-        BusyGlyph.Opacity = busy ? 1 : .45;
-        if (!busy) { BusyGlyph.RenderTransform = Transform.Identity; return; }
-        BusyGlyph.RenderTransformOrigin = new Point(.5, .5);
-        var rotate = new RotateTransform(); BusyGlyph.RenderTransform = rotate;
-        rotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1.4)) { RepeatBehavior = RepeatBehavior.Forever });
-    }
-
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
@@ -834,7 +823,7 @@ public partial class MainWindow : Window
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
         _leaveTimer.Stop();
-        if (_settings.EnableReverseHover && _activeCompletionNotice is null)
+        if (_settings.EnableReverseHover && !_notificationHoldActive)
         {
             HideIslandForReverseHover();
             return;
@@ -946,7 +935,7 @@ public partial class MainWindow : Window
 
     private void CollapseIsland(bool force = false)
     {
-        if (!_expanded || (!force && (_dragging || _holdArmed || _activeConfirmationNotice is not null))) return;
+        if (!_expanded || (!force && (_dragging || _holdArmed || _notificationHoldActive))) return;
         _enterTimer.Stop();
         _leaveTimer.Stop();
         _expanded = false;
@@ -1239,7 +1228,6 @@ public partial class MainWindow : Window
     private void SetLaunchControls(bool enabled)
     {
         var cursor = enabled ? Cursors.Hand : Cursors.Arrow;
-        YoyoButton.Cursor = cursor;
         YoyoIndicatorButton.Cursor = cursor;
         CodexIndicatorButton.Cursor = cursor;
         WorkBuddyIndicatorButton.Cursor = cursor;
