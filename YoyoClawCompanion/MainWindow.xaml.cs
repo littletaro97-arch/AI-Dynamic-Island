@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(10) };
     private readonly DispatcherTimer _passThroughTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _fullscreenTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer _zOrderTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
@@ -57,6 +58,7 @@ public partial class MainWindow : Window
     private Rect _reverseHoverBoundsPixels;
     private bool _fullscreenOverrideActive, _islandAnimationInProgress;
     private bool _inactivityHidden;
+    private bool _taskbarTopmostOverride;
     private int _islandAnimationVersion, _reverseFadeVersion;
     private double _collapsedAnchorTop;
     private string? _stateFingerprint;
@@ -77,8 +79,9 @@ public partial class MainWindow : Window
         _completionTimer.Tick += (_, _) => EndCompletionNotice();
         _passThroughTimer.Tick += (_, _) => CheckReverseHoverExit();
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
+        _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -167,6 +170,7 @@ public partial class MainWindow : Window
             }
             UpdateFullscreenOverride();
             UpdateDisplayMode();
+            EnsureTaskbarZOrder();
         }
         if (!preserveMarquee) ScheduleSummaryMarquee();
     }
@@ -174,8 +178,9 @@ public partial class MainWindow : Window
     private void ApplyTypography()
     {
         var textSize = _settings.TextSize;
-        HeadlineText.FontSize = textSize + 2;
-        SummaryText.FontSize = SummaryTextClone.FontSize = textSize;
+        var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= CollapsedHeight - 4;
+        HeadlineText.FontSize = showTwoRows ? textSize + 2 : textSize + 1;
+        SummaryText.FontSize = SummaryTextClone.FontSize = showTwoRows ? textSize : textSize + 1;
         YoyoLabel.FontSize = CodexLabel.FontSize = WorkBuddyLabel.FontSize = textSize + 1;
         StateText.FontSize = PointsText.FontSize = CodexStateText.FontSize = WorkBuddyStateText.FontSize = textSize;
         RecentResultText.FontSize = textSize;
@@ -187,8 +192,9 @@ public partial class MainWindow : Window
         ExpandedYoyoRow.Height = ExpandedCodexRow.Height = ExpandedWorkBuddyRow.Height = new GridLength(rowHeight);
         HeaderRow.Height = new GridLength(Math.Max(30, CollapsedHeight - 2));
 
-        var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= CollapsedHeight - 4;
         HeadlineText.Visibility = Visibility.Visible;
+        HeadlineText.VerticalAlignment = VerticalAlignment.Center;
+        SummaryViewport.VerticalAlignment = VerticalAlignment.Center;
         System.Windows.Controls.Grid.SetRow(HeadlineText, 0);
         System.Windows.Controls.Grid.SetColumn(HeadlineText, 0);
         System.Windows.Controls.Grid.SetColumnSpan(HeadlineText, showTwoRows ? 2 : 1);
@@ -196,7 +202,7 @@ public partial class MainWindow : Window
         System.Windows.Controls.Grid.SetColumn(SummaryViewport, showTwoRows ? 0 : 1);
         System.Windows.Controls.Grid.SetColumnSpan(SummaryViewport, showTwoRows ? 2 : 1);
         SummaryViewport.Margin = showTwoRows ? new Thickness(0) : new Thickness(10, 0, 0, 0);
-        SummaryViewport.Height = Math.Ceiling(textSize * (showTwoRows ? 1.45 : 1.7));
+        SummaryViewport.Height = Math.Ceiling(SummaryText.FontSize * 1.45);
 
         if (_expanded)
         {
@@ -299,6 +305,7 @@ public partial class MainWindow : Window
         OrientCollapsedIsland();
         await RefreshStatusAsync();
         _refreshTimer.Start();
+        _zOrderTimer.Start();
         if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
     }
 
@@ -587,6 +594,24 @@ public partial class MainWindow : Window
         UpdateDisplayMode();
     }
 
+    private void EnsureTaskbarZOrder()
+    {
+        if (!IsLoaded) return;
+        var visible = Island.Visibility == Visibility.Visible && !_focusModeHidden && !_reverseHoverHidden;
+        var overlapsTaskbar = visible && NativeWindow.IntersectsTaskbar(GetIslandScreenPixelBounds());
+        var handle = new WindowInteropHelper(this).Handle;
+        if (overlapsTaskbar)
+        {
+            NativeWindow.SetTopmostWithoutActivation(handle, true);
+            _taskbarTopmostOverride = !_settings.Topmost;
+        }
+        else if (_taskbarTopmostOverride)
+        {
+            NativeWindow.SetTopmostWithoutActivation(handle, false);
+            _taskbarTopmostOverride = false;
+        }
+    }
+
     private void HideIslandForFocusMode()
     {
         if (_focusModeHidden) return;
@@ -609,6 +634,7 @@ public partial class MainWindow : Window
         {
             Island.Visibility = Visibility.Visible;
             ScheduleSummaryMarquee();
+            EnsureTaskbarZOrder();
         }
     }
 
@@ -668,6 +694,7 @@ public partial class MainWindow : Window
             };
             Island.BeginAnimation(OpacityProperty, fade, HandoffBehavior.SnapshotAndReplace);
             ScheduleSummaryMarquee();
+            EnsureTaskbarZOrder();
         }
     }
 
@@ -730,6 +757,7 @@ public partial class MainWindow : Window
             UpdateCollapsedAnchorFromCurrentGeometry();
             OrientCollapsedIsland();
             SavePosition();
+            EnsureTaskbarZOrder();
         }
         _dragging = false;
         _finishingGesture = false;

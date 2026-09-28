@@ -27,6 +27,28 @@ internal static class NativeWindow
 
     public static Point GetCursorPosition() => GetCursorPos(out var point) ? new Point(point.X, point.Y) : new Point(double.NaN, double.NaN);
 
+    public static void SetTopmostWithoutActivation(IntPtr window, bool topmost)
+    {
+        if (window == IntPtr.Zero) return;
+        SetWindowPos(window, topmost ? new IntPtr(-1) : new IntPtr(-2), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+    }
+
+    public static bool IntersectsTaskbar(Rect screenBounds)
+    {
+        var primary = FindWindow("Shell_TrayWnd", null);
+        if (IntersectsWindow(primary, screenBounds)) return true;
+        var current = IntPtr.Zero;
+        while ((current = FindWindowEx(IntPtr.Zero, current, "Shell_SecondaryTrayWnd", null)) != IntPtr.Zero)
+            if (IntersectsWindow(current, screenBounds)) return true;
+        return false;
+    }
+
+    private static bool IntersectsWindow(IntPtr window, Rect screenBounds)
+    {
+        if (window == IntPtr.Zero || !IsWindowVisible(window) || !GetWindowRect(window, out var rect)) return false;
+        return screenBounds.IntersectsWith(new Rect(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
+    }
+
     public static bool IsForegroundWindowFullscreen(IntPtr ownWindow)
     {
         var foreground = GetForegroundWindow();
@@ -51,6 +73,9 @@ internal static class NativeWindow
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public int Flags; }
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string className, string? windowName);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string? windowName);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr GetShellWindow();

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AI Dynamic Island" Width="456" Height="390"
         WindowStyle="None" AllowsTransparency="True" Background="{x:Null}"
-        ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize">
+        ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <Window.Resources>
         <DropShadowEffect x:Key="IslandShadow" BlurRadius="16" ShadowDepth="6" Opacity="0.38" Color="#000000"/>
         <Style x:Key="IndicatorButton" TargetType="Button">
@@ -85,7 +85,7 @@
                 <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <Grid x:Name="CollapsedTextPanel" Margin="4,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <Grid x:Name="CollapsedTextPanel" Margin="4,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" UseLayoutRounding="True">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <TextBlock x:Name="HeadlineText" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Text="正在读取状态…" Foreground="#F2F5FF" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>

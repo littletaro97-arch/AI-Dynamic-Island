@@ -4,7 +4,42 @@
         Title="AI Dynamic Island" Width="920" Height="720" MinWidth="780" MinHeight="620"
         WindowStartupLocation="CenterScreen" Background="#F3F5F9" Foreground="#182033">
     <Window.Resources>
-        <Style TargetType="CheckBox"><Setter Property="Margin" Value="0,6"/><Setter Property="FontSize" Value="13.5"/></Style>
+        <Geometry x:Key="IconSpark">M12,1 L14.5,8.5 L22,11 L14.5,13.5 L12,21 L9.5,13.5 L2,11 L9.5,8.5 Z</Geometry>
+        <Geometry x:Key="IconPin">M8,2 L16,2 L15,8 L19,12 L13,12 L13,21 L11,21 L11,12 L5,12 L9,8 Z</Geometry>
+        <Geometry x:Key="IconCircle">M12,2 A10,10 0 1 1 11.9,2 M12,7 A5,5 0 1 0 12.1,7</Geometry>
+        <Geometry x:Key="IconChart">M3,19 L3,4 M3,19 L21,19 M6,15 L10,11 L14,13 L20,6</Geometry>
+        <Geometry x:Key="IconCoin">M12,2 A10,10 0 1 1 11.9,2 M12,6 L12,18 M8,9 C8,6 16,6 16,9 C16,12 8,11 8,15 C8,18 16,18 16,15</Geometry>
+        <Geometry x:Key="IconClock">M12,2 A10,10 0 1 1 11.9,2 M12,6 L12,12 L17,15</Geometry>
+        <Geometry x:Key="IconLaunch">M5,19 L19,5 M11,5 L19,5 L19,13</Geometry>
+        <Geometry x:Key="IconEye">M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 M12,8 A4,4 0 1 1 11.9,8</Geometry>
+        <Geometry x:Key="IconScreen">M3,5 L9,5 M3,5 L3,11 M21,5 L15,5 M21,5 L21,11 M3,19 L9,19 M3,19 L3,13 M21,19 L15,19 M21,19 L21,13</Geometry>
+        <Geometry x:Key="IconCheck">M3,12 L9,18 L21,5</Geometry>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="5"/><Setter Property="FontSize" Value="13.5"/><Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+                <Border x:Name="SwitchCard" Height="62" Padding="10" CornerRadius="16" Background="#083ED598" BorderBrush="#303ED598" BorderThickness="1.5">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
+                        <Border x:Name="IconTile" Width="38" Height="38" CornerRadius="12" Background="#737C90">
+                            <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Stroke="White" Fill="Transparent" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="21" Height="21" Stretch="Uniform"/>
+                        </Border>
+                        <TextBlock Grid.Column="1" Text="{TemplateBinding Content}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="10,0"/>
+                        <Border x:Name="ToggleTrack" Grid.Column="2" Width="44" Height="24" CornerRadius="12" Background="#AAB2C0" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Ellipse x:Name="ToggleKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="3,0"/>
+                        </Border>
+                    </Grid>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="SwitchCard" Property="Background" Value="#123ED598"/><Setter TargetName="SwitchCard" Property="BorderBrush" Value="#623ED598"/>
+                        <Setter TargetName="IconTile" Property="Background" Value="#43A878"/><Setter TargetName="ToggleTrack" Property="Background" Value="#43A878"/>
+                        <Setter TargetName="ToggleKnob" Property="HorizontalAlignment" Value="Right"/>
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SwitchCard" Property="BorderBrush" Value="#9A43A878"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchCard" Property="Opacity" Value=".45"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style TargetType="Slider"><Setter Property="Margin" Value="0,5,0,10"/></Style>
         <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="30"/></Style>
         <Style x:Key="ActionButton" TargetType="Button"><Setter Property="Padding" Value="14,8"/><Setter Property="Margin" Value="0,8,8,0"/></Style>
@@ -67,23 +102,23 @@
                         <DockPanel><TextBlock Text="宽度"/><TextBlock x:Name="WidthValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="WidthSlider" Minimum="190" Maximum="340" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="高度"/><TextBlock x:Name="HeightValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="HeightSlider" Minimum="32" Maximum="72" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="文本大小"/><TextBlock x:Name="TextSizeValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="TextSizeSlider" Minimum="9" Maximum="16" TickFrequency="0.5" ValueChanged="Setting_ValueChanged"/>
-                        <WrapPanel><CheckBox x:Name="ShadowCheck" Content="阴影" Width="140" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TopmostCheck" Content="始终置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></WrapPanel>
+                        <UniformGrid Columns="2"><CheckBox x:Name="ShadowCheck" Tag="{StaticResource IconSpark}" Content="阴影" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TopmostCheck" Tag="{StaticResource IconPin}" Content="始终置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
                     </StackPanel></Border>
 
-                    <Border x:Name="ComponentCard" Style="{StaticResource Card}"><StackPanel><TextBlock Text="组件" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/><UniformGrid Columns="2"><CheckBox x:Name="QuotaCheck" Content="YOYO 积分环" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoCheck" Content="YOYO 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexCheck" Content="Codex 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCheck" Content="WorkBuddy 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TrayIconCheck" Content="系统托盘图标" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid></StackPanel></Border>
+                    <Border x:Name="ComponentCard" Style="{StaticResource Card}"><StackPanel><TextBlock Text="组件" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/><UniformGrid Columns="2"><CheckBox x:Name="QuotaCheck" Tag="{StaticResource IconCircle}" Content="YOYO 积分环" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoCheck" Tag="{StaticResource IconCircle}" Content="YOYO 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexCheck" Tag="{StaticResource IconChart}" Content="Codex 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TrayIconCheck" Tag="{StaticResource IconScreen}" Content="系统托盘图标" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid></StackPanel></Border>
 
                     <Border x:Name="FeatureCard" Style="{StaticResource Card}"><StackPanel>
                         <TextBlock Text="行为" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
                         <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions><TextBlock Text="显示模式" VerticalAlignment="Center"/><ComboBox x:Name="DisplayModeCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="always" Content="始终显示"/><ComboBoxItem Tag="activeOnly" Content="仅任务活动时显示"/></ComboBox></Grid>
                         <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="260"/></Grid.ColumnDefinitions><TextBlock Text="程序顺序" VerticalAlignment="Center"/><ComboBox x:Name="ProviderOrderCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="yoyo,codex,workbuddy" Content="YOYO → Codex → WorkBuddy"/><ComboBoxItem Tag="yoyo,workbuddy,codex" Content="YOYO → WorkBuddy → Codex"/><ComboBoxItem Tag="codex,yoyo,workbuddy" Content="Codex → YOYO → WorkBuddy"/><ComboBoxItem Tag="codex,workbuddy,yoyo" Content="Codex → WorkBuddy → YOYO"/><ComboBoxItem Tag="workbuddy,yoyo,codex" Content="WorkBuddy → YOYO → Codex"/><ComboBoxItem Tag="workbuddy,codex,yoyo" Content="WorkBuddy → Codex → YOYO"/></ComboBox></Grid>
-                        <UniformGrid Columns="2"><CheckBox x:Name="CodexActivityCheck" Content="Codex 活动检测" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexLimitsCheck" Content="Codex 限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCreditsCheck" Content="WorkBuddy 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AppLaunchCheck" Content="点击打开应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="HoverExpansionCheck" Content="悬停展开" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="SpringAnimationCheck" Content="回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                        <UniformGrid Columns="2"><CheckBox x:Name="CodexActivityCheck" Tag="{StaticResource IconClock}" Content="Codex 活动检测" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexLimitsCheck" Tag="{StaticResource IconChart}" Content="Codex 限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCreditsCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AppLaunchCheck" Tag="{StaticResource IconLaunch}" Content="点击打开应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="HoverExpansionCheck" Tag="{StaticResource IconEye}" Content="悬停展开" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="SpringAnimationCheck" Tag="{StaticResource IconSpark}" Content="回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
                         <DockPanel Margin="0,10,0,0"><TextBlock Text="悬停延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="QuotaScrollSpeedSlider" Minimum="8" Maximum="80" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                     </StackPanel></Border>
 
                     <Border x:Name="NotificationCard" Style="{StaticResource Card}"><StackPanel>
                         <TextBlock Text="提醒与自动隐藏" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <UniformGrid Columns="2"><CheckBox x:Name="CompletionNotificationsCheck" Content="任务完成提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ConfirmationNotificationsCheck" Content="WorkBuddy 待确认" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReverseHoverCheck" Content="反向选择" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="FullscreenActiveOnlyCheck" Content="全屏时活动显示" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="UnchangedAutoHideCheck" Content="状态未变化时隐藏" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                        <UniformGrid Columns="2"><CheckBox x:Name="CompletionNotificationsCheck" Tag="{StaticResource IconCheck}" Content="任务完成提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ConfirmationNotificationsCheck" Tag="{StaticResource IconClock}" Content="WorkBuddy 待确认" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReverseHoverCheck" Tag="{StaticResource IconEye}" Content="反向选择" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="FullscreenActiveOnlyCheck" Tag="{StaticResource IconScreen}" Content="全屏时活动显示" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="UnchangedAutoHideCheck" Tag="{StaticResource IconClock}" Content="状态未变化时隐藏" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
                         <Grid Margin="0,10,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="回复行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></Grid>
                         <DockPanel><TextBlock Text="完成提醒时长"/><TextBlock x:Name="CompletionDisplayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="CompletionDisplaySlider" Minimum="3" Maximum="30" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="未变化隐藏"/><TextBlock x:Name="UnchangedAutoHideValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="UnchangedAutoHideSlider" Minimum="1" Maximum="60" TickFrequency="1" ValueChanged="Setting_ValueChanged"/>
