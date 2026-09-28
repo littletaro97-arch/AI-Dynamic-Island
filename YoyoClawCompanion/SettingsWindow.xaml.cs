@@ -44,6 +44,7 @@ public partial class SettingsWindow : Window
         HoverExpansionCheck.IsChecked = value.EnableHoverExpansion;
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
         CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
+        ConfirmationNotificationsCheck.IsChecked = value.EnableConfirmationNotifications;
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
@@ -76,6 +77,7 @@ public partial class SettingsWindow : Window
         current.EnableHoverExpansion = HoverExpansionCheck.IsChecked == true;
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
         current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
+        current.EnableConfirmationNotifications = ConfirmationNotificationsCheck.IsChecked == true;
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
@@ -83,7 +85,8 @@ public partial class SettingsWindow : Window
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
             || ReferenceEquals(sender, CodexLimitsCheck)
-            || ReferenceEquals(sender, WorkBuddyCreditsCheck);
+            || ReferenceEquals(sender, WorkBuddyCreditsCheck)
+            || ReferenceEquals(sender, ConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus);
         UpdateLabels();
         ApplyPanelTheme();
@@ -114,6 +117,7 @@ public partial class SettingsWindow : Window
         current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;
         current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
         current.EnableCompletionNotifications = true;
+        current.EnableConfirmationNotifications = true;
         current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
         LoadValues(current);
         _loading = false;

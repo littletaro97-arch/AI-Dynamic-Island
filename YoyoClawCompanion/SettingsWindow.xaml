@@ -52,6 +52,7 @@
                     <CheckBox x:Name="HoverExpansionCheck" Content="鼠标悬停时展开灵动岛" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="SpringAnimationCheck" Content="展开和收回使用回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <CheckBox x:Name="CompletionNotificationsCheck" Content="任务完成时自动展开并显示回复" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
+                    <CheckBox x:Name="ConfirmationNotificationsCheck" Content="WorkBuddy 待确认时自动展开提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
                     <DockPanel Margin="0,2,0,8"><TextBlock Text="回复最大显示行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" DockPanel.Dock="Right" Width="110" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></DockPanel>
                     <DockPanel><TextBlock Text="悬停展开延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right" HorizontalAlignment="Right"/></DockPanel>
                     <Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>

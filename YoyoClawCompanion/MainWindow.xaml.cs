@@ -18,6 +18,7 @@ using Application = System.Windows.Application;
 using Cursors = System.Windows.Input.Cursors;
 using NativeWindow = YoyoClawCompanion.Services.NativeWindow;
 using TextBlock = System.Windows.Controls.TextBlock;
+using Canvas = System.Windows.Controls.Canvas;
 
 namespace YoyoClawCompanion;
 
@@ -34,6 +35,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
     private readonly DispatcherTimer _leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
     private readonly DispatcherTimer _completionTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _marqueeTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private Point _dragCursorStart;
@@ -42,11 +44,14 @@ public partial class MainWindow : Window
     private bool _completionBaselineReady;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
+    private string? _activeConfirmationNotice, _workBuddyConfirmationId;
     private string _latestCombinedResult = "尚未检测到任务结果";
     private Brush _secondaryTextBrush = Brush("#9AA5BC");
     private bool _isBalanceSummary, _focusModeHidden, _expandUp;
     private bool _anyBusy;
     private string? _balanceSummaryKey;
+    private double _marqueeOffset, _marqueeCycleWidth;
+    private DateTimeOffset _lastMarqueeTick;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
 
     public MainWindow()
@@ -59,8 +64,9 @@ public partial class MainWindow : Window
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => { _leaveTimer.Stop(); CollapseIsland(); };
         _completionTimer.Tick += (_, _) => EndCompletionNotice();
+        _marqueeTimer.Tick += (_, _) => AdvanceSummaryMarquee();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => SystemEvents.UserPreferenceChanged -= SystemThemeChanged;
+        Closed += (_, _) => { _marqueeTimer.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -214,15 +220,16 @@ public partial class MainWindow : Window
             SetCodexStateText(codex);
             SetWorkBuddyStateText(workBuddy, workBuddyCredits);
             _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
+            UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
-            RecentResultText.Text = _activeCompletionNotice ?? _latestCombinedResult;
+            RecentResultText.Text = _activeConfirmationNotice ?? _activeCompletionNotice ?? _latestCombinedResult;
             UpdateQuotaDial(status);
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 5 : 10);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
             UpdateBusyAnimation(_anyBusy);
             WriteStatusSnapshot(status, codex, workBuddy, workBuddyCredits);
-            if (completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
+            if (_activeConfirmationNotice is null && completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
             else UpdateDisplayMode();
         }
         catch (Exception error)
@@ -237,8 +244,14 @@ public partial class MainWindow : Window
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
-        if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
+        var busyProviders = new List<string>();
+        if (yoyo.IsBusy) busyProviders.Add("YOYO Claw");
+        if (codex.IsBusy) busyProviders.Add("Codex");
+        if (workBuddy.IsBusy) busyProviders.Add("WorkBuddy");
+        if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
+        else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
+        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("、", busyProviders), BusyBrush); }
         else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
         else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
         else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
@@ -345,11 +358,32 @@ public partial class MainWindow : Window
         _completionTimer.Start();
     }
 
+    private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
+    {
+        if (!workBuddy.RequiresConfirmation || !_settings.EnableConfirmationNotifications)
+        {
+            var wasActive = _activeConfirmationNotice is not null;
+            _activeConfirmationNotice = null;
+            _workBuddyConfirmationId = null;
+            if (wasActive && !Island.IsMouseOver) CollapseIsland(true);
+            return;
+        }
+
+        _activeConfirmationNotice = $"WorkBuddy 需要你的确认 · {workBuddy.ConfirmationPrompt ?? "请打开 WorkBuddy 查看并选择"}";
+        if (workBuddy.ConfirmationId == _workBuddyConfirmationId) return;
+        _workBuddyConfirmationId = workBuddy.ConfirmationId;
+        _completionTimer.Stop();
+        _activeCompletionNotice = null;
+        RecentResultText.Text = _activeConfirmationNotice;
+        ShowIslandForFocusMode();
+        ExpandIsland(true);
+    }
+
     private void EndCompletionNotice()
     {
         _completionTimer.Stop();
         _activeCompletionNotice = null;
-        RecentResultText.Text = _latestCombinedResult;
+        RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
         if (_settings.DisplayMode == "activeOnly" && !_anyBusy)
         {
             CollapseIsland(true);
@@ -360,7 +394,7 @@ public partial class MainWindow : Window
 
     private void UpdateDisplayMode()
     {
-        if (_settings.DisplayMode != "activeOnly" || _activeCompletionNotice is not null)
+        if (_settings.DisplayMode != "activeOnly" || _activeCompletionNotice is not null || _activeConfirmationNotice is not null)
         {
             ShowIslandForFocusMode();
             return;
@@ -505,7 +539,7 @@ public partial class MainWindow : Window
 
     private void CollapseIsland(bool force = false)
     {
-        if (!_expanded || (!force && (_dragging || _holdArmed))) return;
+        if (!_expanded || (!force && (_dragging || _holdArmed || _activeConfirmationNotice is not null))) return;
         _expanded = false;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
         IEasingFunction easing = _settings.EnableSpringAnimation
@@ -528,7 +562,7 @@ public partial class MainWindow : Window
                 _expandUp = false;
             }
             ScheduleSummaryMarquee();
-            if (_settings.DisplayMode == "activeOnly" && !_anyBusy && _activeCompletionNotice is null) HideIslandForFocusMode();
+            if (_settings.DisplayMode == "activeOnly" && !_anyBusy && _activeCompletionNotice is null && _activeConfirmationNotice is null) HideIslandForFocusMode();
         };
         Island.BeginAnimation(WidthProperty, width);
         Island.BeginAnimation(HeightProperty, height);
@@ -671,7 +705,7 @@ public partial class MainWindow : Window
     private void SetWorkBuddyStateText(WorkBuddyStatus status, WorkBuddyCredits credits)
     {
         WorkBuddyStateText.Inlines.Clear();
-        var state = !status.IsRunning ? "未运行" : !status.DataAvailable ? "状态不可用" : status.IsBusy ? "执行中" : "空闲";
+        var state = !status.IsRunning ? "未运行" : !status.DataAvailable ? "状态不可用" : status.RequiresConfirmation ? "待确认" : status.IsBusy ? "执行中" : "空闲";
         var stateBrush = !status.IsRunning ? OfflineBrush : !status.DataAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : OnlineBrush;
         WorkBuddyStateText.Inlines.Add(new Run(state) { Foreground = stateBrush });
         if (!_settings.ShowWorkBuddyCredits) return;
@@ -699,21 +733,38 @@ public partial class MainWindow : Window
             return;
         }
         var gap = SummaryText.FontSize * 5;
-        SummaryTextClone.Margin = new Thickness(gap, 0, 0, 0);
         SummaryTextClone.Visibility = Visibility.Visible;
-        var cycleDistance = textWidth + gap;
-        var seconds = Math.Max(2.5, cycleDistance / _settings.QuotaScrollSpeed);
-        var animation = new DoubleAnimation(0, -cycleDistance, TimeSpan.FromSeconds(seconds))
+        _marqueeCycleWidth = textWidth + gap;
+        _marqueeOffset = 0;
+        Canvas.SetLeft(SummaryText, 0);
+        Canvas.SetLeft(SummaryTextClone, _marqueeCycleWidth);
+        _lastMarqueeTick = DateTimeOffset.UtcNow;
+        _marqueeTimer.Start();
+    }
+
+    private void AdvanceSummaryMarquee()
+    {
+        if (!_isBalanceSummary || _expanded || _focusModeHidden || _marqueeCycleWidth <= 0)
         {
-            RepeatBehavior = RepeatBehavior.Forever
-        };
-        SummaryTranslate.BeginAnimation(TranslateTransform.XProperty, animation);
+            StopSummaryMarquee();
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var elapsed = Math.Min(.1, Math.Max(0, (now - _lastMarqueeTick).TotalSeconds));
+        _lastMarqueeTick = now;
+        _marqueeOffset = (_marqueeOffset + _settings.QuotaScrollSpeed * elapsed) % _marqueeCycleWidth;
+        Canvas.SetLeft(SummaryText, -_marqueeOffset);
+        Canvas.SetLeft(SummaryTextClone, _marqueeCycleWidth - _marqueeOffset);
     }
 
     private void StopSummaryMarquee()
     {
-        SummaryTranslate.BeginAnimation(TranslateTransform.XProperty, null);
-        SummaryTranslate.X = 0;
+        _marqueeTimer.Stop();
+        _marqueeOffset = 0;
+        _marqueeCycleWidth = 0;
+        Canvas.SetLeft(SummaryText, 0);
+        Canvas.SetLeft(SummaryTextClone, 0);
     }
 
     private void SetLaunchControls(bool enabled)
@@ -771,7 +822,7 @@ public partial class MainWindow : Window
         try
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
-            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent, recentResponseAt = codex.RecentResponseAt }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt } });
+            var json = JsonSerializer.Serialize(new { updatedAt = DateTimeOffset.Now, yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt }, codex = new { running = codex.IsRunning, busy = codex.IsBusy, fiveHourRemainingPercent = codex.FiveHourRemainingPercent, weeklyRemainingPercent = codex.WeeklyRemainingPercent, recentResponseAt = codex.RecentResponseAt }, workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, requiresConfirmation = workBuddy.RequiresConfirmation, confirmationId = workBuddy.ConfirmationId, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt } });
             File.WriteAllText(Path.Combine(directory, "status.json"), json);
         }
         catch { }

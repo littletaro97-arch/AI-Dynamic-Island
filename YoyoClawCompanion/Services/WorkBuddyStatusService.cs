@@ -12,7 +12,10 @@ internal sealed record WorkBuddyStatus(
     string Summary,
     string? RecentResponse = null,
     string? RecentResponseId = null,
-    DateTimeOffset? RecentResponseAt = null);
+    DateTimeOffset? RecentResponseAt = null,
+    bool RequiresConfirmation = false,
+    string? ConfirmationId = null,
+    string? ConfirmationPrompt = null);
 
 internal sealed partial class WorkBuddyStatusService
 {
@@ -28,17 +31,19 @@ internal sealed partial class WorkBuddyStatusService
         try
         {
             if (!Directory.Exists(_projectsRoot)) return new(running, false, false, running ? "无会话数据" : "未运行");
-            var project = new DirectoryInfo(_projectsRoot).EnumerateDirectories()
+            var session = new DirectoryInfo(_projectsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories)
                 .OrderByDescending(item => item.LastWriteTimeUtc).FirstOrDefault();
-            var session = project?.EnumerateFiles("*.jsonl").OrderByDescending(item => item.LastWriteTimeUtc).FirstOrDefault();
             if (session is null) return new(running, false, false, running ? "无会话数据" : "未运行");
 
-            var lines = ReadTailLines(session.FullName, 1024 * 1024);
+            var lines = ReadTailLines(session.FullName, 2 * 1024 * 1024);
             string? latestTask = null;
             string? latestAction = null;
             string? latestResponse = null;
             string? latestResponseId = null;
             DateTimeOffset? latestResponseAt = null;
+            string? confirmationId = null;
+            string? confirmationPrompt = null;
+            var pendingCalls = new HashSet<string>(StringComparer.Ordinal);
             var completed = false;
 
             foreach (var line in lines)
@@ -53,7 +58,28 @@ internal sealed partial class WorkBuddyStatusService
                         var extracted = ExtractUserQuery(root);
                         if (!string.IsNullOrWhiteSpace(extracted)) latestTask = extracted;
                     }
-                    if (type == "function_call") latestAction = FriendlyAction(Text(root, "name"));
+                    if (type == "function_call")
+                    {
+                        var callId = Text(root, "callId");
+                        if (!string.IsNullOrWhiteSpace(callId)) pendingCalls.Add(callId);
+                        var name = Text(root, "name");
+                        latestAction = FriendlyAction(name);
+                        if (name == "AskUserQuestion")
+                        {
+                            confirmationId = callId;
+                            confirmationPrompt = ExtractConfirmationPrompt(root);
+                        }
+                    }
+                    if (type == "function_call_result")
+                    {
+                        var callId = Text(root, "callId");
+                        if (!string.IsNullOrWhiteSpace(callId)) pendingCalls.Remove(callId);
+                        if (!string.IsNullOrWhiteSpace(callId) && callId == confirmationId)
+                        {
+                            confirmationId = null;
+                            confirmationPrompt = null;
+                        }
+                    }
                     if (type == "message" && Text(root, "role") == "assistant")
                     {
                         completed = Text(root, "status") == "completed";
@@ -69,7 +95,7 @@ internal sealed partial class WorkBuddyStatusService
                             }
                         }
                     }
-                    else if (type is "function_call" or "reasoning") completed = false;
+                    else if (type is "function_call" or "function_call_result" or "reasoning") completed = false;
                 }
                 catch (JsonException) { }
             }
@@ -85,12 +111,17 @@ internal sealed partial class WorkBuddyStatusService
                 }
             }
 
-            var fresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromSeconds(20);
-            var busy = running && fresh && !completed;
-            var summary = busy
+            var requiresConfirmation = !string.IsNullOrWhiteSpace(confirmationId) && pendingCalls.Contains(confirmationId);
+            var hasPendingAction = pendingCalls.Count > 0;
+            var fresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromSeconds(30);
+            var busy = running && (hasPendingAction || (fresh && !completed));
+            var summary = requiresConfirmation
+                ? confirmationPrompt ?? "等待你的确认"
+                : busy
                 ? latestAction ?? "正在处理任务"
-                : latestTask is not null ? $"最近 · {latestTask}" : project?.Name ?? "已检测到会话";
-            return new(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt);
+                : latestTask is not null ? $"最近 · {latestTask}" : session.Directory?.Name ?? "已检测到会话";
+            return new(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt,
+                requiresConfirmation, confirmationId, confirmationPrompt);
         }
         catch
         {
@@ -149,6 +180,24 @@ internal sealed partial class WorkBuddyStatusService
         return string.Join(" ", content.EnumerateArray().Where(item => Text(item, "type") == "output_text").Select(item => Text(item, "text")).Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
+    private static string? ExtractConfirmationPrompt(JsonElement root)
+    {
+        var arguments = Text(root, "arguments");
+        if (string.IsNullOrWhiteSpace(arguments)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(arguments);
+            if (!document.RootElement.TryGetProperty("questions", out var questions) || questions.ValueKind != JsonValueKind.Array) return null;
+            foreach (var question in questions.EnumerateArray())
+            {
+                var prompt = Text(question, "question");
+                if (!string.IsNullOrWhiteSpace(prompt)) return NormalizeResponse(prompt);
+            }
+        }
+        catch (JsonException) { }
+        return null;
+    }
+
     private static DateTimeOffset? ReadTimestamp(JsonElement root)
     {
         if (!root.TryGetProperty("timestamp", out var value)) return null;
@@ -162,6 +211,7 @@ internal sealed partial class WorkBuddyStatusService
         "Write" => "正在写入文件",
         "Edit" => "正在修改文件",
         "Bash" or "Shell" => "正在执行命令",
+        "AskUserQuestion" => "等待你的确认",
         _ when !string.IsNullOrWhiteSpace(value) => $"正在执行 {value}",
         _ => "正在处理任务"
     };
