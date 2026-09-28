@@ -90,10 +90,16 @@ public partial class App : Application
             ContextMenuStrip = menu,
             Visible = true
         };
+        _trayIcon.MouseClick += (_, args) =>
+        {
+            if (args.Button == System.Windows.Forms.MouseButtons.Left)
+                Dispatcher.BeginInvoke(WakeIslandFromTray);
+        };
         _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(OpenHome);
     }
 
     private void OpenHome() => (MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest();
+    private void WakeIslandFromTray() => (MainWindow as YoyoClawCompanion.MainWindow)?.WakeFromTray();
     private void RefreshStatus() => (MainWindow as YoyoClawCompanion.MainWindow)?.RefreshFromExternalRequest();
 
     private static System.Drawing.Icon LoadTrayIcon()

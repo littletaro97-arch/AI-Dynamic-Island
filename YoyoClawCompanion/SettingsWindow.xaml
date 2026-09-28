@@ -19,6 +19,12 @@
         <Geometry x:Key="IconBehavior">M13,2 L5,13 L11,13 L10,22 L19,10 L13,10 Z</Geometry>
         <Geometry x:Key="IconBell">M6,17 L18,17 L16,14 L16,9 C16,4 8,4 8,9 L8,14 Z M10,20 C11,22 13,22 14,20</Geometry>
         <Geometry x:Key="IconPosition">M12,2 L9,5 M12,2 L15,5 M12,22 L9,19 M12,22 L15,19 M2,12 L5,9 M2,12 L5,15 M22,12 L19,9 M22,12 L19,15 M12,6 L12,18 M6,12 L18,12</Geometry>
+        <SolidColorBrush x:Key="SettingsInputBackground" Color="#F7F8FA"/>
+        <SolidColorBrush x:Key="SettingsInputBorder" Color="#E2E5EA"/>
+        <SolidColorBrush x:Key="SettingsPopupBackground" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SettingsTrackBackground" Color="#E9EBEF"/>
+        <SolidColorBrush x:Key="SettingsAccent" Color="#10A56F"/>
+        <SolidColorBrush x:Key="SettingsHoverBackground" Color="#EEF1F3"/>
         <Style TargetType="CheckBox">
             <Setter Property="Margin" Value="5"/><Setter Property="FontSize" Value="13.5"/><Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
@@ -74,8 +80,76 @@
                 </ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
-        <Style TargetType="Slider"><Setter Property="Margin" Value="0,5,0,10"/></Style>
-        <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="30"/></Style>
+        <Style TargetType="Slider">
+            <Setter Property="Margin" Value="0,4,0,11"/><Setter Property="MinHeight" Value="28"/>
+            <Setter Property="IsMoveToPointEnabled" Value="True"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider">
+                <Grid Height="28" VerticalAlignment="Center">
+                    <Border Height="16" CornerRadius="8" Background="{DynamicResource SettingsTrackBackground}" VerticalAlignment="Center"/>
+                    <Track x:Name="PART_Track" Margin="2,0" VerticalAlignment="Center" Orientation="{TemplateBinding Orientation}"
+                           Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}"
+                           IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+                        <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Height="16" CornerRadius="8" Background="{DynamicResource SettingsAccent}"/></ControlTemplate></RepeatButton.Template>
+                        </RepeatButton></Track.DecreaseRepeatButton>
+                        <Track.Thumb><Thumb Width="24" Height="24" Focusable="False">
+                            <Thumb.Template><ControlTemplate TargetType="Thumb">
+                                <Grid x:Name="ThumbSurface" RenderTransformOrigin="0.5,0.5">
+                                    <Grid.RenderTransform><ScaleTransform/></Grid.RenderTransform>
+                                    <Ellipse Fill="White" Stroke="#16000000" StrokeThickness="1">
+                                        <Ellipse.Effect><DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.26"/></Ellipse.Effect>
+                                    </Ellipse>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ThumbSurface" Property="RenderTransform"><Setter.Value><ScaleTransform ScaleX="1.07" ScaleY="1.07"/></Setter.Value></Setter></Trigger>
+                                    <Trigger Property="IsDragging" Value="True"><Setter TargetName="ThumbSurface" Property="RenderTransform"><Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value></Setter></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate></Thumb.Template>
+                        </Thumb></Track.Thumb>
+                        <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static Slider.IncreaseLarge}" Background="Transparent" Focusable="False">
+                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                        </RepeatButton></Track.IncreaseRepeatButton>
+                    </Track>
+                </Grid>
+                <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45"/></Trigger></ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Padding" Value="11,8"/><Setter Property="Margin" Value="4,1"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+                <Border x:Name="ItemSurface" Padding="{TemplateBinding Padding}" Background="Transparent" CornerRadius="6"><ContentPresenter/></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource SettingsHoverBackground}"/></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#727C90"/><Setter Property="Foreground" Value="White"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="36"/><Setter Property="Padding" Value="12,0,34,0"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+                <Grid>
+                    <Border x:Name="ComboSurface" Background="{DynamicResource SettingsInputBackground}" BorderBrush="{DynamicResource SettingsInputBorder}" BorderThickness="1" CornerRadius="9"/>
+                    <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" IsHitTestVisible="False"/>
+                    <Path Data="M2,4 L7,9 L12,4" Stroke="#8B9099" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="10" Stretch="Uniform" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0" IsHitTestVisible="False"/>
+                    <ToggleButton Focusable="False" Background="Transparent" BorderThickness="0" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                        <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"/></ControlTemplate></ToggleButton.Template>
+                    </ToggleButton>
+                    <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
+                        <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" Margin="0,5,0,0" Padding="0,4" CornerRadius="9" Background="{DynamicResource SettingsPopupBackground}" BorderBrush="{DynamicResource SettingsInputBorder}" BorderThickness="1">
+                            <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="4" Opacity=".18"/></Border.Effect>
+                            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" CanContentScroll="True"><ItemsPresenter/></ScrollViewer>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboSurface" Property="BorderBrush" Value="#7A10A56F"/></Trigger>
+                    <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboSurface" Property="BorderBrush" Value="{DynamicResource SettingsAccent}"/><Setter TargetName="ComboSurface" Property="BorderThickness" Value="2"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style x:Key="ActionButton" TargetType="Button"><Setter Property="Padding" Value="14,8"/><Setter Property="Margin" Value="0,8,8,0"/></Style>
         <Style x:Key="NavButton" TargetType="Button">
             <Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Height" Value="44"/>

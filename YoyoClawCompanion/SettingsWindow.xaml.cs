@@ -166,6 +166,11 @@ public partial class SettingsWindow : Window
         Background = background; Foreground = primary;
         RightPane.Background = background;
         NavPane.Background = Brush(light ? "#E9EDF4" : "#171E2A");
+        Resources["SettingsInputBackground"] = Brush(light ? "#F7F8FA" : "#242C3A");
+        Resources["SettingsInputBorder"] = Brush(light ? "#E2E5EA" : "#3A4557");
+        Resources["SettingsPopupBackground"] = Brush(light ? "#FFFFFF" : "#1B2230");
+        Resources["SettingsTrackBackground"] = Brush(light ? "#E9EBEF" : "#354052");
+        Resources["SettingsHoverBackground"] = Brush(light ? "#EEF1F3" : "#2A3444");
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
         AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; PositionCard.Background = card;

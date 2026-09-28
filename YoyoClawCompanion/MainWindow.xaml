@@ -78,9 +78,11 @@
         <Border x:Name="Island" Width="224" Height="48" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0"
                 CornerRadius="24" Background="#EB0E121C" BorderBrush="#1AFFFFFF" BorderThickness="1"
                 Effect="{StaticResource IslandShadow}" ContextMenu="{StaticResource IslandMenu}"
+                RenderTransformOrigin="0.5,0.5"
                 MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
                 PreviewMouseLeftButtonDown="Island_MouseLeftButtonDown" PreviewMouseLeftButtonUp="Island_MouseLeftButtonUp"
                 LostMouseCapture="Island_LostMouseCapture">
+            <Border.RenderTransform><ScaleTransform x:Name="IslandVisibilityScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
             <Grid Margin="10,0">
                 <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
