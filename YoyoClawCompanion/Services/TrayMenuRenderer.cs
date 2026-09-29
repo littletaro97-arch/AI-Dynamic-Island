@@ -12,6 +12,14 @@ internal sealed class TrayMenuRenderer(bool light) : ToolStripProfessionalRender
     private readonly Color _dangerHover = light ? Color.FromArgb(28, 242, 104, 111) : Color.FromArgb(36, 242, 104, 111);
     private readonly Color _border = light ? Color.FromArgb(223, 223, 223) : Color.FromArgb(61, 61, 61);
     private readonly Color _separator = light ? Color.FromArgb(228, 228, 228) : Color.FromArgb(69, 69, 69);
+    private readonly Color _background = light ? Color.FromArgb(250, 250, 250) : Color.FromArgb(43, 43, 43);
+    private readonly Color _error = light ? Color.FromArgb(208, 64, 74) : Color.FromArgb(242, 104, 111);
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+    {
+        using var brush = new SolidBrush(_background);
+        e.Graphics.FillRectangle(brush, e.AffectedBounds);
+    }
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
     {
@@ -26,6 +34,16 @@ internal sealed class TrayMenuRenderer(bool light) : ToolStripProfessionalRender
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
+        if (!e.Item.Enabled && string.Equals(e.Text, "未找到", StringComparison.Ordinal))
+        {
+            var pill = Rectangle.Inflate(e.TextRectangle, 5, 2);
+            using var path = Rounded(pill, 5);
+            using var brush = new SolidBrush(Color.FromArgb(28, _error));
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(brush, path);
+            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, e.TextRectangle, _error, e.TextFormat);
+            return;
+        }
         if (!e.Item.Enabled) e.TextColor = Color.FromArgb(120, _secondary);
         else if (e.Item.Selected && string.Equals(e.Item.Tag?.ToString(), "danger", StringComparison.Ordinal)) e.TextColor = Color.FromArgb(242, 104, 111);
         else e.TextColor = e.TextFormat.HasFlag(TextFormatFlags.Right) ? _secondary : _text;

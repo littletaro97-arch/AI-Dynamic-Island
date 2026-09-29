@@ -88,7 +88,11 @@ public partial class App : Application
             ShowImageMargin = true,
             ShowCheckMargin = false,
             Padding = new System.Windows.Forms.Padding(5),
-            MinimumSize = new System.Drawing.Size(222, 0)
+            MinimumSize = new System.Drawing.Size(222, 0),
+            DropShadowEnabled = true,
+            GripStyle = System.Windows.Forms.ToolStripGripStyle.Hidden,
+            RenderMode = System.Windows.Forms.ToolStripRenderMode.Professional,
+            Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point)
         };
         menu.Opening += (_, _) => RebuildTrayMenu(menu);
         _trayIcon = new System.Windows.Forms.NotifyIcon
@@ -159,7 +163,8 @@ public partial class App : Application
             Height = 30,
             Width = 244,
             ImageScaling = System.Windows.Forms.ToolStripItemImageScaling.None,
-            Padding = new System.Windows.Forms.Padding(4, 0, 5, 0)
+            Margin = new System.Windows.Forms.Padding(0, 1, 0, 1),
+            Padding = new System.Windows.Forms.Padding(9, 0, 9, 0)
         };
         item.Click += click;
         return item;

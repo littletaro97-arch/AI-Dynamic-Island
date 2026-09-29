@@ -468,9 +468,9 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void ProviderOrderList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    private void SettingsScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset - e.Delta);
+        SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset - e.Delta * .5);
         e.Handled = true;
     }
 

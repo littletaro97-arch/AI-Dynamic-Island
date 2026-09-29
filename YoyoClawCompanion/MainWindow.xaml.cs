@@ -45,7 +45,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _zOrderTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
-    private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
+    private bool _holdArmed, _dragging, _dragMoved, _refreshing, _expanded, _finishingGesture;
     private bool _manualCollapseUntilPointerExit, _refreshAfterCurrent, _fullResetAfterCurrent;
     private bool _collapseHandlePressed, _suppressCollapseHandleClick;
     private bool _completionBaselineReady, _notificationHoldActive;
@@ -74,6 +74,8 @@ public partial class MainWindow : Window
     private int _islandAnimationVersion, _reverseFadeVersion, _focusAnimationVersion;
     private double _collapsedAnchorTop;
     private double _collapsedLeftBeforeExpansion;
+    private Point _dragStartCursorPixels;
+    private double _dragStartWindowLeft, _dragStartWindowTop;
     private string? _stateFingerprint;
     private DateTimeOffset _lastStateChangeAt = DateTimeOffset.Now;
     private bool _appliedUnchangedAutoHide;
@@ -669,7 +671,7 @@ public partial class MainWindow : Window
         _refreshTimer.Interval = TimeSpan.FromSeconds(2);
         HeadlineText.Text = "Codex 执行中";
         HeadlineText.Foreground = BusyBrush;
-        SetPlainSummary("");
+        SetPlainSummary(CodexSummary(codex));
         if (UsesActiveOnlyDisplay && !_notificationHoldActive) ShowIslandForFocusMode();
     }
 
@@ -724,10 +726,10 @@ public partial class MainWindow : Window
         if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
-        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
-        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
-        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
-        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
+        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("、", busyProviders)); }
+        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
+        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
+        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
         else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
     }
@@ -1229,10 +1231,25 @@ public partial class MainWindow : Window
         _holdArmed = true;
         if (_expanded || _expandUp) CollapseIslandImmediatelyForDrag();
         _dragging = true;
+        _dragMoved = false;
+        _dragStartCursorPixels = NativeWindow.GetCursorPosition();
+        _dragStartWindowLeft = Left;
+        _dragStartWindowTop = Top;
         Island.Cursor = Cursors.SizeAll; Island.Opacity = Math.Max(.55, _settings.Opacity - .15);
-        try { DragMove(); }
-        catch (InvalidOperationException) { }
-        finally { FinishPointerGesture(); }
+        Island.CaptureMouse();
+    }
+
+    private void Island_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_dragging || Mouse.LeftButton != MouseButtonState.Pressed) return;
+        var cursor = NativeWindow.GetCursorPosition();
+        var deltaPixels = new Vector(cursor.X - _dragStartCursorPixels.X, cursor.Y - _dragStartCursorPixels.Y);
+        if (!_dragMoved && Math.Abs(deltaPixels.X) < 1 && Math.Abs(deltaPixels.Y) < 1) return;
+        _dragMoved = true;
+        var delta = DevicePixelsToDips(deltaPixels);
+        Left = _dragStartWindowLeft + delta.X;
+        Top = _dragStartWindowTop + delta.Y;
+        e.Handled = true;
     }
 
     private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => FinishPointerGesture();
@@ -1246,16 +1263,23 @@ public partial class MainWindow : Window
         if (Island.IsMouseCaptured) Island.ReleaseMouseCapture();
         if (_dragging)
         {
-            _settings.PositionPreset = "custom";
             ClampCollapsedPosition();
-            SnapToHorizontalCenter();
+            if (_dragMoved)
+            {
+                _settings.PositionPreset = "custom";
+                SnapToHorizontalCenter();
+            }
             UpdateCollapsedAnchorFromCurrentGeometry();
             OrientCollapsedIsland();
-            SavePosition();
-            PositionChanged?.Invoke(this, EventArgs.Empty);
+            if (_dragMoved)
+            {
+                SavePosition();
+                PositionChanged?.Invoke(this, EventArgs.Empty);
+            }
             EnsureTaskbarZOrder();
         }
         _dragging = false;
+        _dragMoved = false;
         _finishingGesture = false;
         if (Island.IsMouseOver)
         {
@@ -1433,16 +1457,19 @@ public partial class MainWindow : Window
         _islandAnimationInProgress = true;
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
-        ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(100)));
+        ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(160))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        });
         IEasingFunction easing = _horizontalExpansionCompensated
-            ? new CubicEase { EasingMode = EasingMode.EaseIn }
+            ? new CubicEase { EasingMode = EasingMode.EaseInOut }
             : _settings.EnableSpringAnimation
-            ? new BackEase { Amplitude = .22, EasingMode = EasingMode.EaseIn }
-            : new CubicEase { EasingMode = EasingMode.EaseIn };
+            ? new BackEase { Amplitude = .12, EasingMode = EasingMode.EaseInOut }
+            : new CubicEase { EasingMode = EasingMode.EaseInOut };
         if (_horizontalExpansionCompensated)
-            BeginAnimation(LeftProperty, new DoubleAnimation(Left, _collapsedLeftBeforeExpansion, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
-        var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
-        var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing };
+            BeginAnimation(LeftProperty, new DoubleAnimation(Left, _collapsedLeftBeforeExpansion, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
+        var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
+        var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         height.Completed += (_, _) =>
         {
             if (animationVersion != _islandAnimationVersion || _expanded) return;

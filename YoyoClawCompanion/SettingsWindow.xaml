@@ -235,7 +235,8 @@
         </Border>
 
         <Border x:Name="RightPane" Grid.Column="1" Background="#F3F5F9">
-            <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                          PreviewMouseWheel="SettingsScroll_PreviewMouseWheel">
                 <StackPanel Margin="30,26,34,36">
                     <TextBlock x:Name="TitleText" Text="设置" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
                     <TextBlock x:Name="SubtitleText" Text="" Visibility="Collapsed"/>
@@ -281,8 +282,7 @@
                                          ItemContainerStyle="{StaticResource ProviderOrderItem}" Background="Transparent" BorderThickness="0"
                                          AllowDrop="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                          PreviewMouseLeftButtonDown="ProviderOrderList_PreviewMouseLeftButtonDown" PreviewMouseMove="ProviderOrderList_PreviewMouseMove"
-                                         PreviewDragOver="ProviderOrderList_PreviewDragOver" PreviewDrop="ProviderOrderList_PreviewDrop" PreviewKeyDown="ProviderOrderList_PreviewKeyDown"
-                                         PreviewMouseWheel="ProviderOrderList_PreviewMouseWheel">
+                                         PreviewDragOver="ProviderOrderList_PreviewDragOver" PreviewDrop="ProviderOrderList_PreviewDrop" PreviewKeyDown="ProviderOrderList_PreviewKeyDown">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <Grid Margin="0,0,0,7">
