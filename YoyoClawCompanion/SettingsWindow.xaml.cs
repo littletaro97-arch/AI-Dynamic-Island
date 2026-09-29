@@ -52,12 +52,14 @@ public partial class SettingsWindow : Window
         Icon = App.CreateWindowIcon();
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
         _island.PositionChanged += Island_PositionChanged;
-        Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; StopPresetMarquees(); };
+        _island.ProviderAvailabilityChanged += Island_ProviderAvailabilityChanged;
+        Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; _island.ProviderAvailabilityChanged -= Island_ProviderAvailabilityChanged; StopPresetMarquees(); };
         SizeChanged += (_, _) => SchedulePresetMarquees();
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
         UpdateDependencyStates();
+        RefreshProviderInstallations();
         RefreshPresetCards();
         ApplyPanelTheme();
     }
@@ -166,6 +168,39 @@ public partial class SettingsWindow : Window
         SetDependentState(CompletionDisplayPanel,
             CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
         SetDependentState(CodexResetReminderPanel, CodexResetReminderCheck.IsChecked == true);
+        var installations = _island.GetProviderInstallations().ToDictionary(item => item.Key, StringComparer.OrdinalIgnoreCase);
+        var yoyoInstalled = installations.TryGetValue("yoyo", out var yoyo) && yoyo.IsInstalled;
+        var codexInstalled = installations.TryGetValue("codex", out var codex) && codex.IsInstalled;
+        var workBuddyInstalled = installations.TryGetValue("workbuddy", out var workBuddy) && workBuddy.IsInstalled;
+        foreach (var control in new UIElement[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck }) SetDependentState(control, yoyoInstalled);
+        foreach (var control in new UIElement[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) SetDependentState(control, codexInstalled);
+        foreach (var control in new UIElement[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) SetDependentState(control, workBuddyInstalled);
+        SetDependentState(CodexResetReminderPanel, codexInstalled && CodexResetReminderCheck.IsChecked == true);
+    }
+
+    private void Island_ProviderAvailabilityChanged(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(() => { RefreshProviderInstallations(); UpdateDependencyStates(); });
+
+    private void RefreshProviderInstallations()
+    {
+        foreach (var state in _island.GetProviderInstallations())
+        {
+            var target = state.Key switch { "yoyo" => YoyoInstallStatus, "codex" => CodexInstallStatus, _ => WorkBuddyInstallStatus };
+            target.Text = state.IsInstalled ? state.ExecutablePath ?? "已安装（系统应用）" : "未安装 · 可手动指定";
+            target.ToolTip = state.ExecutablePath;
+        }
+    }
+
+    private void RescanProviders_Click(object sender, RoutedEventArgs e) => _island.RescanProviderInstallations();
+
+    private void ChooseProviderPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string provider }) return;
+        var expected = provider switch { "yoyo" => "HnMagicClawUI.exe", "codex" => "ChatGPT.exe", _ => "WorkBuddy.exe" };
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = $"选择 {ProviderCatalog.DisplayName(provider)} 主程序", Filter = $"{expected}|{expected}|可执行文件|*.exe" };
+        if (dialog.ShowDialog(this) != true) return;
+        if (_island.SetProviderExecutablePath(provider, dialog.FileName)) return;
+        System.Windows.MessageBox.Show(this, $"请选择 {expected}。", "无法识别应用", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private static void SetDependentState(UIElement element, bool enabled)

@@ -83,6 +83,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
     private string? _codexFiveHourReminderId, _codexWeeklyReminderId;
     private string? _highlightedProvider;
+    private bool _yoyoInstalled, _codexInstalled, _workBuddyInstalled;
 
     public MainWindow()
     {
@@ -106,6 +107,7 @@ public partial class MainWindow : Window
 
     internal IslandSettings CurrentSettings => _settings;
     internal event EventHandler? PositionChanged;
+    internal event EventHandler? ProviderAvailabilityChanged;
     private double CollapsedHeight => _settings.IslandHeight;
     internal void OpenHomeFromExternalRequest() => OpenHome();
     internal void RefreshFromExternalRequest() => _ = ResetAndRefreshStatusAsync();
@@ -305,10 +307,7 @@ public partial class MainWindow : Window
             Island.Height = CollapsedHeight;
         }
         Topmost = settings.Topmost;
-        YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
-        CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
-        WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
-        PointsText.Visibility = settings.ShowYoyoCredits ? Visibility.Visible : Visibility.Collapsed;
+        ApplyProviderVisibility();
         ApplyProviderOrder();
         ApplyExpandedContentOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
@@ -410,7 +409,7 @@ public partial class MainWindow : Window
     {
         var rowHeight = Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
         var lineHeight = Math.Ceiling(_settings.TextSize * 1.45);
-        return Math.Min(Height - IslandMargin * 2, 42 + CollapsedHeight + rowHeight * 3 + lineHeight * _settings.MaxResponseLines);
+        return Math.Min(Height - IslandMargin * 2, 42 + CollapsedHeight + rowHeight * VisibleProviderOrder().Length + lineHeight * _settings.MaxResponseLines);
     }
 
     private static string NormalizeProviderOrder(string? value)
@@ -427,6 +426,24 @@ public partial class MainWindow : Window
         supported.AddRange(ProviderCatalog.KnownKeys.Where(key => !supported.Contains(key, StringComparer.OrdinalIgnoreCase)));
         return supported.ToArray();
     }
+
+    private string[] VisibleProviderOrder() => ProviderOrder().Where(IsProviderVisible).ToArray();
+
+    private bool IsProviderInstalled(string provider) => provider switch
+    {
+        "yoyo" => _yoyoInstalled,
+        "codex" => _codexInstalled,
+        "workbuddy" => _workBuddyInstalled,
+        _ => false
+    };
+
+    private bool IsProviderVisible(string provider) => IsProviderInstalled(provider) && provider switch
+    {
+        "yoyo" => _settings.ShowYoyo,
+        "codex" => _settings.ShowCodex,
+        "workbuddy" => _settings.ShowWorkBuddy,
+        _ => false
+    };
 
     private static string ProviderLabel(string provider) => ProviderCatalog.DisplayName(provider);
 
@@ -452,14 +469,27 @@ public partial class MainWindow : Window
         _balanceSummaryKey = null;
     }
 
+    private void ApplyProviderVisibility()
+    {
+        YoyoIndicatorButton.Visibility = IsProviderVisible("yoyo") ? Visibility.Visible : Visibility.Collapsed;
+        CodexIndicatorButton.Visibility = IsProviderVisible("codex") ? Visibility.Visible : Visibility.Collapsed;
+        WorkBuddyIndicatorButton.Visibility = IsProviderVisible("workbuddy") ? Visibility.Visible : Visibility.Collapsed;
+        YoyoRowButton.Visibility = IsProviderVisible("yoyo") ? Visibility.Visible : Visibility.Collapsed;
+        CodexRowButton.Visibility = IsProviderVisible("codex") ? Visibility.Visible : Visibility.Collapsed;
+        WorkBuddyRowButton.Visibility = IsProviderVisible("workbuddy") ? Visibility.Visible : Visibility.Collapsed;
+        PointsText.Visibility = IsProviderVisible("yoyo") && _settings.ShowYoyoCredits ? Visibility.Visible : Visibility.Collapsed;
+        ApplyExpandedContentOrder();
+        _balanceSummaryKey = null;
+    }
+
     private void ApplyExpandedContentOrder(double? statusRowHeight = null)
     {
         var rowHeight = statusRowHeight ?? Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
         var replyFirst = _expandUp && _settings.PutReplyFirstWhenExpandedUp;
-        ExpandedRow0.Height = replyFirst ? new GridLength(1, GridUnitType.Star) : new GridLength(rowHeight);
-        ExpandedRow1.Height = new GridLength(rowHeight);
-        ExpandedRow2.Height = new GridLength(rowHeight);
-        ExpandedRow3.Height = replyFirst ? new GridLength(rowHeight) : new GridLength(1, GridUnitType.Star);
+        ExpandedRow0.Height = new GridLength(0);
+        ExpandedRow1.Height = new GridLength(0);
+        ExpandedRow2.Height = new GridLength(0);
+        ExpandedRow3.Height = new GridLength(0);
 
         var rows = new Dictionary<string, UIElement[]>
         {
@@ -467,12 +497,18 @@ public partial class MainWindow : Window
             ["codex"] = [CodexDot, CodexLabel, CodexStateText, CodexRowButton],
             ["workbuddy"] = [WorkBuddyDot, WorkBuddyLabel, WorkBuddyStateText, WorkBuddyRowButton]
         };
-        var firstStatusRow = replyFirst ? 1 : 0;
-        var order = ProviderOrder();
+        var order = VisibleProviderOrder();
+        var replyRow = replyFirst ? 0 : order.Length;
+        var definitions = new[] { ExpandedRow0, ExpandedRow1, ExpandedRow2, ExpandedRow3 };
+        definitions[replyRow].Height = new GridLength(1, GridUnitType.Star);
         for (var index = 0; index < order.Length; index++)
+        {
+            var targetRow = replyFirst ? index + 1 : index;
+            definitions[targetRow].Height = new GridLength(rowHeight);
             if (rows.TryGetValue(order[index], out var elements))
-                foreach (var element in elements) System.Windows.Controls.Grid.SetRow(element, firstStatusRow + index);
-        System.Windows.Controls.Grid.SetRow(RecentBorder, replyFirst ? 0 : 3);
+                foreach (var element in elements) System.Windows.Controls.Grid.SetRow(element, targetRow);
+        }
+        System.Windows.Controls.Grid.SetRow(RecentBorder, replyRow);
         RecentBorder.Margin = replyFirst ? new Thickness(0, 0, 0, 6) : new Thickness(0, 6, 0, 0);
         ApplyCollapseHandlePosition();
     }
@@ -620,7 +656,9 @@ public partial class MainWindow : Window
             var completion = DetectCompletion(status, codex, workBuddy);
             if (completion is null && _activeConfirmationNotice is null) UpdateCodexResetReminder(codex);
             RecentResultText.Text = ActiveNoticeText;
-            _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
+            _anyBusy = (IsProviderVisible("yoyo") && status.IsBusy)
+                || (IsProviderVisible("codex") && codex.IsBusy)
+                || (IsProviderVisible("workbuddy") && workBuddy.IsBusy);
             UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 2 : 5);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
@@ -665,7 +703,7 @@ public partial class MainWindow : Window
         CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy ? BusyBrush : OnlineBrush;
         CodexDot.Fill = CodexMiniDot.Fill;
         SetCodexStateText(codex);
-        if (!provisional || !codex.IsBusy) return;
+        if (!provisional || !codex.IsBusy || !IsProviderVisible("codex")) return;
 
         _anyBusy = true;
         _refreshTimer.Interval = TimeSpan.FromSeconds(2);
@@ -678,7 +716,7 @@ public partial class MainWindow : Window
     internal IReadOnlyList<ProviderMenuEntry> GetProviderMenuEntries()
     {
         var entries = new List<ProviderMenuEntry>();
-        foreach (var key in ProviderOrder())
+        foreach (var key in ProviderOrder().Where(IsProviderInstalled))
         {
             var (state, color, available) = key switch
             {
@@ -719,29 +757,30 @@ public partial class MainWindow : Window
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
-        var busyProviders = ProviderOrder()
+        var busyProviders = VisibleProviderOrder()
             .Where(provider => busyByProvider.TryGetValue(provider, out var busy) && busy)
             .Select(ProviderLabel)
             .ToList();
-        if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
-        else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
-        else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
+        if (VisibleProviderOrder().Length == 0) { HeadlineText.Text = "未检测到助手"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary("请在设置中指定安装位置"); }
+        else if (IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("、", busyProviders)); }
-        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
-        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
-        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
-        else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
+        else if (IsProviderVisible("yoyo") && yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
+        else if (IsProviderVisible("codex") && codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
+        else if (IsProviderVisible("workbuddy") && workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
+        else if (IsProviderVisible("yoyo") && !yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
+        else if (IsProviderVisible("yoyo") && !yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
+        else if (IsProviderVisible("yoyo") && yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
     }
 
     private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
     {
         var values = new Dictionary<string, string>();
-        if (_settings.ShowYoyoCredits)
+        if (IsProviderVisible("yoyo") && _settings.ShowYoyoCredits)
             values["yoyo"] = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--";
-        if (_settings.ShowCodexLimits)
+        if (IsProviderVisible("codex") && _settings.ShowCodexLimits)
             values["codex"] = codex.FiveHourRemainingPercent is int fiveHour ? $"5小时 {fiveHour}%" : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--";
-        if (_settings.ShowWorkBuddyCredits)
+        if (IsProviderVisible("workbuddy") && _settings.ShowWorkBuddyCredits)
             values["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--";
         var key = $"{_settings.ProviderOrder}|{_settings.ShowYoyoCredits}|{_settings.ShowCodexLimits}|{_settings.ShowWorkBuddyCredits}|{string.Join('|', ProviderOrder().Where(values.ContainsKey).Select(provider => values[provider]))}";
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
@@ -787,14 +826,14 @@ public partial class MainWindow : Window
         SummaryText.Inlines.Add(run);
     }
 
-    private static string SelectLatestResponse(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
+    private string SelectLatestResponse(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
     {
         var candidates = new List<CompletionNotice>();
-        if (yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt && !string.IsNullOrWhiteSpace(yoyo.RecentResult) && yoyo.TaskStatusAvailable)
+        if (IsProviderVisible("yoyo") && yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt && !string.IsNullOrWhiteSpace(yoyo.RecentResult) && yoyo.TaskStatusAvailable)
             candidates.Add(new("YOYO Claw", yoyo.RecentResult, yoyoAt));
-        if (codex.RecentResponseAt is DateTimeOffset codexAt && !string.IsNullOrWhiteSpace(codex.RecentResponse))
+        if (IsProviderVisible("codex") && codex.RecentResponseAt is DateTimeOffset codexAt && !string.IsNullOrWhiteSpace(codex.RecentResponse))
             candidates.Add(new("Codex", codex.RecentResponse!, codexAt));
-        if (workBuddy.RecentResponseAt is DateTimeOffset workBuddyAt && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
+        if (IsProviderVisible("workbuddy") && workBuddy.RecentResponseAt is DateTimeOffset workBuddyAt && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
             candidates.Add(new("WorkBuddy", workBuddy.RecentResponse!, workBuddyAt));
         var latest = candidates.OrderByDescending(item => item.CompletedAt).FirstOrDefault();
         return latest is null ? yoyo.RecentResult : $"{latest.Provider} · {latest.Response}";
@@ -802,10 +841,10 @@ public partial class MainWindow : Window
 
     private CompletionNotice? DetectCompletion(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
     {
-        var yoyoId = !yoyo.IsBusy && yoyo.TaskStatusAvailable && yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt
+        var yoyoId = IsProviderVisible("yoyo") && !yoyo.IsBusy && yoyo.TaskStatusAvailable && yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt
             ? $"{yoyoAt:O}|{yoyo.RecentResult}" : null;
-        var codexId = !codex.IsBusy ? codex.RecentResponseId : null;
-        var workBuddyId = !workBuddy.IsBusy ? workBuddy.RecentResponseId : null;
+        var codexId = IsProviderVisible("codex") && !codex.IsBusy ? codex.RecentResponseId : null;
+        var workBuddyId = IsProviderVisible("workbuddy") && !workBuddy.IsBusy ? workBuddy.RecentResponseId : null;
 
         if (!_completionBaselineReady)
         {
@@ -846,7 +885,7 @@ public partial class MainWindow : Window
 
     private void UpdateCodexResetReminder(CodexStatus codex)
     {
-        if (!_settings.EnableCodexResetReminder || _activeCompletionNotice is not null || _activeSystemNotice is not null) return;
+        if (!IsProviderVisible("codex") || !_settings.EnableCodexResetReminder || _activeCompletionNotice is not null || _activeSystemNotice is not null) return;
         var now = DateTimeOffset.Now;
         var window = TimeSpan.FromMinutes(_settings.CodexResetReminderMinutes);
         var candidates = new List<(string Kind, DateTimeOffset At, int? Remaining)>();
@@ -903,7 +942,7 @@ public partial class MainWindow : Window
 
     private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
     {
-        if (!workBuddy.RequiresConfirmation || !_settings.EnableConfirmationNotifications)
+        if (!IsProviderVisible("workbuddy") || !workBuddy.RequiresConfirmation || !_settings.EnableConfirmationNotifications)
         {
             var wasActive = _activeConfirmationNotice is not null;
             _activeConfirmationNotice = null;
@@ -991,6 +1030,11 @@ public partial class MainWindow : Window
         if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null || _activeSystemNotice is not null)
         {
             ShowIslandForFocusMode(animate: _inactivityHidden);
+            return;
+        }
+        if (VisibleProviderOrder().Length == 0)
+        {
+            HideIslandForFocusMode(animate: true);
             return;
         }
         if (_inactivityHidden)
@@ -1639,14 +1683,65 @@ public partial class MainWindow : Window
         var now = DateTimeOffset.UtcNow;
         if (now - _lastPathCapture < TimeSpan.FromMinutes(1)) return;
         _lastPathCapture = now;
-        var yoyo = ApplicationLocator.FindRunningExecutable("HnMagicClawUI");
-        var codex = ApplicationLocator.FindRunningExecutable("ChatGPT", IsCodexProcess);
-        var workBuddy = ApplicationLocator.FindRunningExecutable("WorkBuddy");
+        RefreshProviderInstallations();
+    }
+
+    internal IReadOnlyList<ProviderInstallationState> GetProviderInstallations()
+        => ProviderOrder().Select(key => new ProviderInstallationState(key, ProviderLabel(key), IsProviderInstalled(key), key switch
+        {
+            "yoyo" => _settings.YoyoExecutablePath,
+            "codex" => _settings.CodexExecutablePath,
+            "workbuddy" => _settings.WorkBuddyExecutablePath,
+            _ => null
+        })).ToArray();
+
+    internal bool SetProviderExecutablePath(string provider, string path)
+    {
+        if (!ApplicationLocator.IsExpectedProviderExecutable(provider, path)) return false;
+        var fullPath = Path.GetFullPath(path);
+        switch (provider)
+        {
+            case "yoyo": _settings.YoyoExecutablePath = fullPath; break;
+            case "codex": _settings.CodexExecutablePath = fullPath; break;
+            case "workbuddy": _settings.WorkBuddyExecutablePath = fullPath; break;
+            default: return false;
+        }
+        AppSettings.Save(_settings);
+        RefreshProviderInstallations(forceNotification: true);
+        _ = RefreshStatusAsync();
+        return true;
+    }
+
+    internal void RescanProviderInstallations()
+    {
+        _lastPathCapture = DateTimeOffset.MinValue;
+        RefreshProviderInstallations(forceNotification: true);
+        _ = RefreshStatusAsync();
+    }
+
+    private void RefreshProviderInstallations(bool forceNotification = false)
+    {
+        var yoyo = ApplicationLocator.FindYoyoExecutable(_settings.YoyoExecutablePath);
+        var codex = ApplicationLocator.FindCodexDesktopExecutable(_settings.CodexExecutablePath, IsCodexProcess);
+        var workBuddy = ApplicationLocator.FindWorkBuddyExecutable(_settings.WorkBuddyExecutablePath);
         var changed = false;
         if (yoyo is not null && !string.Equals(_settings.YoyoExecutablePath, yoyo, StringComparison.OrdinalIgnoreCase)) { _settings.YoyoExecutablePath = yoyo; changed = true; }
         if (codex is not null && !string.Equals(_settings.CodexExecutablePath, codex, StringComparison.OrdinalIgnoreCase)) { _settings.CodexExecutablePath = codex; changed = true; }
         if (workBuddy is not null && !string.Equals(_settings.WorkBuddyExecutablePath, workBuddy, StringComparison.OrdinalIgnoreCase)) { _settings.WorkBuddyExecutablePath = workBuddy; changed = true; }
+        var yoyoInstalled = yoyo is not null;
+        var codexInstalled = codex is not null || ApplicationLocator.IsCodexDesktopInstalled(_settings.CodexExecutablePath, IsCodexProcess);
+        var workBuddyInstalled = workBuddy is not null;
+        var availabilityChanged = yoyoInstalled != _yoyoInstalled || codexInstalled != _codexInstalled || workBuddyInstalled != _workBuddyInstalled;
+        _yoyoInstalled = yoyoInstalled;
+        _codexInstalled = codexInstalled;
+        _workBuddyInstalled = workBuddyInstalled;
         if (changed) AppSettings.Save(_settings);
+        if (availabilityChanged)
+        {
+            ApplyProviderVisibility();
+            if (_expanded) Island.Height = GetExpandedHeight();
+        }
+        if (availabilityChanged || forceNotification) ProviderAvailabilityChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private string CodexSummary(CodexStatus status)

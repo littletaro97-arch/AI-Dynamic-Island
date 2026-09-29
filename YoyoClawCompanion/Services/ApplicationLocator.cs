@@ -74,6 +74,18 @@ internal static class ApplicationLocator
         return FindAppPath("ChatGPT.exe");
     }
 
+    public static bool IsCodexDesktopInstalled(string? rememberedPath, Func<Process, bool> predicate)
+        => FindCodexDesktopExecutable(rememberedPath, predicate) is not null || HasPackagedApp("OpenAI.Codex_");
+
+    public static bool IsExpectedProviderExecutable(string provider, string? path)
+        => provider.ToLowerInvariant() switch
+        {
+            "yoyo" => IsExpectedExecutable(path, "HnMagicClawUI.exe"),
+            "codex" => IsExpectedExecutable(path, "ChatGPT.exe"),
+            "workbuddy" => IsExpectedExecutable(path, "WorkBuddy.exe"),
+            _ => false
+        };
+
     public static string? FindCodexCliExecutable()
     {
         var running = FindRunningExecutable("codex");
@@ -198,6 +210,17 @@ internal static class ApplicationLocator
             catch { }
         }
         return null;
+    }
+
+    private static bool HasPackagedApp(string packagePrefix)
+    {
+        const string packages = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
+        try
+        {
+            using var root = Registry.CurrentUser.OpenSubKey(packages);
+            return root?.GetSubKeyNames().Any(name => name.StartsWith(packagePrefix, StringComparison.OrdinalIgnoreCase)) == true;
+        }
+        catch { return false; }
     }
 
     private static string? CleanRegistryPath(string? value)
