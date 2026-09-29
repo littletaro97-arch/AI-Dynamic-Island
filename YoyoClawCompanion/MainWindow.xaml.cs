@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Documents;
 using System.Windows.Interop;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using YoyoClawCompanion.Services;
@@ -31,6 +32,7 @@ public partial class MainWindow : Window
     private readonly WorkBuddyCreditsService _workBuddyCreditsService = new();
     private readonly CodexStatusService _codexStatusService = new();
     private readonly YoyoCheckinService _yoyoCheckinService = new();
+    private readonly ContextMenu _islandMenu = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _checkinCancellation;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
     private bool _fullscreenOverrideActive, _islandAnimationInProgress;
     private bool _inactivityHidden;
     private bool _trayWakeActive;
+    private DateTimeOffset _trayWakeIgnoreDeactivateUntil;
     private bool _taskbarTopmostOverride;
     private bool _horizontalExpansionCompensated;
     private bool _positionInitialized;
@@ -82,6 +85,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ConfigureIslandMenu();
         Loaded += OnLoaded;
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowProc);
         _refreshTimer.Tick += async (_, _) => await RefreshStatusAsync();
@@ -93,6 +97,7 @@ public partial class MainWindow : Window
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
+        Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
         Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
@@ -107,9 +112,24 @@ public partial class MainWindow : Window
         _lastStateChangeAt = DateTimeOffset.Now;
         _inactivityHidden = false;
         _trayWakeActive = true;
+        _manualCollapseUntilPointerExit = false;
+        _leaveTimer.Stop();
+        _trayWakeIgnoreDeactivateUntil = DateTimeOffset.Now.AddMilliseconds(450);
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: true);
         ExpandIsland(true);
+        Activate();
+    }
+
+    private void MainWindow_Deactivated(object? sender, EventArgs e)
+    {
+        if (!_trayWakeActive || DateTimeOffset.Now < _trayWakeIgnoreDeactivateUntil) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!_trayWakeActive || DateTimeOffset.Now < _trayWakeIgnoreDeactivateUntil || Island.ContextMenu?.IsOpen == true) return;
+            _trayWakeActive = false;
+            CollapseIsland(true);
+        }, DispatcherPriority.Input);
     }
 
     internal void StartYoyoCheckinFromSettings()
@@ -121,6 +141,69 @@ public partial class MainWindow : Window
         _checkinCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
         _ = RunYoyoCheckinAsync(_checkinCancellation.Token);
     }
+
+    private void ConfigureIslandMenu()
+    {
+        _islandMenu.Style = (Style)FindResource("IslandContextMenuStyle");
+        _islandMenu.Opened += (_, _) => RebuildIslandMenu();
+        _islandMenu.Closed += (_, _) =>
+        {
+            if (!_trayWakeActive && !Island.IsMouseOver && _expanded) _leaveTimer.Start();
+        };
+        Island.ContextMenu = _islandMenu;
+        RebuildIslandMenu();
+    }
+
+    private void RebuildIslandMenu()
+    {
+        _islandMenu.Items.Clear();
+        _islandMenu.Items.Add(CreateIslandMenuItem("打开主页", "MenuHomeIcon", (_, _) => OpenHome()));
+        _islandMenu.Items.Add(CreateIslandSeparator());
+        foreach (var provider in GetProviderMenuEntries())
+        {
+            var dot = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = Brush(provider.Color), VerticalAlignment = VerticalAlignment.Center };
+            var item = CreateIslandMenuItem($"打开 {provider.Label}", null, (_, _) => OpenProviderFromMenu(provider.Key), dot);
+            item.InputGestureText = provider.CanLaunch ? "↗" : "未找到";
+            item.IsEnabled = provider.CanLaunch;
+            _islandMenu.Items.Add(item);
+        }
+        _islandMenu.Items.Add(CreateIslandSeparator());
+        _islandMenu.Items.Add(CreateIslandMenuItem("重置并重新检测", "MenuRefreshIcon", async (_, _) => await ResetAndRefreshStatusAsync()));
+        _islandMenu.Items.Add(CreateIslandMenuItem("复制最近结果", "MenuCopyIcon", (_, _) => CopyLatestResult()));
+        var wide = CreateIslandSeparator();
+        wide.Margin = new Thickness(0, 9, 0, 5);
+        _islandMenu.Items.Add(wide);
+        var exit = CreateIslandMenuItem("退出", "MenuExitIcon", (_, _) => Application.Current.Shutdown());
+        exit.Tag = "danger";
+        _islandMenu.Items.Add(exit);
+    }
+
+    private MenuItem CreateIslandMenuItem(string header, string? geometryResource, RoutedEventHandler click, UIElement? icon = null)
+    {
+        var item = new MenuItem { Header = header, Style = (Style)FindResource("IslandMenuItemStyle") };
+        if (icon is not null) item.Icon = icon;
+        else if (geometryResource is not null)
+            item.Icon = new System.Windows.Shapes.Path
+            {
+                Data = (Geometry)FindResource(geometryResource), Stroke = _secondaryTextBrush, StrokeThickness = 1.8,
+                Stretch = Stretch.Uniform, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round
+            };
+        item.Click += click;
+        return item;
+    }
+
+    private Separator CreateIslandSeparator()
+        => new() { Style = (Style)FindResource("IslandMenuSeparatorStyle"), Background = Brush(IsLightTheme ? "#16182033" : "#16FFFFFF") };
+
+    private void CopyLatestResult()
+    {
+        var text = ActiveNoticeText;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        try { System.Windows.Clipboard.SetText(text); } catch { }
+    }
+
+    internal void CopyLatestResultFromMenu() => CopyLatestResult();
 
     private async Task ResetAndRefreshStatusAsync()
     {
@@ -224,6 +307,7 @@ public partial class MainWindow : Window
         YoyoIndicatorButton.Visibility = settings.ShowYoyo ? Visibility.Visible : Visibility.Collapsed;
         CodexIndicatorButton.Visibility = settings.ShowCodex ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyIndicatorButton.Visibility = settings.ShowWorkBuddy ? Visibility.Visible : Visibility.Collapsed;
+        PointsText.Visibility = settings.ShowYoyoCredits ? Visibility.Visible : Visibility.Collapsed;
         ApplyProviderOrder();
         ApplyExpandedContentOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
@@ -586,9 +670,41 @@ public partial class MainWindow : Window
         _refreshTimer.Interval = TimeSpan.FromSeconds(2);
         HeadlineText.Text = "Codex 执行中";
         HeadlineText.Foreground = BusyBrush;
-        SetPlainSummary(CodexSummary(codex), BusyBrush);
+        SetPlainSummary("");
         if (UsesActiveOnlyDisplay && !_notificationHoldActive) ShowIslandForFocusMode();
     }
+
+    internal IReadOnlyList<ProviderMenuEntry> GetProviderMenuEntries()
+    {
+        var entries = new List<ProviderMenuEntry>();
+        foreach (var key in ProviderOrder())
+        {
+            var (state, color, available) = key switch
+            {
+                "yoyo" => (StateText.Text, BrushColor(YoyoMiniDot.Fill), CanLaunchYoyo()),
+                "codex" => (InlineText(CodexStateText), BrushColor(CodexMiniDot.Fill), CanLaunchCodex()),
+                "workbuddy" => (InlineText(WorkBuddyStateText), BrushColor(WorkBuddyMiniDot.Fill), CanLaunchWorkBuddy()),
+                _ => ("未知来源", "#727C90", false)
+            };
+            entries.Add(new ProviderMenuEntry(key, ProviderLabel(key), state, color, _settings.EnableAppLaunch && available));
+        }
+        return entries;
+    }
+
+    private static string InlineText(TextBlock target)
+        => string.Concat(target.Inlines.OfType<Run>().Select(run => run.Text));
+
+    private static string BrushColor(System.Windows.Media.Brush? brush)
+        => brush is SolidColorBrush solid ? solid.Color.ToString() : "#727C90";
+
+    private bool CanLaunchYoyo()
+        => ApplicationLocator.IsProcessRunning("HnMagicClawUI") || ApplicationLocator.FindYoyoExecutable(_settings.YoyoExecutablePath) is not null;
+
+    private bool CanLaunchCodex()
+        => ApplicationLocator.IsProcessRunning("ChatGPT") || ApplicationLocator.FindCodexDesktopExecutable(_settings.CodexExecutablePath, IsCodexProcess) is not null;
+
+    private bool CanLaunchWorkBuddy()
+        => ApplicationLocator.IsProcessRunning("WorkBuddy") || ApplicationLocator.FindWorkBuddyExecutable(_settings.WorkBuddyExecutablePath) is not null;
 
     private static async Task<TimedResult<T>> MeasureAsync<T>(Task<T> task)
     {
@@ -609,30 +725,32 @@ public partial class MainWindow : Window
         if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
-        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("、", busyProviders), BusyBrush); }
-        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
-        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
-        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
+        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
+        else if (yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
+        else if (codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
+        else if (workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(""); }
         else if (yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
     }
 
     private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
     {
-        var values = new Dictionary<string, string>
-        {
-            ["yoyo"] = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--",
-            ["codex"] = codex.FiveHourRemainingPercent is int fiveHour ? $"5小时 {fiveHour}%" : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--",
-            ["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--"
-        };
-        var key = $"{_settings.ProviderOrder}|{string.Join('|', ProviderOrder().Select(provider => values.GetValueOrDefault(provider, "--")))}";
+        var values = new Dictionary<string, string>();
+        if (_settings.ShowYoyoCredits)
+            values["yoyo"] = yoyo.RemainingPoints is double yoyoPoints ? $"{yoyoPoints:0.##} 积分" : "--";
+        if (_settings.ShowCodexLimits)
+            values["codex"] = codex.FiveHourRemainingPercent is int fiveHour ? $"5小时 {fiveHour}%" : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--";
+        if (_settings.ShowWorkBuddyCredits)
+            values["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--";
+        var key = $"{_settings.ProviderOrder}|{_settings.ShowYoyoCredits}|{_settings.ShowCodexLimits}|{_settings.ShowWorkBuddyCredits}|{string.Join('|', ProviderOrder().Where(values.ContainsKey).Select(provider => values[provider]))}";
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
 
-        _isBalanceSummary = true;
+        _isBalanceSummary = values.Count > 0;
         _balanceSummaryKey = key;
         PopulateBalanceSummary(SummaryText, values);
         PopulateBalanceSummary(SummaryTextClone, values);
-        ScheduleSummaryMarquee();
+        SummaryViewport.Visibility = values.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (values.Count > 0) ScheduleSummaryMarquee();
     }
 
     private void PopulateBalanceSummary(TextBlock target, IReadOnlyDictionary<string, string> values)
@@ -641,8 +759,8 @@ public partial class MainWindow : Window
         var first = true;
         foreach (var provider in ProviderOrder())
         {
-            if (!first) target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
             if (!values.TryGetValue(provider, out var value)) continue;
+            if (!first) target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
             AddSummaryPart(target, ProviderLabel(provider) + " ", value);
             first = false;
         }
@@ -662,6 +780,7 @@ public partial class MainWindow : Window
         SummaryText.Inlines.Clear();
         SummaryTextClone.Inlines.Clear();
         SummaryTextClone.Visibility = Visibility.Collapsed;
+        SummaryViewport.Visibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
         var run = new Run(value);
         if (foreground is not null) run.Foreground = foreground;
         SummaryText.Inlines.Add(run);
@@ -1160,7 +1279,11 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeave(object sender, MouseEventArgs e)
     {
-        _trayWakeActive = false;
+        if (_trayWakeActive)
+        {
+            _enterTimer.Stop();
+            return;
+        }
         _manualCollapseUntilPointerExit = false;
         _enterTimer.Stop();
         if (!_dragging && !_holdArmed && _expanded && !_islandAnimationInProgress && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
@@ -1169,7 +1292,7 @@ public partial class MainWindow : Window
     private void TryCollapseAfterPointerExit()
     {
         _leaveTimer.Stop();
-        if (!_expanded || _dragging || _holdArmed || _islandAnimationInProgress || Island.ContextMenu?.IsOpen == true) return;
+        if (_trayWakeActive || !_expanded || _dragging || _holdArmed || _islandAnimationInProgress || Island.ContextMenu?.IsOpen == true) return;
         var bounds = GetIslandScreenPixelBounds();
         bounds.Inflate(8, 8);
         if (bounds.Contains(NativeWindow.GetCursorPosition()))
@@ -1626,7 +1749,7 @@ public partial class MainWindow : Window
 
     private void ApplyTheme()
     {
-        var light = _settings.ThemeMode == "light" || (_settings.ThemeMode == "system" && SystemUsesLightTheme());
+        var light = IsLightTheme;
         var primary = Brush(light ? "#182033" : "#F2F5FF");
         var secondary = Brush(light ? "#5E687A" : "#9AA5BC");
         _secondaryTextBrush = secondary;
@@ -1644,7 +1767,14 @@ public partial class MainWindow : Window
         WorkBuddyLabel.Foreground = primary;
         RecentResultText.Foreground = Brush(light ? "#59657A" : "#B9C2D4");
         RecentBorder.Background = Brush(light ? "#CCEAF0F7" : "#B8182033");
+        _islandMenu.Background = Brush(light ? "#F7FFFFFF" : "#F00E131D");
+        _islandMenu.BorderBrush = Brush(light ? "#24182033" : "#1FFFFFFF");
+        _islandMenu.Foreground = primary;
+        Resources["IslandMenuHoverBrush"] = Brush(light ? "#10182033" : "#16FFFFFF");
+        if (_islandMenu.IsOpen) RebuildIslandMenu();
     }
+
+    private bool IsLightTheme => _settings.ThemeMode == "light" || (_settings.ThemeMode == "system" && SystemUsesLightTheme());
 
     private static bool SystemUsesLightTheme()
     {
@@ -1710,6 +1840,22 @@ public partial class MainWindow : Window
 
     private void OpenProviderAndAcknowledge(string provider, Func<bool> openProvider, RoutedEventArgs e)
     {
+        OpenProviderAndAcknowledge(provider, openProvider);
+        e.Handled = true;
+    }
+
+    internal void OpenProviderFromMenu(string key)
+    {
+        switch (key.ToLowerInvariant())
+        {
+            case "yoyo": OpenProviderAndAcknowledge("YOYO Claw", OpenYoyo); break;
+            case "codex": OpenProviderAndAcknowledge("Codex", OpenCodex); break;
+            case "workbuddy": OpenProviderAndAcknowledge("WorkBuddy", OpenWorkBuddy); break;
+        }
+    }
+
+    private void OpenProviderAndAcknowledge(string provider, Func<bool> openProvider)
+    {
         var opened = _settings.EnableAppLaunch && !_dragging && openProvider();
         if (opened
             && string.Equals(provider, _highlightedProvider, StringComparison.OrdinalIgnoreCase)
@@ -1727,8 +1873,9 @@ public partial class MainWindow : Window
         }
         else if (_activeCompletionNotice is null && _activeConfirmationNotice is null && _activeSystemNotice is null)
             ClearProviderHighlight();
-        e.Handled = true;
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await ResetAndRefreshStatusAsync();
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }
+
+internal sealed record ProviderMenuEntry(string Key, string Label, string State, string Color, bool CanLaunch);

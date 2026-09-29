@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using YoyoClawCompanion.Services;
 using Application = System.Windows.Application;
 
@@ -82,11 +83,14 @@ public partial class App : Application
         if (_trayIcon is not null) return;
 
         _trayDrawingIcon = LoadTrayIcon();
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("打开主页", null, (_, _) => Dispatcher.BeginInvoke(OpenHome));
-        menu.Items.Add("重置并重新检测", null, (_, _) => Dispatcher.BeginInvoke(RefreshStatus));
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("退出 AI Dynamic Island", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        var menu = new System.Windows.Forms.ContextMenuStrip
+        {
+            ShowImageMargin = true,
+            ShowCheckMargin = false,
+            Padding = new System.Windows.Forms.Padding(5),
+            MinimumSize = new System.Drawing.Size(222, 0)
+        };
+        menu.Opening += (_, _) => RebuildTrayMenu(menu);
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
             Icon = _trayDrawingIcon,
@@ -105,6 +109,83 @@ public partial class App : Application
     private void OpenHome() => (MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest();
     private void WakeIslandFromTray() => (MainWindow as YoyoClawCompanion.MainWindow)?.WakeFromTray();
     private void RefreshStatus() => (MainWindow as YoyoClawCompanion.MainWindow)?.RefreshFromExternalRequest();
+
+    private void RebuildTrayMenu(System.Windows.Forms.ContextMenuStrip menu)
+    {
+        for (var index = menu.Items.Count - 1; index >= 0; index--)
+        {
+            var item = menu.Items[index];
+            menu.Items.RemoveAt(index);
+            item.Dispose();
+        }
+        var light = SystemUsesLightTheme();
+        var secondary = light ? System.Drawing.Color.FromArgb(110, 110, 110) : System.Drawing.Color.FromArgb(154, 154, 154);
+        menu.Renderer = new TrayMenuRenderer(light);
+        menu.BackColor = light ? System.Drawing.Color.FromArgb(250, 250, 250) : System.Drawing.Color.FromArgb(43, 43, 43);
+        menu.ForeColor = light ? System.Drawing.Color.FromArgb(27, 27, 27) : System.Drawing.Color.FromArgb(237, 237, 237);
+
+        menu.Items.Add(CreateTrayItem("打开主页", TrayMenuGraphics.LineIcon("home", secondary), (_, _) => Dispatcher.BeginInvoke(OpenHome)));
+        var show = CreateTrayItem("显示灵动岛", TrayMenuGraphics.LineIcon("show", secondary), (_, _) => Dispatcher.BeginInvoke(WakeIslandFromTray));
+        show.ShortcutKeyDisplayString = "单击托盘";
+        menu.Items.Add(show);
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+
+        if (MainWindow is YoyoClawCompanion.MainWindow island)
+        {
+            foreach (var provider in island.GetProviderMenuEntries())
+            {
+                var item = CreateTrayItem($"打开 {provider.Label}", TrayMenuGraphics.Dot(ParseColor(provider.Color)),
+                    (_, _) => Dispatcher.BeginInvoke(() => island.OpenProviderFromMenu(provider.Key)));
+                item.Enabled = provider.CanLaunch;
+                item.ShortcutKeyDisplayString = provider.CanLaunch ? provider.State : "未找到";
+                menu.Items.Add(item);
+            }
+        }
+
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(CreateTrayItem("重置并重新检测", TrayMenuGraphics.LineIcon("refresh", secondary), (_, _) => Dispatcher.BeginInvoke(RefreshStatus)));
+        menu.Items.Add(CreateTrayItem("复制最近结果", TrayMenuGraphics.LineIcon("copy", secondary), (_, _) => Dispatcher.BeginInvoke(() =>
+            (MainWindow as YoyoClawCompanion.MainWindow)?.CopyLatestResultFromMenu())));
+        var exitSeparator = new System.Windows.Forms.ToolStripSeparator { Margin = new System.Windows.Forms.Padding(0, 7, 0, 3) };
+        menu.Items.Add(exitSeparator);
+        var exit = CreateTrayItem("退出", TrayMenuGraphics.LineIcon("exit", secondary), (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        exit.Tag = "danger";
+        menu.Items.Add(exit);
+    }
+
+    private static System.Windows.Forms.ToolStripMenuItem CreateTrayItem(string text, System.Drawing.Image image, EventHandler click)
+    {
+        var item = new System.Windows.Forms.ToolStripMenuItem(text, image)
+        {
+            AutoSize = false,
+            Height = 30,
+            Width = 244,
+            ImageScaling = System.Windows.Forms.ToolStripItemImageScaling.None,
+            Padding = new System.Windows.Forms.Padding(4, 0, 5, 0)
+        };
+        item.Click += click;
+        return item;
+    }
+
+    private static System.Drawing.Color ParseColor(string value)
+    {
+        try
+        {
+            var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(value)!;
+            return System.Drawing.Color.FromArgb(color.A, color.R, color.G, color.B);
+        }
+        catch { return System.Drawing.Color.FromArgb(114, 124, 144); }
+    }
+
+    private static bool SystemUsesLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return Convert.ToInt32(key?.GetValue("AppsUseLightTheme", 1)) != 0;
+        }
+        catch { return true; }
+    }
 
     private static System.Drawing.Icon LoadTrayIcon()
     {

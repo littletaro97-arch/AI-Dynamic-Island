@@ -48,6 +48,7 @@ public partial class SettingsWindow : Window
     {
         _island = island;
         InitializeComponent();
+        PrepareSettingIcons();
         Icon = App.CreateWindowIcon();
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
         _island.PositionChanged += Island_PositionChanged;
@@ -78,6 +79,7 @@ public partial class SettingsWindow : Window
         foreach (ComboBoxItem item in ThemeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ThemeMode, StringComparison.OrdinalIgnoreCase)) ThemeCombo.SelectedItem = item;
         if (ThemeCombo.SelectedIndex < 0) ThemeCombo.SelectedIndex = 0;
         CodexActivityCheck.IsChecked = value.EnableCodexActivityDetection;
+        YoyoCreditsCheck.IsChecked = value.ShowYoyoCredits;
         CodexLimitsCheck.IsChecked = value.ShowCodexLimits;
         WorkBuddyCreditsCheck.IsChecked = value.ShowWorkBuddyCredits;
         CodexResetReminderCheck.IsChecked = value.EnableCodexResetReminder;
@@ -123,6 +125,7 @@ public partial class SettingsWindow : Window
         current.StartWithWindows = StartupCheck.IsChecked == true;
         current.ThemeMode = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         current.EnableCodexActivityDetection = CodexActivityCheck.IsChecked == true;
+        current.ShowYoyoCredits = YoyoCreditsCheck.IsChecked == true;
         current.ShowCodexLimits = CodexLimitsCheck.IsChecked == true;
         current.ShowWorkBuddyCredits = WorkBuddyCreditsCheck.IsChecked == true;
         current.EnableCodexResetReminder = CodexResetReminderCheck.IsChecked == true;
@@ -145,6 +148,7 @@ public partial class SettingsWindow : Window
         current.MaxResponseLines = int.TryParse((MaxResponseLinesCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var lines) ? lines : 3;
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
+            || ReferenceEquals(sender, YoyoCreditsCheck)
             || ReferenceEquals(sender, CodexLimitsCheck)
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
             || ReferenceEquals(sender, ConfirmationNotificationsCheck);
@@ -394,14 +398,43 @@ public partial class SettingsWindow : Window
         RefreshProviderOrderState();
     }
 
-    private Geometry ProviderIcon(string key)
-        => (Geometry)FindResource(key switch
+    private ImageSource ProviderIcon(string key)
+    {
+        var actual = ProviderIconService.Load(key, _island.CurrentSettings);
+        if (actual is not null) return actual;
+        var fallback = (Geometry)FindResource(key switch
         {
             "yoyo" => "IconCircle",
             "codex" => "IconChart",
             "workbuddy" => "IconCoin",
             _ => "IconCircle"
         });
+        return ProviderIconService.FromGeometry(fallback);
+    }
+
+    private void PrepareSettingIcons()
+    {
+        var checkBoxes = new[]
+        {
+            ShadowCheck, TopmostCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, TrayIconCheck, StartupCheck,
+            CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
+            HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
+            CodexResetReminderCheck, YoyoAutoCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
+            UnchangedAutoHideCheck, ReplyFirstWhenExpandedUpCheck, AllowExpandedBeyondScreenCheck
+        };
+        foreach (var checkBox in checkBoxes)
+            if (checkBox.Tag is Geometry geometry) checkBox.Tag = ProviderIconService.FromGeometry(geometry);
+
+        var yoyo = ProviderIconService.Load("yoyo", _island.CurrentSettings);
+        var codex = ProviderIconService.Load("codex", _island.CurrentSettings);
+        var workBuddy = ProviderIconService.Load("workbuddy", _island.CurrentSettings);
+        if (yoyo is not null)
+            foreach (var checkBox in new[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck }) checkBox.Tag = yoyo;
+        if (codex is not null)
+            foreach (var checkBox in new[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) checkBox.Tag = codex;
+        if (workBuddy is not null)
+            foreach (var checkBox in new[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) checkBox.Tag = workBuddy;
+    }
 
     private void ProviderOrderList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -672,16 +705,16 @@ public partial class SettingsWindow : Window
         private bool _insertBefore;
         private bool _insertAfter;
 
-        internal ProviderOrderItem(string key, string displayName, Geometry iconData)
+        internal ProviderOrderItem(string key, string displayName, ImageSource iconImage)
         {
             Key = key;
             DisplayName = displayName;
-            IconData = iconData;
+            IconImage = iconImage;
         }
 
         public string Key { get; }
         public string DisplayName { get; }
-        public Geometry IconData { get; }
+        public ImageSource IconImage { get; }
         public string PositionText => $"第 {Position} 位";
         public int Position { get => _position; set { if (_position == value) return; _position = value; Changed(nameof(Position)); Changed(nameof(PositionText)); } }
         public bool CanMoveUp { get => _canMoveUp; set { if (_canMoveUp == value) return; _canMoveUp = value; Changed(nameof(CanMoveUp)); } }

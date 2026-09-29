@@ -6,6 +6,43 @@
         ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <Window.Resources>
         <DropShadowEffect x:Key="IslandShadow" BlurRadius="16" ShadowDepth="6" Opacity="0.38" Color="#000000"/>
+        <Geometry x:Key="MenuHomeIcon">M3,11 L12,3 L21,11 M6,9 L6,20 L18,20 L18,9 M10,20 L10,14 L14,14 L14,20</Geometry>
+        <Geometry x:Key="MenuRefreshIcon">M20,8 A8,8 0 1 0 20,16 M20,4 L20,9 L15,9</Geometry>
+        <Geometry x:Key="MenuCopyIcon">M8,8 L20,8 L20,20 L8,20 Z M4,16 L4,4 L16,4</Geometry>
+        <Geometry x:Key="MenuExitIcon">M12,2 L12,12 M6,5 A9,9 0 1 0 18,5</Geometry>
+        <SolidColorBrush x:Key="IslandMenuHoverBrush" Color="#16FFFFFF"/>
+        <Style x:Key="IslandContextMenuStyle" TargetType="ContextMenu">
+            <Setter Property="Padding" Value="6"/><Setter Property="MinWidth" Value="206"/>
+            <Setter Property="BorderThickness" Value="1"/><Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
+                <Border x:Name="MenuSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="13" Padding="{TemplateBinding Padding}">
+                    <Border.Effect><DropShadowEffect BlurRadius="26" ShadowDepth="8" Opacity=".38"/></Border.Effect>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                </Border>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="IslandMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Height" Value="32"/><Setter Property="Padding" Value="9,0"/><Setter Property="Margin" Value="0,1"/>
+            <Setter Property="FontSize" Value="12.5"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
+                <Border x:Name="ItemSurface" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <ContentPresenter ContentSource="Icon" Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <ContentPresenter Grid.Column="1" ContentSource="Header" Margin="5,0,14,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{TemplateBinding Foreground}" Opacity=".65" FontSize="10.5" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource IslandMenuHoverBrush}"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".48"/></Trigger>
+                    <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsHighlighted" Value="True"/><Condition Property="Tag" Value="danger"/></MultiTrigger.Conditions><Setter TargetName="ItemSurface" Property="Background" Value="#24F2686F"/><Setter Property="Foreground" Value="#F2686F"/></MultiTrigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="IslandMenuSeparatorStyle" TargetType="Separator">
+            <Setter Property="Margin" Value="8,4"/><Setter Property="Height" Value="1"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="{TemplateBinding Background}"/></ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style x:Key="IndicatorButton" TargetType="Button">
             <Setter Property="Width" Value="15"/><Setter Property="Height" Value="30"/><Setter Property="Padding" Value="0"/>
             <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/>
@@ -65,19 +102,11 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <ContextMenu x:Key="IslandMenu">
-            <MenuItem Header="打开主页" Click="OpenHome_Click"/><Separator/>
-            <MenuItem Header="打开 YOYO Claw" Click="OpenYoyo_Click"/>
-            <MenuItem Header="打开 Codex" Click="OpenCodex_Click"/>
-            <MenuItem Header="打开 WorkBuddy" Click="OpenWorkBuddy_Click"/><Separator/>
-            <MenuItem Header="重置并重新检测" Click="Refresh_Click"/>
-            <MenuItem Header="退出 AI Dynamic Island" Click="Exit_Click"/>
-        </ContextMenu>
     </Window.Resources>
     <Grid>
         <Border x:Name="Island" Width="224" Height="48" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0"
                 CornerRadius="24" Background="#EB0E121C" BorderBrush="#1AFFFFFF" BorderThickness="1"
-                Effect="{StaticResource IslandShadow}" ContextMenu="{StaticResource IslandMenu}"
+                Effect="{StaticResource IslandShadow}"
                 RenderTransformOrigin="0.5,0.5"
                 MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
                 PreviewMouseLeftButtonDown="Island_MouseLeftButtonDown" PreviewMouseLeftButtonUp="Island_MouseLeftButtonUp"

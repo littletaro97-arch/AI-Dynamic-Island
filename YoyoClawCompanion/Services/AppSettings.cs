@@ -20,6 +20,7 @@ internal sealed class IslandSettings
     public bool StartWithWindows { get; set; }
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
+    public bool ShowYoyoCredits { get; set; } = true;
     public bool ShowCodexLimits { get; set; } = true;
     public bool ShowWorkBuddyCredits { get; set; } = true;
     public bool EnableCodexResetReminder { get; set; } = true;
