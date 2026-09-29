@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _passThroughTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly DispatcherTimer _fullscreenTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _zOrderTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
+    private readonly DispatcherTimer _readyClockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _dragMoved, _refreshing, _expanded, _finishingGesture;
@@ -101,10 +102,11 @@ public partial class MainWindow : Window
         _passThroughTimer.Tick += (_, _) => CheckReverseHoverExit();
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
+        _readyClockTimer.Tick += (_, _) => UpdateReadyClockText();
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _readyClockTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -766,6 +768,7 @@ public partial class MainWindow : Window
 
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
+        _readyClockTimer.Stop();
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
         var runningByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsYoyoRunning, ["codex"] = codex.IsRunning, ["workbuddy"] = workBuddy.IsRunning };
@@ -785,7 +788,27 @@ public partial class MainWindow : Window
         else if (IsProviderVisible("yoyo") && !yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (IsProviderVisible("yoyo") && !yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
         else if (IsProviderVisible("yoyo") && yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
-        else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
+        else
+        {
+            if (_settings.ShowClockWhenReady)
+            {
+                UpdateReadyClockText();
+                _readyClockTimer.Start();
+            }
+            else HeadlineText.Text = "全部就绪";
+            HeadlineText.Foreground = OnlineBrush;
+            SetBalanceSummary(yoyo, codex, workBuddyCredits);
+        }
+    }
+
+    private void UpdateReadyClockText()
+    {
+        if (!_settings.ShowClockWhenReady)
+        {
+            _readyClockTimer.Stop();
+            return;
+        }
+        HeadlineText.Text = DateTime.Now.ToString("HH:mm:ss");
     }
 
     private string BusyMetric(string provider, YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddyCredits)

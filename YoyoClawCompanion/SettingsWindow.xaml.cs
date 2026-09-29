@@ -56,6 +56,7 @@ public partial class SettingsWindow : Window
         _island.UpdateService.Changed += UpdateService_Changed;
         Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; _island.ProviderAvailabilityChanged -= Island_ProviderAvailabilityChanged; _island.UpdateService.Changed -= UpdateService_Changed; StopPresetMarquees(); };
         SizeChanged += (_, _) => SchedulePresetMarquees();
+        Loaded += (_, _) => Dispatcher.BeginInvoke(UpdateActiveNavigation, DispatcherPriority.Loaded);
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
@@ -74,6 +75,7 @@ public partial class SettingsWindow : Window
         HeightSlider.Value = value.IslandHeight;
         TextSizeSlider.Value = value.TextSize;
         ShadowCheck.IsChecked = value.ShowShadow;
+        ReadyClockCheck.IsChecked = value.ShowClockWhenReady;
         TopmostCheck.IsChecked = value.Topmost;
         YoyoCheck.IsChecked = value.ShowYoyo;
         CodexCheck.IsChecked = value.ShowCodex;
@@ -123,6 +125,7 @@ public partial class SettingsWindow : Window
         current.IslandHeight = HeightSlider.Value;
         current.TextSize = TextSizeSlider.Value;
         current.ShowShadow = ShadowCheck.IsChecked == true;
+        current.ShowClockWhenReady = ReadyClockCheck.IsChecked == true;
         current.Topmost = TopmostCheck.IsChecked == true;
         current.ShowYoyo = YoyoCheck.IsChecked == true;
         current.ShowCodex = CodexCheck.IsChecked == true;
@@ -159,7 +162,8 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, YoyoCreditsCheck)
             || ReferenceEquals(sender, CodexLimitsCheck)
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
-            || ReferenceEquals(sender, ConfirmationNotificationsCheck);
+            || ReferenceEquals(sender, ConfirmationNotificationsCheck)
+            || ReferenceEquals(sender, ReadyClockCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
         if (ReferenceEquals(sender, YoyoAutoCheckinCheck) || ReferenceEquals(sender, YoyoLaunchForCheckinCheck)) _island.StartYoyoCheckinFromSettings();
         UpdateLabels();
@@ -475,7 +479,7 @@ public partial class SettingsWindow : Window
     {
         var checkBoxes = new[]
         {
-            ShadowCheck, TopmostCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, TrayIconCheck, StartupCheck,
+            ShadowCheck, TopmostCheck, ReadyClockCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, TrayIconCheck, StartupCheck,
             CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
             HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
             CodexResetReminderCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
@@ -534,6 +538,27 @@ public partial class SettingsWindow : Window
     {
         SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset - e.Delta * .5);
         e.Handled = true;
+    }
+
+    private void SettingsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e) => UpdateActiveNavigation();
+
+    private void UpdateActiveNavigation()
+    {
+        if (!IsLoaded) return;
+        var sections = new (System.Windows.Controls.RadioButton Nav, FrameworkElement Section)[]
+        {
+            (PresetNav, PresetCard), (AppearanceNav, AppearanceCard), (ComponentNav, ComponentCard),
+            (FeatureNav, FeatureCard), (NotificationNav, NotificationCard), (UpdateNav, UpdateCard), (PositionNav, PositionCard)
+        };
+        var active = sections[0].Nav;
+        foreach (var item in sections)
+        {
+            var top = item.Section.TransformToAncestor(SettingsScroll).Transform(new System.Windows.Point(0, 0)).Y;
+            if (top <= 72) active = item.Nav;
+            else break;
+        }
+        if (SettingsScroll.VerticalOffset >= SettingsScroll.ScrollableHeight - 1) active = sections[^1].Nav;
+        active.IsChecked = true;
     }
 
     private void ProviderOrderList_PreviewDragOver(object sender, DragEventArgs e)

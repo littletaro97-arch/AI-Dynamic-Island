@@ -155,7 +155,7 @@
                     <TextBlock x:Name="WorkBuddyStateText" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Border x:Name="RecentBorder" Grid.Row="3" Grid.ColumnSpan="4" Background="#B8182033" CornerRadius="12" Padding="10,5" Margin="0,6,0,0">
                         <TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="10.5" FontWeight="SemiBold"
-                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="15" VerticalAlignment="Center"/>
+                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="15" VerticalAlignment="Top"/>
                     </Border>
                     <RadioButton x:Name="YoyoRowButton" Grid.Row="0" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenYoyo_Click"/>
                     <RadioButton x:Name="CodexRowButton" Grid.Row="1" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenCodex_Click"/>

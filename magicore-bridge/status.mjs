@@ -46,7 +46,29 @@ try {
   }
 
   const latest = conversations[0];
-  const preview = String(latest?.last_entry_preview || latest?.title || '尚未检测到任务结果')
+  let latestReply = '';
+  if (latest?.conversation_id) {
+    try {
+      const history = await sdk.conversation.historyPage({
+        conversation_id: latest.conversation_id,
+        anchor: 'tail',
+        direction: 'backward',
+        limit: 24
+      });
+      const replies = (history.items || []).filter(item => item.entry_kind === 'agent_message');
+      const reply = replies.sort((a, b) => {
+        try { return Number(BigInt(String(b.seq ?? 0)) - BigInt(String(a.seq ?? 0))); }
+        catch { return Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0); }
+      })[0];
+      latestReply = (reply?.parts || [])
+        .filter(part => part?.type === 'text' && typeof part.text === 'string')
+        .map(part => part.text)
+        .join('\n');
+    } catch {
+      // Older Magicore builds may not expose conversation history; keep the preview fallback.
+    }
+  }
+  const preview = String(latestReply || latest?.last_entry_preview || latest?.title || '尚未检测到任务结果')
     .replace(/\s+/g, ' ')
     .trim();
   const failed = /失败|出错|无法完成|\berror\b|\bfailed\b/i.test(preview);

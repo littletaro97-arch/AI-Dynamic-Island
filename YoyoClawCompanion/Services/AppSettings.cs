@@ -16,6 +16,7 @@ internal sealed class IslandSettings
     public bool ShowCodex { get; set; } = true;
     public bool ShowWorkBuddy { get; set; } = true;
     public bool ShowShadow { get; set; } = true;
+    public bool ShowClockWhenReady { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public bool AutoCheckForUpdates { get; set; } = true;
