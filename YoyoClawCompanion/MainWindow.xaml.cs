@@ -203,7 +203,6 @@ public partial class MainWindow : Window
         try { System.Windows.Clipboard.SetText(text); } catch { }
     }
 
-    internal void CopyLatestResultFromMenu() => CopyLatestResult();
 
     private async Task ResetAndRefreshStatusAsync()
     {
@@ -1308,9 +1307,12 @@ public partial class MainWindow : Window
         if (!_expanded && !_expandUp) return;
         _islandAnimationVersion++;
         _islandAnimationInProgress = false;
-        var bounds = GetIslandWindowBounds();
-        var pointer = Mouse.GetPosition(Island);
-        var pointerScreen = new Point(Left + bounds.Left + pointer.X, Top + bounds.Top + pointer.Y);
+
+        // Restore the collapsed island to its saved screen anchor before DragMove starts.
+        // Mapping the expanded handle's pointer position into the much shorter collapsed
+        // island makes an upward-expanded island jump from the taskbar to the pointer.
+        var collapsedLeft = _horizontalExpansionCompensated ? _collapsedLeftBeforeExpansion : Left;
+        var collapsedTop = _expandUp ? _collapsedAnchorTop : Top;
 
         BeginAnimation(LeftProperty, null);
         _horizontalExpansionCompensated = false;
@@ -1328,11 +1330,8 @@ public partial class MainWindow : Window
         _expandUp = false;
         ApplyExpandedContentOrder();
 
-        var collapsedLeft = (Width - _settings.IslandWidth) / 2;
-        var targetX = Math.Clamp(pointer.X, 10, _settings.IslandWidth - 10);
-        var targetY = Math.Clamp(pointer.Y, 8, CollapsedHeight - 8);
-        Left = pointerScreen.X - collapsedLeft - targetX;
-        Top = pointerScreen.Y - IslandMargin - targetY;
+        Left = collapsedLeft;
+        Top = collapsedTop;
         _collapsedAnchorTop = Top;
         ScheduleSummaryMarquee();
     }

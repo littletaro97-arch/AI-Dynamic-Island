@@ -137,15 +137,13 @@ public partial class App : Application
                 var item = CreateTrayItem($"打开 {provider.Label}", TrayMenuGraphics.Dot(ParseColor(provider.Color)),
                     (_, _) => Dispatcher.BeginInvoke(() => island.OpenProviderFromMenu(provider.Key)));
                 item.Enabled = provider.CanLaunch;
-                item.ShortcutKeyDisplayString = provider.CanLaunch ? provider.State : "未找到";
+                item.ShortcutKeyDisplayString = provider.CanLaunch ? "↗" : "未找到";
                 menu.Items.Add(item);
             }
         }
 
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(CreateTrayItem("重置并重新检测", TrayMenuGraphics.LineIcon("refresh", secondary), (_, _) => Dispatcher.BeginInvoke(RefreshStatus)));
-        menu.Items.Add(CreateTrayItem("复制最近结果", TrayMenuGraphics.LineIcon("copy", secondary), (_, _) => Dispatcher.BeginInvoke(() =>
-            (MainWindow as YoyoClawCompanion.MainWindow)?.CopyLatestResultFromMenu())));
         var exitSeparator = new System.Windows.Forms.ToolStripSeparator { Margin = new System.Windows.Forms.Padding(0, 7, 0, 3) };
         menu.Items.Add(exitSeparator);
         var exit = CreateTrayItem("退出", TrayMenuGraphics.LineIcon("exit", secondary), (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));

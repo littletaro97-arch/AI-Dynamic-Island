@@ -100,7 +100,6 @@ internal static class TrayMenuGraphics
                 break;
             case "show": graphics.DrawEllipse(pen, 2, 4, 12, 8); graphics.DrawEllipse(pen, 6, 6, 4, 4); break;
             case "refresh": graphics.DrawArc(pen, 2, 2, 12, 12, 35, 285); graphics.DrawLines(pen, [new PointF(12, 2), new PointF(14, 5), new PointF(10, 5)]); break;
-            case "copy": graphics.DrawRectangle(pen, 5, 5, 9, 9); graphics.DrawLines(pen, [new PointF(2, 11), new PointF(2, 2), new PointF(11, 2)]); break;
             case "exit": graphics.DrawLine(pen, 8, 1, 8, 8); graphics.DrawArc(pen, 2, 3, 12, 12, -45, 270); break;
         }
         return bitmap;
