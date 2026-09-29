@@ -89,6 +89,7 @@ public partial class SettingsWindow : Window
         WorkBuddyCreditsCheck.IsChecked = value.ShowWorkBuddyCredits;
         CodexResetReminderCheck.IsChecked = value.EnableCodexResetReminder;
         YoyoAutoCheckinCheck.IsChecked = value.EnableYoyoAutoCheckin;
+        YoyoLaunchForCheckinCheck.IsChecked = value.LaunchYoyoForAutoCheckin;
         AppLaunchCheck.IsChecked = value.EnableAppLaunch;
         HoverExpansionCheck.IsChecked = value.EnableHoverExpansion;
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
@@ -136,6 +137,7 @@ public partial class SettingsWindow : Window
         current.ShowWorkBuddyCredits = WorkBuddyCreditsCheck.IsChecked == true;
         current.EnableCodexResetReminder = CodexResetReminderCheck.IsChecked == true;
         current.EnableYoyoAutoCheckin = YoyoAutoCheckinCheck.IsChecked == true;
+        current.LaunchYoyoForAutoCheckin = YoyoLaunchForCheckinCheck.IsChecked == true;
         current.EnableAppLaunch = AppLaunchCheck.IsChecked == true;
         current.EnableHoverExpansion = HoverExpansionCheck.IsChecked == true;
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
@@ -159,7 +161,7 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
             || ReferenceEquals(sender, ConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
-        if (ReferenceEquals(sender, YoyoAutoCheckinCheck)) _island.StartYoyoCheckinFromSettings();
+        if (ReferenceEquals(sender, YoyoAutoCheckinCheck) || ReferenceEquals(sender, YoyoLaunchForCheckinCheck)) _island.StartYoyoCheckinFromSettings();
         UpdateLabels();
         UpdateDependencyStates();
         ApplyPanelTheme();
@@ -172,11 +174,13 @@ public partial class SettingsWindow : Window
         SetDependentState(CompletionDisplayPanel,
             CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
         SetDependentState(CodexResetReminderPanel, CodexResetReminderCheck.IsChecked == true);
+        SetDependentState(YoyoLaunchForCheckinCheck, YoyoAutoCheckinCheck.IsChecked == true);
         var installations = _island.GetProviderInstallations().ToDictionary(item => item.Key, StringComparer.OrdinalIgnoreCase);
         var yoyoInstalled = installations.TryGetValue("yoyo", out var yoyo) && yoyo.IsInstalled;
         var codexInstalled = installations.TryGetValue("codex", out var codex) && codex.IsInstalled;
         var workBuddyInstalled = installations.TryGetValue("workbuddy", out var workBuddy) && workBuddy.IsInstalled;
         foreach (var control in new UIElement[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck }) SetDependentState(control, yoyoInstalled);
+        SetDependentState(YoyoLaunchForCheckinCheck, yoyoInstalled && YoyoAutoCheckinCheck.IsChecked == true);
         foreach (var control in new UIElement[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) SetDependentState(control, codexInstalled);
         foreach (var control in new UIElement[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) SetDependentState(control, workBuddyInstalled);
         SetDependentState(CodexResetReminderPanel, codexInstalled && CodexResetReminderCheck.IsChecked == true);
@@ -474,7 +478,7 @@ public partial class SettingsWindow : Window
             ShadowCheck, TopmostCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, TrayIconCheck, StartupCheck,
             CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
             HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
-            CodexResetReminderCheck, YoyoAutoCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
+            CodexResetReminderCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
             UnchangedAutoHideCheck, ReplyFirstWhenExpandedUpCheck, AllowExpandedBeyondScreenCheck, AutoUpdateCheck
         };
         foreach (var checkBox in checkBoxes)
@@ -487,7 +491,7 @@ public partial class SettingsWindow : Window
         var codex = ProviderIconService.Load("codex", _island.CurrentSettings);
         var workBuddy = ProviderIconService.Load("workbuddy", _island.CurrentSettings);
         if (yoyo is not null)
-            foreach (var checkBox in new[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck }) checkBox.Tag = yoyo;
+            foreach (var checkBox in new[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck }) checkBox.Tag = yoyo;
         if (codex is not null)
             foreach (var checkBox in new[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) checkBox.Tag = codex;
         if (workBuddy is not null)

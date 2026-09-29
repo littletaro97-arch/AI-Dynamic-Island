@@ -26,6 +26,7 @@ internal sealed class IslandSettings
     public bool ShowWorkBuddyCredits { get; set; } = true;
     public bool EnableCodexResetReminder { get; set; } = true;
     public bool EnableYoyoAutoCheckin { get; set; }
+    public bool LaunchYoyoForAutoCheckin { get; set; }
     public bool EnableAppLaunch { get; set; } = true;
     public bool EnableHoverExpansion { get; set; } = true;
     public bool EnableSpringAnimation { get; set; } = true;

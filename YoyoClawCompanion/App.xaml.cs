@@ -167,10 +167,10 @@ public partial class App : Application
         var item = new System.Windows.Forms.ToolStripMenuItem(text, image)
         {
             AutoSize = false,
-            Height = 30,
+            Height = 36,
             Width = 244,
             ImageScaling = System.Windows.Forms.ToolStripItemImageScaling.None,
-            Margin = new System.Windows.Forms.Padding(0, 1, 0, 1),
+            Margin = new System.Windows.Forms.Padding(0, 2, 0, 2),
             Padding = new System.Windows.Forms.Padding(9, 0, 9, 0)
         };
         item.Click += click;

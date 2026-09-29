@@ -85,6 +85,7 @@ public partial class MainWindow : Window
     private string? _codexFiveHourReminderId, _codexWeeklyReminderId;
     private string? _highlightedProvider;
     private bool _yoyoInstalled, _codexInstalled, _workBuddyInstalled;
+    private readonly Dictionary<string, DateTimeOffset> _headlineBusySeenAt = new(StringComparer.OrdinalIgnoreCase);
 
     public MainWindow()
     {
@@ -710,6 +711,13 @@ public partial class MainWindow : Window
 
         _anyBusy = true;
         _refreshTimer.Interval = TimeSpan.FromSeconds(2);
+        var now = DateTimeOffset.UtcNow;
+        _headlineBusySeenAt["codex"] = now;
+        if (_headlineBusySeenAt.Any(pair => pair.Key != "codex" && IsProviderVisible(pair.Key) && now - pair.Value <= TimeSpan.FromSeconds(4)))
+        {
+            if (UsesActiveOnlyDisplay && !_notificationHoldActive) ShowIslandForFocusMode();
+            return;
+        }
         HeadlineText.Text = "Codex 执行中";
         HeadlineText.Foreground = BusyBrush;
         SetPlainSummary(CodexSummary(codex));
@@ -760,20 +768,56 @@ public partial class MainWindow : Window
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
-        var busyProviders = VisibleProviderOrder()
-            .Where(provider => busyByProvider.TryGetValue(provider, out var busy) && busy)
-            .Select(ProviderLabel)
+        var runningByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsYoyoRunning, ["codex"] = codex.IsRunning, ["workbuddy"] = workBuddy.IsRunning };
+        var now = DateTimeOffset.UtcNow;
+        foreach (var pair in busyByProvider.Where(pair => pair.Value)) _headlineBusySeenAt[pair.Key] = now;
+        var busyProviders = VisibleProviderOrder().Where(provider =>
+                (busyByProvider.TryGetValue(provider, out var busy) && busy)
+                || (runningByProvider.TryGetValue(provider, out var running) && running
+                    && _headlineBusySeenAt.TryGetValue(provider, out var seenAt) && now - seenAt <= TimeSpan.FromSeconds(4)))
             .ToList();
         if (VisibleProviderOrder().Length == 0) { HeadlineText.Text = "未检测到助手"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary("请在设置中指定安装位置"); }
         else if (IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
-        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("、", busyProviders)); }
-        else if (IsProviderVisible("yoyo") && yoyo.IsBusy) { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(yoyo.RecentResult); }
-        else if (IsProviderVisible("codex") && codex.IsBusy) { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
-        else if (IsProviderVisible("workbuddy") && workBuddy.IsBusy) { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary); }
+        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("  |  ", busyProviders.Select(provider => BusyMetric(provider, yoyo, codex, workBuddyCredits)))); }
+        else if (busyProviders.Count == 1 && busyProviders[0] == "yoyo") { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(yoyo.RecentResult, _settings.ShowYoyoCredits ? points : null)); }
+        else if (busyProviders.Count == 1 && busyProviders[0] == "codex") { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
+        else if (busyProviders.Count == 1 && busyProviders[0] == "workbuddy") { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(workBuddy.Summary, WorkBuddyMetric(workBuddyCredits))); }
         else if (IsProviderVisible("yoyo") && !yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (IsProviderVisible("yoyo") && !yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
         else if (IsProviderVisible("yoyo") && yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else { HeadlineText.Text = "全部就绪"; HeadlineText.Foreground = OnlineBrush; SetBalanceSummary(yoyo, codex, workBuddyCredits); }
+    }
+
+    private string BusyMetric(string provider, YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddyCredits)
+    {
+        var metric = provider switch
+        {
+            "yoyo" when _settings.ShowYoyoCredits => yoyo.RemainingPoints is double points ? $"{points:0.##} 积分" : "积分 --",
+            "codex" => CodexQuotaMetric(codex),
+            "workbuddy" => WorkBuddyMetric(workBuddyCredits),
+            _ => null
+        };
+        return AppendMetric(ProviderLabel(provider), metric);
+    }
+
+    private string? CodexQuotaMetric(CodexStatus status)
+    {
+        if (!_settings.ShowCodexLimits) return null;
+        if (!status.LimitsAvailable) return status.LimitsLoading ? "限额读取中" : "限额不可用";
+        var values = new List<string>();
+        if (status.FiveHourRemainingPercent is int fiveHour) values.Add($"5小时 {fiveHour}%");
+        if (status.WeeklyRemainingPercent is int weekly) values.Add($"本周 {weekly}%");
+        return values.Count > 0 ? string.Join(" · ", values) : "限额不可用";
+    }
+
+    private string? WorkBuddyMetric(WorkBuddyCredits credits)
+        => !_settings.ShowWorkBuddyCredits ? null
+            : credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用";
+
+    private static string AppendMetric(string? description, string? metric)
+    {
+        var text = string.IsNullOrWhiteSpace(description) ? "执行中" : description.Trim();
+        return string.IsNullOrWhiteSpace(metric) ? text : $"{text} · {metric}";
     }
 
     private void SetBalanceSummary(YoyoStatus yoyo, CodexStatus codex, WorkBuddyCredits workBuddy)
@@ -912,7 +956,7 @@ public partial class MainWindow : Window
 
     private async Task RunYoyoCheckinAsync(CancellationToken cancellationToken)
     {
-        var result = await _yoyoCheckinService.RunAfterNetworkAsync(_settings.YoyoExecutablePath, cancellationToken);
+        var result = await _yoyoCheckinService.RunAfterNetworkAsync(_settings.YoyoExecutablePath, _settings.LaunchYoyoForAutoCheckin, cancellationToken);
         if (!result.ShouldNotify || !_settings.EnableYoyoAutoCheckin || !IsLoaded) return;
         ShowSystemNotice("YOYO Claw", result.Message);
         if (result.Success) _ = RefreshStatusAsync();

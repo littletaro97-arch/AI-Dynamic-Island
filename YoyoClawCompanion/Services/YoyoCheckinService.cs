@@ -26,7 +26,7 @@ internal sealed partial class YoyoCheckinService
     private static readonly string StateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YOYOClawCheckin");
     private static readonly string StatePath = Path.Combine(StateDirectory, "state.json");
 
-    public async Task<YoyoCheckinResult> RunAfterNetworkAsync(string? rememberedExecutable, CancellationToken cancellationToken)
+    public async Task<YoyoCheckinResult> RunAfterNetworkAsync(string? rememberedExecutable, bool launchYoyoWhenNeeded, CancellationToken cancellationToken)
     {
         if (SignedTodayFromState()) return new(false, true, "今日已经签到");
         var deadline = DateTimeOffset.UtcNow.AddMinutes(5);
@@ -40,7 +40,7 @@ internal sealed partial class YoyoCheckinService
         {
             acquired = mutex.WaitOne(0);
             if (!acquired) return new(false, true, "签到程序正在运行");
-            EnsureYoyoRunning(rememberedExecutable);
+            if (launchYoyoWhenNeeded) EnsureYoyoRunning(rememberedExecutable);
             var session = await WaitForSessionAsync(cancellationToken);
             if (session is null) return new(true, false, "YOYO Claw 自动签到失败 · 未检测到有效登录状态");
 
