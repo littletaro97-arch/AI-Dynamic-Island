@@ -41,12 +41,29 @@ internal sealed class CodexStatusService
     private DateTimeOffset _lastLimitAttempt = DateTimeOffset.MinValue;
     private (int? FiveHour, int? Weekly)? _cachedLimits;
     private Task? _limitRefreshTask;
+    private int _limitGeneration;
     private long? _lastLimitReadMilliseconds;
     private string? _lastLimitError;
     private readonly Dictionary<string, LifecycleCacheEntry> _lifecycleCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CompletionCacheEntry> _completionCache = new(StringComparer.OrdinalIgnoreCase);
     internal string? LastError { get; private set; }
     internal event EventHandler? LimitsUpdated;
+
+    internal void ResetCache()
+    {
+        lock (_limitsGate)
+        {
+            _limitGeneration++;
+            _lastLimitAttempt = DateTimeOffset.MinValue;
+            _cachedLimits = null;
+            _lastLimitReadMilliseconds = null;
+            _lastLimitError = null;
+            _limitRefreshTask = null;
+        }
+        _lifecycleCache.Clear();
+        _completionCache.Clear();
+        LastError = null;
+    }
 
     public async Task<CodexStatus> ReadAsync(bool detectActivity, bool readLimits)
     {
@@ -100,11 +117,12 @@ internal sealed class CodexStatusService
             var retryInterval = _lastLimitError is null ? LimitRefreshInterval : LimitFailureRetryInterval;
             if (DateTimeOffset.UtcNow - _lastLimitAttempt < retryInterval) return;
             _lastLimitAttempt = DateTimeOffset.UtcNow;
-            _limitRefreshTask = Task.Run(RefreshLimitsAsync);
+            var generation = _limitGeneration;
+            _limitRefreshTask = Task.Run(() => RefreshLimitsAsync(generation));
         }
     }
 
-    private async Task RefreshLimitsAsync()
+    private async Task RefreshLimitsAsync(int generation)
     {
         var watch = Stopwatch.StartNew();
         var limits = await ReadLimitsAsync();
@@ -112,6 +130,7 @@ internal sealed class CodexStatusService
         string? failure = null;
         lock (_limitsGate)
         {
+            if (generation != _limitGeneration) return;
             _lastLimitReadMilliseconds = watch.ElapsedMilliseconds;
             if (limits is not null)
             {

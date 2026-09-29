@@ -70,7 +70,7 @@
             <MenuItem Header="打开 YOYO Claw" Click="OpenYoyo_Click"/>
             <MenuItem Header="打开 Codex" Click="OpenCodex_Click"/>
             <MenuItem Header="打开 WorkBuddy" Click="OpenWorkBuddy_Click"/><Separator/>
-            <MenuItem Header="刷新全部状态" Click="Refresh_Click"/>
+            <MenuItem Header="重置并重新检测" Click="Refresh_Click"/>
             <MenuItem Header="退出 AI Dynamic Island" Click="Exit_Click"/>
         </ContextMenu>
     </Window.Resources>

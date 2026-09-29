@@ -41,7 +41,7 @@ public partial class MainWindow : Window
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _refreshing, _expanded, _finishingGesture;
-    private bool _manualCollapseUntilPointerExit, _refreshAfterCurrent;
+    private bool _manualCollapseUntilPointerExit, _refreshAfterCurrent, _fullResetAfterCurrent;
     private bool _collapseHandlePressed, _suppressCollapseHandleClick;
     private bool _completionBaselineReady, _notificationHoldActive;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
@@ -60,6 +60,7 @@ public partial class MainWindow : Window
     private Rect _reverseHoverBoundsPixels;
     private bool _fullscreenOverrideActive, _islandAnimationInProgress;
     private bool _inactivityHidden;
+    private bool _trayWakeActive;
     private bool _taskbarTopmostOverride;
     private bool _horizontalExpansionCompensated;
     private bool _positionInitialized;
@@ -94,13 +95,60 @@ public partial class MainWindow : Window
     internal event EventHandler? PositionChanged;
     private double CollapsedHeight => _settings.IslandHeight;
     internal void OpenHomeFromExternalRequest() => OpenHome();
-    internal void RefreshFromExternalRequest() => _ = RefreshStatusAsync();
+    internal void RefreshFromExternalRequest() => _ = ResetAndRefreshStatusAsync();
     internal void WakeFromTray()
     {
-        if (!_inactivityHidden) return;
         _lastStateChangeAt = DateTimeOffset.Now;
         _inactivityHidden = false;
+        _trayWakeActive = true;
+        RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: true);
+        ExpandIsland(true);
+    }
+
+    private async Task ResetAndRefreshStatusAsync()
+    {
+        if (_refreshing)
+        {
+            _fullResetAfterCurrent = true;
+            return;
+        }
+
+        _refreshTimer.Stop();
+        _statusService.ResetCache();
+        _codexStatusService.ResetCache();
+        _workBuddyStatusService.ResetCache();
+        _workBuddyCreditsService.ResetCache();
+        _completionBaselineReady = false;
+        _yoyoCompletionId = _codexCompletionId = _workBuddyCompletionId = null;
+        _workBuddyConfirmationId = null;
+        _activeCompletionNotice = _activeConfirmationNotice = null;
+        _latestCombinedResult = "正在重新抓取三个应用的状态…";
+        _stateFingerprint = null;
+        _balanceSummaryKey = null;
+        _anyBusy = false;
+        _lastStateChangeAt = DateTimeOffset.Now;
+        _inactivityHidden = false;
+        _trayWakeActive = true;
+        _completionTimer.Stop();
+        _notificationHoldActive = false;
+        HeadlineText.Text = "正在重新检测";
+        HeadlineText.Foreground = BusyBrush;
+        SetPlainSummary("旧状态已清除 · 正在重新抓取");
+        RecentResultText.Text = _latestCombinedResult;
+        StateText.Text = CodexStateText.Text = WorkBuddyStateText.Text = "重新检测";
+        StateText.Foreground = CodexStateText.Foreground = WorkBuddyStateText.Foreground = OfflineBrush;
+        PointsText.Inlines.Clear();
+        PointsText.Inlines.Add(new Run("· ") { Foreground = Brush("#182033") });
+        PointsText.Inlines.Add(new Run("积分 --") { Foreground = AccentBrush });
+        YoyoMiniDot.Fill = CodexMiniDot.Fill = WorkBuddyMiniDot.Fill = OfflineBrush;
+        StateDot.Fill = CodexDot.Fill = WorkBuddyDot.Fill = OfflineBrush;
+        RestoreReverseHoverIsland();
+        ShowIslandForFocusMode(animate: true);
+        ExpandIsland(true);
+
+        await RefreshStatusAsync();
+        _refreshTimer.Start();
     }
 
     internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false, bool preserveMarquee = false)
@@ -190,6 +238,31 @@ public partial class MainWindow : Window
             EnsureTaskbarZOrder();
         }
         if (!preserveMarquee) ScheduleSummaryMarquee();
+    }
+
+    internal void ApplyPresetSettings(IslandSettings settings)
+    {
+        var requestedX = settings.X;
+        var requestedY = settings.Y;
+        var requestedPreset = NormalizePositionPreset(settings.PositionPreset);
+        ApplySettings(settings, persist: true, refreshStatus: true);
+        if (!IsLoaded || !_positionInitialized) return;
+
+        if (requestedPreset != "custom")
+        {
+            MoveToPositionPreset(requestedPreset);
+            return;
+        }
+        if (requestedX is not double x || requestedY is not double y) return;
+        if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
+        Left = x;
+        Top = y;
+        _settings.PositionPreset = "custom";
+        ClampCollapsedPosition();
+        UpdateCollapsedAnchorFromCurrentGeometry();
+        OrientCollapsedIsland();
+        SavePosition();
+        PositionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void ApplyTypography()
@@ -459,7 +532,13 @@ public partial class MainWindow : Window
         finally
         {
             _refreshing = false;
-            if (_refreshAfterCurrent)
+            if (_fullResetAfterCurrent)
+            {
+                _fullResetAfterCurrent = false;
+                _refreshAfterCurrent = false;
+                _ = ResetAndRefreshStatusAsync();
+            }
+            else if (_refreshAfterCurrent)
             {
                 _refreshAfterCurrent = false;
                 _ = RefreshStatusAsync();
@@ -683,6 +762,7 @@ public partial class MainWindow : Window
             return;
         }
         _manualCollapseUntilPointerExit = true;
+        _trayWakeActive = false;
         _completionTimer.Stop();
         _notificationHoldActive = false;
         _activeCompletionNotice = null;
@@ -693,6 +773,11 @@ public partial class MainWindow : Window
 
     private void UpdateDisplayMode()
     {
+        if (_trayWakeActive)
+        {
+            ShowIslandForFocusMode(animate: _inactivityHidden);
+            return;
+        }
         if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null)
         {
             ShowIslandForFocusMode(animate: _inactivityHidden);
@@ -985,6 +1070,7 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeave(object sender, MouseEventArgs e)
     {
+        _trayWakeActive = false;
         _manualCollapseUntilPointerExit = false;
         _enterTimer.Stop();
         if (!_dragging && !_holdArmed && _expanded && !_islandAnimationInProgress && Island.ContextMenu?.IsOpen != true) _leaveTimer.Start();
@@ -1544,6 +1630,6 @@ public partial class MainWindow : Window
         }
         e.Handled = true;
     }
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshStatusAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await ResetAndRefreshStatusAsync();
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }

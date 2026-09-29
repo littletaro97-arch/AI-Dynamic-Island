@@ -22,6 +22,12 @@ internal sealed class YoyoStatusService
     private MagicoreSnapshot? _cachedSnapshot;
     private DateTimeOffset _cachedAt = DateTimeOffset.MinValue;
 
+    internal void ResetCache()
+    {
+        _cachedSnapshot = null;
+        _cachedAt = DateTimeOffset.MinValue;
+    }
+
     public async Task<YoyoStatus> ReadAsync()
     {
         var running = ApplicationLocator.IsProcessRunning("HnMagicClawUI");

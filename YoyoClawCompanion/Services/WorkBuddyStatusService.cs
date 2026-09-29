@@ -23,6 +23,12 @@ internal sealed partial class WorkBuddyStatusService
     private string? _cachedSessionPath;
     private string? _cachedTask;
 
+    internal void ResetCache()
+    {
+        _cachedSessionPath = null;
+        _cachedTask = null;
+    }
+
     public Task<WorkBuddyStatus> ReadAsync() => Task.Run(Read);
 
     private WorkBuddyStatus Read()

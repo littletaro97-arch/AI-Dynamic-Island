@@ -70,3 +70,71 @@ internal static class AppSettings
         catch { }
     }
 }
+
+internal sealed class SettingsPresetSlot
+{
+    public int Slot { get; set; }
+    public DateTimeOffset SavedAt { get; set; }
+    public IslandSettings Settings { get; set; } = new();
+}
+
+internal static class SettingsPresetStore
+{
+    private static readonly string DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "YoyoClawCompanion");
+    private static readonly string FilePath = Path.Combine(DirectoryPath, "presets.json");
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
+
+    public static IReadOnlyList<SettingsPresetSlot> Load()
+    {
+        try
+        {
+            return (JsonSerializer.Deserialize<List<SettingsPresetSlot>>(File.ReadAllText(FilePath), JsonOptions) ?? [])
+                .Where(item => item.Slot is >= 1 and <= 3)
+                .GroupBy(item => item.Slot)
+                .Select(group => group.OrderByDescending(item => item.SavedAt).First())
+                .OrderBy(item => item.Slot)
+                .ToArray();
+        }
+        catch { return []; }
+    }
+
+    public static SettingsPresetSlot Save(int slot, IslandSettings current)
+    {
+        if (slot is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(slot));
+        var presets = Load().Where(item => item.Slot != slot).ToList();
+        var saved = new SettingsPresetSlot { Slot = slot, SavedAt = DateTimeOffset.Now, Settings = Snapshot(current) };
+        presets.Add(saved);
+        Write(presets.OrderBy(item => item.Slot));
+        return saved;
+    }
+
+    public static IslandSettings Apply(SettingsPresetSlot preset, IslandSettings current)
+    {
+        var applied = Clone(preset.Settings);
+        // Installation discovery belongs to the current machine, not to a visual/behaviour preset.
+        applied.YoyoExecutablePath = current.YoyoExecutablePath;
+        applied.CodexExecutablePath = current.CodexExecutablePath;
+        applied.WorkBuddyExecutablePath = current.WorkBuddyExecutablePath;
+        return applied;
+    }
+
+    private static IslandSettings Snapshot(IslandSettings current)
+    {
+        var snapshot = Clone(current);
+        snapshot.YoyoExecutablePath = null;
+        snapshot.CodexExecutablePath = null;
+        snapshot.WorkBuddyExecutablePath = null;
+        return snapshot;
+    }
+
+    private static IslandSettings Clone(IslandSettings value)
+        => JsonSerializer.Deserialize<IslandSettings>(JsonSerializer.Serialize(value, JsonOptions), JsonOptions) ?? new IslandSettings();
+
+    private static void Write(IEnumerable<SettingsPresetSlot> presets)
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        var temp = FilePath + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(presets.Take(3), JsonOptions));
+        File.Move(temp, FilePath, true);
+    }
+}

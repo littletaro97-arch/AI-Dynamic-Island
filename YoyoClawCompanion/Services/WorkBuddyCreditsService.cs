@@ -16,6 +16,13 @@ internal sealed class WorkBuddyCreditsService
     private WorkBuddyCredits _cached = new(false, null, null);
     internal string? LastError { get; private set; }
 
+    internal void ResetCache()
+    {
+        _lastRead = DateTimeOffset.MinValue;
+        _cached = new(false, null, null);
+        LastError = null;
+    }
+
     public async Task<WorkBuddyCredits> ReadAsync(bool enabled)
     {
         if (!enabled) return new(false, null, null);

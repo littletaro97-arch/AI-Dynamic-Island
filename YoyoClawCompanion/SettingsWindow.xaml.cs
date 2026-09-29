@@ -34,6 +34,7 @@ public partial class SettingsWindow : Window
     private bool _loading = true;
     private System.Windows.Point _providerDragStart;
     private ProviderOrderItem? _providerDragCandidate;
+    private IReadOnlyList<SettingsPresetSlot> _presets = [];
 
     public ObservableCollection<ProviderOrderItem> ProviderOrderItems { get; } = [];
 
@@ -47,6 +48,8 @@ public partial class SettingsWindow : Window
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
+        UpdateDependencyStates();
+        RefreshPresetCards();
         ApplyPanelTheme();
     }
 
@@ -133,7 +136,72 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, ConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
         UpdateLabels();
+        UpdateDependencyStates();
         ApplyPanelTheme();
+    }
+
+    private void UpdateDependencyStates()
+    {
+        SetDependentState(HoverDelayPanel, HoverExpansionCheck.IsChecked == true);
+        SetDependentState(UnchangedAutoHidePanel, UnchangedAutoHideCheck.IsChecked == true);
+        SetDependentState(CompletionDisplayPanel,
+            CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
+    }
+
+    private static void SetDependentState(UIElement element, bool enabled)
+    {
+        element.IsEnabled = enabled;
+        element.Opacity = enabled ? 1 : .42;
+    }
+
+    private void SavePreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryReadPresetSlot(sender, out var slot)) return;
+        try
+        {
+            SettingsPresetStore.Save(slot, _island.CurrentSettings);
+            RefreshPresetCards();
+        }
+        catch
+        {
+            var status = slot switch { 1 => Preset1Status, 2 => Preset2Status, _ => Preset3Status };
+            status.Text = "保存失败";
+        }
+    }
+
+    private void ApplyPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryReadPresetSlot(sender, out var slot)) return;
+        var preset = _presets.FirstOrDefault(item => item.Slot == slot);
+        if (preset is null) return;
+
+        var applied = SettingsPresetStore.Apply(preset, _island.CurrentSettings);
+        _loading = true;
+        try
+        {
+            _island.ApplyPresetSettings(applied);
+            LoadValues(applied);
+        }
+        finally { _loading = false; }
+        UpdateLabels();
+        UpdateDependencyStates();
+        ApplyPanelTheme();
+    }
+
+    private static bool TryReadPresetSlot(object sender, out int slot)
+        => int.TryParse((sender as FrameworkElement)?.Tag?.ToString(), out slot) && slot is >= 1 and <= 3;
+
+    private void RefreshPresetCards()
+    {
+        _presets = SettingsPresetStore.Load();
+        for (var slot = 1; slot <= 3; slot++)
+        {
+            var preset = _presets.FirstOrDefault(item => item.Slot == slot);
+            var status = slot switch { 1 => Preset1Status, 2 => Preset2Status, _ => Preset3Status };
+            var apply = slot switch { 1 => ApplyPreset1Button, 2 => ApplyPreset2Button, _ => ApplyPreset3Button };
+            status.Text = preset is null ? "尚未保存" : $"已保存 {preset.SavedAt.LocalDateTime:MM-dd HH:mm}";
+            apply.IsEnabled = preset is not null;
+        }
     }
 
     private void UpdateLabels()
@@ -243,6 +311,12 @@ public partial class SettingsWindow : Window
             item.IsDragging = false;
             ClearProviderDropMarker();
         }
+    }
+
+    private void ProviderOrderList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset - e.Delta);
+        e.Handled = true;
     }
 
     private void ProviderOrderList_PreviewDragOver(object sender, DragEventArgs e)
@@ -395,7 +469,7 @@ public partial class SettingsWindow : Window
         Resources["SettingsHoverBackground"] = Brush(light ? "#EEF1F3" : "#2A3444");
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
-        AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; PositionCard.Background = card;
+        PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; PositionCard.Background = card;
         PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
