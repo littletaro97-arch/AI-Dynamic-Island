@@ -44,4 +44,12 @@ internal static class ProviderIconService
         image.Freeze();
         return image;
     }
+
+    public static ImageSource FromFilledGeometry(Geometry geometry)
+    {
+        var drawing = new GeometryDrawing(System.Windows.Media.Brushes.White, null, geometry);
+        var image = new DrawingImage(drawing);
+        image.Freeze();
+        return image;
+    }
 }

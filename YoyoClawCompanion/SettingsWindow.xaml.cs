@@ -475,10 +475,13 @@ public partial class SettingsWindow : Window
             CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
             HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
             CodexResetReminderCheck, YoyoAutoCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
-            UnchangedAutoHideCheck, ReplyFirstWhenExpandedUpCheck, AllowExpandedBeyondScreenCheck
+            UnchangedAutoHideCheck, ReplyFirstWhenExpandedUpCheck, AllowExpandedBeyondScreenCheck, AutoUpdateCheck
         };
         foreach (var checkBox in checkBoxes)
-            if (checkBox.Tag is Geometry geometry) checkBox.Tag = ProviderIconService.FromGeometry(geometry);
+            if (checkBox.Tag is Geometry geometry)
+                checkBox.Tag = ReferenceEquals(checkBox, AutoUpdateCheck)
+                    ? ProviderIconService.FromFilledGeometry(geometry)
+                    : ProviderIconService.FromGeometry(geometry);
 
         var yoyo = ProviderIconService.Load("yoyo", _island.CurrentSettings);
         var codex = ProviderIconService.Load("codex", _island.CurrentSettings);
