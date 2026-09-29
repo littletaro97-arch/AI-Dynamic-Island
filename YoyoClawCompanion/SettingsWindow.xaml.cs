@@ -1,17 +1,29 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using YoyoClawCompanion.Services;
 using Brush = System.Windows.Media.Brush;
+using ButtonBase = System.Windows.Controls.Primitives.ButtonBase;
+using DataObject = System.Windows.DataObject;
+using DragEventArgs = System.Windows.DragEventArgs;
+using DragDropEffects = System.Windows.DragDropEffects;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 
 namespace YoyoClawCompanion;
 
 public partial class SettingsWindow : Window
 {
+    private const string ProviderOrderDragFormat = "AI.DynamicIsland.ProviderOrder";
     private const int DwmUseImmersiveDarkMode = 20;
     private const int DwmUseImmersiveDarkModeBefore20H1 = 19;
     private static readonly DependencyProperty AnimatedScrollOffsetProperty = DependencyProperty.Register(
@@ -20,6 +32,10 @@ public partial class SettingsWindow : Window
 
     private readonly MainWindow _island;
     private bool _loading = true;
+    private System.Windows.Point _providerDragStart;
+    private ProviderOrderItem? _providerDragCandidate;
+
+    public ObservableCollection<ProviderOrderItem> ProviderOrderItems { get; } = [];
 
     internal SettingsWindow(MainWindow island)
     {
@@ -71,8 +87,7 @@ public partial class SettingsWindow : Window
         if (MaxResponseLinesCombo.SelectedIndex < 0) MaxResponseLinesCombo.SelectedIndex = 2;
         foreach (ComboBoxItem item in DisplayModeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.DisplayMode, StringComparison.OrdinalIgnoreCase)) DisplayModeCombo.SelectedItem = item;
         if (DisplayModeCombo.SelectedIndex < 0) DisplayModeCombo.SelectedIndex = 0;
-        foreach (ComboBoxItem item in ProviderOrderCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ProviderOrder, StringComparison.OrdinalIgnoreCase)) ProviderOrderCombo.SelectedItem = item;
-        if (ProviderOrderCombo.SelectedIndex < 0) ProviderOrderCombo.SelectedIndex = 0;
+        LoadProviderOrder(value.ProviderOrder);
         UpdatePositionControls(value.PositionPreset);
     }
 
@@ -112,12 +127,10 @@ public partial class SettingsWindow : Window
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
         current.MaxResponseLines = int.TryParse((MaxResponseLinesCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var lines) ? lines : 3;
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
-        current.ProviderOrder = (ProviderOrderCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "yoyo,codex,workbuddy";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
             || ReferenceEquals(sender, CodexLimitsCheck)
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
-            || ReferenceEquals(sender, ConfirmationNotificationsCheck)
-            || ReferenceEquals(sender, ProviderOrderCombo);
+            || ReferenceEquals(sender, ConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
         UpdateLabels();
         ApplyPanelTheme();
@@ -138,12 +151,6 @@ public partial class SettingsWindow : Window
         PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));
         PreviewIsland.CornerRadius = new CornerRadius(Math.Min(CornerSlider.Value, PreviewIsland.Height / 2));
         PreviewIsland.Opacity = OpacitySlider.Value / 100;
-    }
-
-    private void ResetPosition_Click(object sender, RoutedEventArgs e)
-    {
-        _island.ResetPosition();
-        UpdatePositionControls(_island.CurrentSettings.PositionPreset);
     }
 
     private void PositionPreset_Click(object sender, RoutedEventArgs e)
@@ -189,31 +196,185 @@ public partial class SettingsWindow : Window
         };
     }
 
-    private void ResetAppearance_Click(object sender, RoutedEventArgs e)
+    private void LoadProviderOrder(string? storedOrder)
     {
-        _loading = true;
+        ProviderOrderItems.Clear();
+        foreach (var key in ProviderCatalog.ParseOrder(ProviderCatalog.NormalizeOrder(storedOrder)))
+            ProviderOrderItems.Add(new ProviderOrderItem(key, ProviderCatalog.DisplayName(key), ProviderIcon(key)));
+        RefreshProviderOrderState();
+    }
+
+    private Geometry ProviderIcon(string key)
+        => (Geometry)FindResource(key switch
+        {
+            "yoyo" => "IconCircle",
+            "codex" => "IconChart",
+            "workbuddy" => "IconCoin",
+            _ => "IconCircle"
+        });
+
+    private void ProviderOrderList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _providerDragCandidate = null;
+        if (FindAncestor<ButtonBase>(e.OriginalSource as DependencyObject) is not null) return;
+        var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (row?.DataContext is not ProviderOrderItem item) return;
+        _providerDragStart = e.GetPosition(ProviderOrderList);
+        _providerDragCandidate = item;
+        row.Focus();
+    }
+
+    private void ProviderOrderList_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _providerDragCandidate is null) return;
+        var current = e.GetPosition(ProviderOrderList);
+        if (Math.Abs(current.X - _providerDragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(current.Y - _providerDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var item = _providerDragCandidate;
+        _providerDragCandidate = null;
+        item.IsDragging = true;
+        try
+        {
+            DragDrop.DoDragDrop(ProviderOrderList, new DataObject(ProviderOrderDragFormat, item.Key), DragDropEffects.Move);
+        }
+        finally
+        {
+            item.IsDragging = false;
+            ClearProviderDropMarker();
+        }
+    }
+
+    private void ProviderOrderList_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(ProviderOrderDragFormat))
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+        e.Effects = DragDropEffects.Move;
+        UpdateProviderDropMarker(ProviderInsertionIndex(e.GetPosition(ProviderOrderList)));
+        e.Handled = true;
+    }
+
+    private void ProviderOrderList_PreviewDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(ProviderOrderDragFormat) is not string key) return;
+        var item = ProviderOrderItems.FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (item is null) return;
+
+        var oldIndex = ProviderOrderItems.IndexOf(item);
+        var insertionIndex = ProviderInsertionIndex(e.GetPosition(ProviderOrderList));
+        if (insertionIndex > oldIndex) insertionIndex--;
+        MoveProvider(oldIndex, Math.Clamp(insertionIndex, 0, ProviderOrderItems.Count - 1));
+        ClearProviderDropMarker();
+        e.Handled = true;
+    }
+
+    private void ProviderMoveUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ProviderOrderItem item })
+            MoveProvider(ProviderOrderItems.IndexOf(item), ProviderOrderItems.IndexOf(item) - 1);
+    }
+
+    private void ProviderMoveDown_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ProviderOrderItem item })
+            MoveProvider(ProviderOrderItems.IndexOf(item), ProviderOrderItems.IndexOf(item) + 1);
+    }
+
+    private void ProviderOrderList_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if ((Keyboard.Modifiers & ModifierKeys.Alt) == 0 || key is not (Key.Up or Key.Down)) return;
+        var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (row?.DataContext is not ProviderOrderItem item) return;
+        var index = ProviderOrderItems.IndexOf(item);
+        MoveProvider(index, index + (key == Key.Up ? -1 : 1));
+        e.Handled = true;
+    }
+
+    private void MoveProvider(int oldIndex, int newIndex)
+    {
+        if (oldIndex < 0 || newIndex < 0 || newIndex >= ProviderOrderItems.Count || oldIndex == newIndex) return;
+        var moved = ProviderOrderItems[oldIndex];
+        ProviderOrderItems.Move(oldIndex, newIndex);
+        RefreshProviderOrderState();
+        PersistProviderOrder();
+        Dispatcher.BeginInvoke(() => AnimateProviderMove(moved, oldIndex < newIndex ? 12 : -12), DispatcherPriority.Loaded);
+    }
+
+    private void PersistProviderOrder()
+    {
+        if (_loading) return;
         var current = _island.CurrentSettings;
-        current.CornerRadius = 24; current.Opacity = .92; current.IslandWidth = 224; current.IslandHeight = 48;
-        current.TextSize = 11; current.MaxResponseLines = 3;
-        current.ShowShadow = true; current.Topmost = true;
-        current.ShowYoyo = true; current.ShowCodex = true; current.ShowWorkBuddy = true; current.ShowTrayIcon = true; current.StartWithWindows = false;
-        current.ThemeMode = "system"; current.EnableCodexActivityDetection = true;
-        current.ShowCodexLimits = true; current.ShowWorkBuddyCredits = true; current.EnableAppLaunch = true;
-        current.EnableHoverExpansion = true; current.EnableSpringAnimation = true; current.HoverDelayMs = 70;
-        current.EnableCompletionNotifications = true;
-        current.EnableConfirmationNotifications = true;
-        current.EnableReverseHover = false;
-        current.EnableFullscreenActiveOnly = false;
-        current.EnableUnchangedAutoHide = false; current.UnchangedAutoHideMinutes = 5;
-        current.PutReplyFirstWhenExpandedUp = false;
-        current.AllowExpandedBeyondScreen = true;
-        current.QuotaScrollSpeed = 24; current.CompletionDisplaySeconds = 10; current.DisplayMode = "always";
-        current.ProviderOrder = "yoyo,codex,workbuddy";
-        LoadValues(current);
-        _loading = false;
-        _island.ApplySettings(current, refreshStatus: true);
-        UpdateLabels();
-        ApplyPanelTheme();
+        current.ProviderOrder = string.Join(',', ProviderOrderItems.Select(item => item.Key));
+        _island.ApplySettings(current);
+    }
+
+    private void RefreshProviderOrderState()
+    {
+        for (var index = 0; index < ProviderOrderItems.Count; index++)
+        {
+            var item = ProviderOrderItems[index];
+            item.Position = index + 1;
+            item.CanMoveUp = index > 0;
+            item.CanMoveDown = index < ProviderOrderItems.Count - 1;
+        }
+    }
+
+    private int ProviderInsertionIndex(System.Windows.Point pointer)
+    {
+        for (var index = 0; index < ProviderOrderItems.Count; index++)
+        {
+            if (ProviderOrderList.ItemContainerGenerator.ContainerFromIndex(index) is not ListBoxItem row) continue;
+            var top = row.TranslatePoint(new System.Windows.Point(0, 0), ProviderOrderList).Y;
+            if (pointer.Y < top + row.ActualHeight / 2) return index;
+        }
+        return ProviderOrderItems.Count;
+    }
+
+    private void UpdateProviderDropMarker(int insertionIndex)
+    {
+        ClearProviderDropMarker();
+        if (ProviderOrderItems.Count == 0) return;
+        if (insertionIndex >= ProviderOrderItems.Count) ProviderOrderItems[^1].InsertAfter = true;
+        else ProviderOrderItems[insertionIndex].InsertBefore = true;
+    }
+
+    private void ClearProviderDropMarker()
+    {
+        foreach (var item in ProviderOrderItems)
+        {
+            item.InsertBefore = false;
+            item.InsertAfter = false;
+        }
+    }
+
+    private void AnimateProviderMove(ProviderOrderItem item, double startY)
+    {
+        if (ProviderOrderList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem row) return;
+        var transform = new TranslateTransform(0, startY);
+        row.RenderTransform = transform;
+        transform.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(startY, 0, TimeSpan.FromMilliseconds(220))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+        row.BeginAnimation(OpacityProperty, new DoubleAnimation(.72, 1, TimeSpan.FromMilliseconds(220))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+        row.Focus();
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? source) where T : DependencyObject
+    {
+        while (source is not null)
+        {
+            if (source is T target) return target;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
     }
 
     private void ApplyPanelTheme()
@@ -305,4 +466,35 @@ public partial class SettingsWindow : Window
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int valueSize);
 
     private static SolidColorBrush Brush(string color) => (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
+
+    public sealed class ProviderOrderItem : INotifyPropertyChanged
+    {
+        private int _position;
+        private bool _canMoveUp;
+        private bool _canMoveDown;
+        private bool _isDragging;
+        private bool _insertBefore;
+        private bool _insertAfter;
+
+        internal ProviderOrderItem(string key, string displayName, Geometry iconData)
+        {
+            Key = key;
+            DisplayName = displayName;
+            IconData = iconData;
+        }
+
+        public string Key { get; }
+        public string DisplayName { get; }
+        public Geometry IconData { get; }
+        public string PositionText => $"第 {Position} 位";
+        public int Position { get => _position; set { if (_position == value) return; _position = value; Changed(nameof(Position)); Changed(nameof(PositionText)); } }
+        public bool CanMoveUp { get => _canMoveUp; set { if (_canMoveUp == value) return; _canMoveUp = value; Changed(nameof(CanMoveUp)); } }
+        public bool CanMoveDown { get => _canMoveDown; set { if (_canMoveDown == value) return; _canMoveDown = value; Changed(nameof(CanMoveDown)); } }
+        public bool IsDragging { get => _isDragging; set { if (_isDragging == value) return; _isDragging = value; Changed(nameof(IsDragging)); } }
+        public bool InsertBefore { get => _insertBefore; set { if (_insertBefore == value) return; _insertBefore = value; Changed(nameof(InsertBefore)); } }
+        public bool InsertAfter { get => _insertAfter; set { if (_insertAfter == value) return; _insertAfter = value; Changed(nameof(InsertAfter)); } }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void Changed(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }

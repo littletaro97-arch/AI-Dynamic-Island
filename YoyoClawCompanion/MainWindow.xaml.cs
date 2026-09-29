@@ -236,28 +236,21 @@ public partial class MainWindow : Window
     }
 
     private static string NormalizeProviderOrder(string? value)
-    {
-        var providers = value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(item => item.ToLowerInvariant()).ToArray() ?? [];
-        return providers.Length == 3 && providers.Distinct(StringComparer.Ordinal).Count() == 3
-            && providers.All(item => item is "yoyo" or "codex" or "workbuddy")
-            ? string.Join(',', providers)
-            : "yoyo,codex,workbuddy";
-    }
+        => ProviderCatalog.NormalizeOrder(value);
 
     private static string NormalizePositionPreset(string? value)
         => value is "topLeft" or "topCenter" or "topRight" or "bottomLeft" or "bottomCenter" or "bottomRight"
             ? value
             : "custom";
 
-    private string[] ProviderOrder() => _settings.ProviderOrder.Split(',');
-
-    private static string ProviderLabel(string provider) => provider switch
+    private string[] ProviderOrder()
     {
-        "yoyo" => "YOYO Claw",
-        "codex" => "Codex",
-        _ => "WorkBuddy"
-    };
+        var supported = ProviderCatalog.ParseOrder(_settings.ProviderOrder).Where(ProviderCatalog.IsKnown).ToList();
+        supported.AddRange(ProviderCatalog.KnownKeys.Where(key => !supported.Contains(key, StringComparer.OrdinalIgnoreCase)));
+        return supported.ToArray();
+    }
+
+    private static string ProviderLabel(string provider) => ProviderCatalog.DisplayName(provider);
 
     private void ApplyProviderOrder()
     {
@@ -273,7 +266,8 @@ public partial class MainWindow : Window
             ["workbuddy"] = WorkBuddyIndicatorButton
         };
         foreach (var indicator in indicators.Values) IndicatorPanel.Children.Remove(indicator);
-        foreach (var provider in ProviderOrder()) IndicatorPanel.Children.Add(indicators[provider]);
+        foreach (var provider in ProviderOrder())
+            if (indicators.TryGetValue(provider, out var indicator)) IndicatorPanel.Children.Add(indicator);
 
         _appliedProviderOrder = _settings.ProviderOrder;
         ApplyExpandedContentOrder();
@@ -298,7 +292,8 @@ public partial class MainWindow : Window
         var firstStatusRow = replyFirst ? 1 : 0;
         var order = ProviderOrder();
         for (var index = 0; index < order.Length; index++)
-            foreach (var element in rows[order[index]]) System.Windows.Controls.Grid.SetRow(element, firstStatusRow + index);
+            if (rows.TryGetValue(order[index], out var elements))
+                foreach (var element in elements) System.Windows.Controls.Grid.SetRow(element, firstStatusRow + index);
         System.Windows.Controls.Grid.SetRow(RecentBorder, replyFirst ? 0 : 3);
         RecentBorder.Margin = replyFirst ? new Thickness(0, 0, 0, 6) : new Thickness(0, 6, 0, 0);
         ApplyCollapseHandlePosition();
@@ -506,7 +501,10 @@ public partial class MainWindow : Window
     {
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
-        var busyProviders = ProviderOrder().Where(provider => busyByProvider[provider]).Select(ProviderLabel).ToList();
+        var busyProviders = ProviderOrder()
+            .Where(provider => busyByProvider.TryGetValue(provider, out var busy) && busy)
+            .Select(ProviderLabel)
+            .ToList();
         if (workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (!yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
         else if (!yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
@@ -526,7 +524,7 @@ public partial class MainWindow : Window
             ["codex"] = codex.FiveHourRemainingPercent is int fiveHour ? $"5小时 {fiveHour}%" : codex.WeeklyRemainingPercent is int weekly ? $"本周 {weekly}%" : "--",
             ["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--"
         };
-        var key = $"{_settings.ProviderOrder}|{string.Join('|', ProviderOrder().Select(provider => values[provider]))}";
+        var key = $"{_settings.ProviderOrder}|{string.Join('|', ProviderOrder().Select(provider => values.GetValueOrDefault(provider, "--")))}";
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
 
         _isBalanceSummary = true;
@@ -543,7 +541,8 @@ public partial class MainWindow : Window
         foreach (var provider in ProviderOrder())
         {
             if (!first) target.Inlines.Add(new Run("  |  ") { Foreground = _secondaryTextBrush });
-            AddSummaryPart(target, ProviderLabel(provider) + " ", values[provider]);
+            if (!values.TryGetValue(provider, out var value)) continue;
+            AddSummaryPart(target, ProviderLabel(provider) + " ", value);
             first = false;
         }
     }
@@ -1279,30 +1278,35 @@ public partial class MainWindow : Window
         catch { return process.MainWindowTitle.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase); }
     }
 
-    private void OpenYoyo()
+    private bool OpenYoyo()
     {
-        if (ActivateProcess("HnMagicClawUI")) return;
+        if (ActivateProcess("HnMagicClawUI")) return true;
         var executable = ApplicationLocator.FindYoyoExecutable(_settings.YoyoExecutablePath);
-        if (executable is not null) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+        if (executable is null) return false;
+        try { return Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }) is not null; }
+        catch { return false; }
     }
 
-    private void OpenCodex()
+    private bool OpenCodex()
     {
-        if (ActivateProcess("ChatGPT", IsCodexProcess)) return;
+        if (ActivateProcess("ChatGPT", IsCodexProcess)) return true;
         var executable = ApplicationLocator.FindCodexDesktopExecutable(_settings.CodexExecutablePath, IsCodexProcess);
         if (executable is not null)
         {
-            try { Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }); return; }
+            try { return Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }) is not null; }
             catch { }
         }
-        Process.Start(new ProcessStartInfo("explorer.exe", "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App") { UseShellExecute = true });
+        try { return Process.Start(new ProcessStartInfo("explorer.exe", "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App") { UseShellExecute = true }) is not null; }
+        catch { return false; }
     }
 
-    private void OpenWorkBuddy()
+    private bool OpenWorkBuddy()
     {
-        if (ActivateProcess("WorkBuddy")) return;
+        if (ActivateProcess("WorkBuddy")) return true;
         var executable = ApplicationLocator.FindWorkBuddyExecutable(_settings.WorkBuddyExecutablePath);
-        if (executable is not null) Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+        if (executable is null) return false;
+        try { return Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }) is not null; }
+        catch { return false; }
     }
 
     private void CaptureExecutablePaths()
@@ -1522,9 +1526,24 @@ public partial class MainWindow : Window
     private readonly record struct TimedResult<T>(T Value, long ElapsedMilliseconds);
     private readonly record struct RefreshTimings(long YoyoReadMilliseconds, long CodexReadMilliseconds, long WorkBuddyReadMilliseconds, long WorkBuddyCreditsReadMilliseconds);
     private void OpenHome_Click(object sender, RoutedEventArgs e) => OpenHome();
-    private void OpenYoyo_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenYoyo(); e.Handled = true; }
-    private void OpenCodex_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenCodex(); e.Handled = true; }
-    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) { if (_settings.EnableAppLaunch && !_dragging) OpenWorkBuddy(); e.Handled = true; }
+    private void OpenYoyo_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenYoyo, e);
+    private void OpenCodex_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenCodex, e);
+    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenWorkBuddy, e);
+
+    private void OpenProviderAndAcknowledge(Func<bool> openProvider, RoutedEventArgs e)
+    {
+        if (_settings.EnableAppLaunch && !_dragging && openProvider() && _activeCompletionNotice is not null)
+        {
+            _manualCollapseUntilPointerExit = true;
+            _completionTimer.Stop();
+            _notificationHoldActive = false;
+            _activeCompletionNotice = null;
+            RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+            CollapseIsland(true);
+            UpdateDisplayMode();
+        }
+        e.Handled = true;
+    }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshStatusAsync();
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }

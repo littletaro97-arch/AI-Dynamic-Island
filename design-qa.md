@@ -1,56 +1,52 @@
-# Position settings design QA
+# Program order and tray icon design QA
 
-- Source visual truth: `C:\Users\LITTLE~1\AppData\Local\Temp\codex-clipboard-2010ebb0-580a-4834-8a22-36dd9c6308d4.png`
-- Implementation screenshot: `C:\Users\LITTLE~1\AppData\Local\Temp\ai-dynamic-island-position-panel-final.png`
-- Combined comparison: `C:\Users\LITTLE~1\AppData\Local\Temp\ai-dynamic-island-position-qa-comparison.png`
-- Viewport: native WPF settings window, 920 x 720 DIPs at 200% Windows scaling
-- Source pixels: 1351 x 553
-- Implementation pixels: 1840 x 1440 (920 x 720 DIPs at 2x density)
-- Normalization: the source was scaled to 840 x 344 and the implementation Position card was cropped and scaled to 840 x 800 in the combined comparison. The supplied source is a style reference for the former compact Position card, not an exact mockup of the expanded feature set.
-- State: light/system theme, Position section selected, custom-position state, screen-boundary toggle enabled
+- Source visual truth: `E:\课外项目\AI Dynamic Island\设置-程序顺序重设计-原型.html` and `C:\Users\LITTLE~1\AppData\Local\Temp\codex-clipboard-211a5e51-875e-4415-afe3-0b6e06d01dde.png`
+- Implementation screenshot: unavailable for the native WPF settings window; the current Computer Use surface returned no native applications/windows.
+- Tray implementation preview: `C:\Users\LittleTaro\AppData\Local\Temp\ai-dynamic-island-tray-preview.png`
+- Viewport: intended native WPF settings window at 920 x 720 DIPs; no valid captured implementation viewport was available.
+- Source pixels: tray reference 322 x 120; provider-order source is responsive HTML rather than a fixed screenshot.
+- Implementation pixels: tray preview 64 x 64; provider-order implementation capture unavailable.
+- Density normalization: tray comparison was reviewed at native pixels; provider-order normalization could not be completed without a native window capture.
+- State: settings Behavior card, light and dark themes, default three-provider order.
 
 ## Findings
 
-No actionable P0, P1, or P2 visual differences remain.
+- [P2] Native provider-order visual comparison is blocked.
+  - Location: Settings > Behavior > Program order.
+  - Evidence: the WPF process is running and responding, but the available Computer Use inventory exposed no native app window, so the coded row, focus, drag, insertion, disabled-button, and dark-theme states could not be captured beside the HTML source.
+  - Impact: compilation and code-path checks do not prove final spacing, contrast, or interaction feedback.
+  - Fix: perform manual visual acceptance in the currently running Debug app, or repeat capture when native window discovery is available.
 
-- Fonts and typography: the implementation keeps the existing Microsoft YaHei UI hierarchy, semibold section title and compact control labels. New preset labels and micro-adjustment copy remain legible at the captured density.
-- Spacing and layout rhythm: the replacement card uses a 16:9 monitor preview, six evenly aligned preset controls, a separate adjustment row, and the existing two-column switch rhythm. The larger card is intentional because the new controls cannot fit in the former compact preview.
-- Colors and visual tokens: the implementation retains the reference's pale screen surface, dark primary text, green accent, gray inactive state, rounded cards, and the existing animated switch treatment.
-- Image and icon fidelity: the reference contains no raster artwork or branded imagery. Existing application vector icon resources and native WPF paths are reused at sharp device-pixel density.
-- Copy and content: all six standard positions are named directly; custom dragging, 4 px adjustment, upward reply order, and boundary-overflow behavior are explicit without long descriptions.
+## Required fidelity surfaces
 
-## Full-view comparison evidence
-
-The combined comparison shows that the original card language is preserved while the monitor visualization now uses a normal 16:9 ratio and exposes all required position controls. No content is clipped at 920 x 720 DIPs, and the card remains within the right settings column.
-
-## Focused region comparison evidence
-
-The Position card itself is the focused region. Separate micro-crops were not needed because the 2x implementation capture keeps preset labels, arrow controls, switch text, radii, and borders readable in the combined comparison.
+- Fonts and typography: implemented with the existing settings typography and weights; visual comparison blocked.
+- Spacing and layout rhythm: row height, icon tile, padding, and gaps follow the existing input and switch-card proportions; visual comparison blocked.
+- Colors and visual tokens: the rows reuse `SettingsAccent`, `SettingsInputBackground`, and `SettingsInputBorder`; light/dark rendered comparison blocked.
+- Image and icon fidelity: the tray preview visibly matches the dark rounded-square, green/purple/yellow-dot logo. Provider icons reuse existing WPF Geometry resources; no new image dependency was introduced.
+- Copy and content: the short explanation states that order affects collapsed quota, status dots, expanded rows, and multi-task summaries.
 
 ## Interaction checks
 
-- Top-left, top-right, bottom-center, and top-center presets moved the island immediately and persisted.
-- Right/left 4 px micro-adjustment moved the island live and changed the mode to custom.
-- Disallowing screen overflow kept a left-edge expansion at 2 physical px from the edge and shifted the host from -145 to -46 px; collapse returned it to -145 px.
-- The mirrored right-edge case shifted from 2305 to 2206 px and returned correctly on collapse.
-- A process restart preserved `topRight:1152.5,-12` exactly, confirming that startup no longer overwrites the stored position.
+- XAML and code-behind compile with 0 warnings and 0 errors using `UseAppHost=false`.
+- Legacy orders and 4-/8-key orders were exercised through `ProviderCatalog.NormalizeOrder`; valid order strings remained comma-separated and were not reset.
+- Unknown keys are preserved in storage, rendered with their raw key in settings, and ignored safely by the current three-provider island rendering.
+- Codex limits succeeded in the running build with no error (latest sample: 5-hour 42%, weekly 91%, 1676 ms read).
+- Drag/drop, Alt+Up/Alt+Down, and insertion-line behavior remain pending manual UI acceptance because native UI input/capture was unavailable.
 
 ## Comparison history
 
-- Pass 1: no P0/P1/P2 visual findings. During functional QA, the pre-existing startup ordering bug that could overwrite the saved position was found and fixed before the final screenshot. The final capture and persistence check are post-fix evidence.
-
-## Follow-up polish
-
-- P3: the two legacy bottom action buttons intentionally retain their original compact Windows-button styling to match the supplied reference. They can be folded into the newer rounded button language in a future full-settings visual refresh.
+- Pass 1: tray preview matched the supplied logo reference with no P0/P1/P2 finding.
+- Pass 1: provider-order comparison blocked before a valid same-state implementation screenshot could be captured.
 
 ## Implementation checklist
 
-- [x] Six standard position presets
-- [x] Custom drag state
-- [x] Four-direction live adjustment
-- [x] Screen-boundary overflow preference
-- [x] Asymmetric edge-aware expansion and mirrored collapse
-- [x] Multi-monitor-aware geometry
-- [x] Restart persistence
+- [x] Whole-row native drag model and midpoint insertion calculation
+- [x] Dragging opacity, dashed outline, and insertion indicator
+- [x] Up/down controls with stable disabled states
+- [x] Alt+Up/Alt+Down keyboard path
+- [x] Immediate comma-string persistence
+- [x] Unknown-provider safe degradation and 8-item normalization
+- [x] Tray logo replacement
+- [ ] Native light/dark visual and drag interaction acceptance
 
-final result: passed
+final result: blocked

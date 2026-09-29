@@ -30,6 +30,9 @@ internal sealed class CodexStatusService
     private const int LifecycleTailBytes = 2 * 1024 * 1024;
     private const int ExpandedLifecycleTailBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan LimitRefreshInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan LimitFailureRetryInterval = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan InitializeTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan LimitsTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan StaleStartedAfter = TimeSpan.FromHours(2);
     private static readonly TimeSpan ExpandedScanRecency = TimeSpan.FromMinutes(10);
 
@@ -94,7 +97,8 @@ internal sealed class CodexStatusService
         lock (_limitsGate)
         {
             if (_limitRefreshTask is { IsCompleted: false }) return;
-            if (DateTimeOffset.UtcNow - _lastLimitAttempt < LimitRefreshInterval) return;
+            var retryInterval = _lastLimitError is null ? LimitRefreshInterval : LimitFailureRetryInterval;
+            if (DateTimeOffset.UtcNow - _lastLimitAttempt < retryInterval) return;
             _lastLimitAttempt = DateTimeOffset.UtcNow;
             _limitRefreshTask = Task.Run(RefreshLimitsAsync);
         }
@@ -331,26 +335,38 @@ internal sealed class CodexStatusService
             };
             if (!process.Start()) return null;
             _ = process.StandardError.ReadToEndAsync();
-            await process.StandardInput.WriteLineAsync("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"yoyo-island\",\"version\":\"0.7\"},\"capabilities\":{\"experimentalApi\":true}}}");
+            await process.StandardInput.WriteLineAsync("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"ai-dynamic-island\",\"version\":\"0.6\"},\"capabilities\":{\"experimentalApi\":true}}}");
             await process.StandardInput.FlushAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(7));
             LastError = "initialize";
-            while (await process.StandardOutput.ReadLineAsync(timeout.Token) is { } initLine)
+            var initialized = false;
+            using (var initializeTimeout = new CancellationTokenSource(InitializeTimeout))
             {
-                using var initDocument = JsonDocument.Parse(initLine);
-                if (initDocument.RootElement.TryGetProperty("id", out var initId) && initId.TryGetInt32(out var value) && value == 1) break;
+                while (await process.StandardOutput.ReadLineAsync(initializeTimeout.Token) is { } initLine)
+                {
+                    using var initDocument = JsonDocument.Parse(initLine);
+                    var root = initDocument.RootElement;
+                    if (!root.TryGetProperty("id", out var initId) || !initId.TryGetInt32(out var value) || value != 1) continue;
+                    if (root.TryGetProperty("error", out _)) { LastError = "initialize:rpc-error"; return null; }
+                    initialized = root.TryGetProperty("result", out _);
+                    break;
+                }
             }
+            if (!initialized) { LastError = "initialize:no-response"; return null; }
             await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\"}");
             await process.StandardInput.WriteLineAsync("{\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":{\"excludeResetCreditDetails\":true}}");
             await process.StandardInput.FlushAsync();
 
             LastError = "limits";
-            while (await process.StandardOutput.ReadLineAsync(timeout.Token) is { } line)
+            using var limitsTimeout = new CancellationTokenSource(LimitsTimeout);
+            while (await process.StandardOutput.ReadLineAsync(limitsTimeout.Token) is { } line)
             {
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
-                if (!root.TryGetProperty("id", out var id) || !id.TryGetInt32(out var responseId) || responseId != 2 || !root.TryGetProperty("result", out var result)) continue;
+                if (!root.TryGetProperty("id", out var id) || !id.TryGetInt32(out var responseId) || responseId != 2) continue;
+                if (root.TryGetProperty("error", out _)) { LastError = "limits:rpc-error"; return null; }
+                if (!root.TryGetProperty("result", out var result)) continue;
                 var parsed = ParseLimits(result);
+                if (parsed.FiveHour is null && parsed.Weekly is null) { LastError = "limits:unsupported-payload"; return null; }
                 LastError = null;
                 return parsed;
             }

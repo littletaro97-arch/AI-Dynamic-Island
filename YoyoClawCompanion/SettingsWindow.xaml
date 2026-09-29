@@ -19,6 +19,8 @@
         <Geometry x:Key="IconBehavior">M13,2 L5,13 L11,13 L10,22 L19,10 L13,10 Z</Geometry>
         <Geometry x:Key="IconBell">M6,17 L18,17 L16,14 L16,9 C16,4 8,4 8,9 L8,14 Z M10,20 C11,22 13,22 14,20</Geometry>
         <Geometry x:Key="IconPosition">M12,2 L9,5 M12,2 L15,5 M12,22 L9,19 M12,22 L15,19 M2,12 L5,9 M2,12 L5,15 M22,12 L19,9 M22,12 L19,15 M12,6 L12,18 M6,12 L18,12</Geometry>
+        <Geometry x:Key="IconArrowUp">M4,15 L12,7 L20,15</Geometry>
+        <Geometry x:Key="IconArrowDown">M4,9 L12,17 L20,9</Geometry>
         <SolidColorBrush x:Key="SettingsInputBackground" Color="#F7F8FA"/>
         <SolidColorBrush x:Key="SettingsInputBorder" Color="#E2E5EA"/>
         <SolidColorBrush x:Key="SettingsPopupBackground" Color="#FFFFFF"/>
@@ -151,6 +153,25 @@
             </ControlTemplate></Setter.Value></Setter>
         </Style>
         <Style x:Key="ActionButton" TargetType="Button"><Setter Property="Padding" Value="14,8"/><Setter Property="Margin" Value="0,8,8,0"/></Style>
+        <Style x:Key="ProviderOrderButton" TargetType="Button">
+            <Setter Property="Width" Value="32"/><Setter Property="Height" Value="30"/><Setter Property="Margin" Value="3,0,0,0"/>
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="{DynamicResource SettingsInputBorder}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="OrderButtonSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="OrderButtonSurface" Property="BorderBrush" Value="{DynamicResource SettingsAccent}"/><Setter TargetName="OrderButtonSurface" Property="Background" Value="#143ED598"/></Trigger>
+                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="OrderButtonSurface" Property="Background" Value="#2A3ED598"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="OrderButtonSurface" Property="Opacity" Value=".3"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="ProviderOrderItem" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Focusable" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style x:Key="PositionPresetButton" TargetType="RadioButton">
             <Setter Property="Width" Value="104"/><Setter Property="Height" Value="38"/><Setter Property="FontSize" Value="13"/><Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -235,7 +256,58 @@
                     <Border x:Name="FeatureCard" Style="{StaticResource Card}"><StackPanel>
                         <TextBlock Text="行为" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
                         <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions><TextBlock Text="显示模式" VerticalAlignment="Center"/><ComboBox x:Name="DisplayModeCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="always" Content="始终显示"/><ComboBoxItem Tag="activeOnly" Content="仅任务活动时显示"/></ComboBox></Grid>
-                        <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="260"/></Grid.ColumnDefinitions><TextBlock Text="程序顺序" VerticalAlignment="Center"/><ComboBox x:Name="ProviderOrderCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="yoyo,codex,workbuddy" Content="YOYO → Codex → WorkBuddy"/><ComboBoxItem Tag="yoyo,workbuddy,codex" Content="YOYO → WorkBuddy → Codex"/><ComboBoxItem Tag="codex,yoyo,workbuddy" Content="Codex → YOYO → WorkBuddy"/><ComboBoxItem Tag="codex,workbuddy,yoyo" Content="Codex → WorkBuddy → YOYO"/><ComboBoxItem Tag="workbuddy,yoyo,codex" Content="WorkBuddy → YOYO → Codex"/><ComboBoxItem Tag="workbuddy,codex,yoyo" Content="WorkBuddy → Codex → YOYO"/></ComboBox></Grid>
+                        <Border Margin="0,0,0,12" Padding="12" Background="#083ED598" BorderBrush="#303ED598" BorderThickness="1" CornerRadius="14">
+                            <StackPanel>
+                                <TextBlock Text="程序顺序" FontWeight="SemiBold"/>
+                                <TextBlock Text="拖动整行即可排序；折叠额度、状态点、展开列表和多任务摘要会一起调整。" Foreground="#727C90" FontSize="12" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                                <ListBox x:Name="ProviderOrderList" ItemsSource="{Binding ProviderOrderItems, RelativeSource={RelativeSource AncestorType=Window}}"
+                                         ItemContainerStyle="{StaticResource ProviderOrderItem}" Background="Transparent" BorderThickness="0"
+                                         AllowDrop="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                         PreviewMouseLeftButtonDown="ProviderOrderList_PreviewMouseLeftButtonDown" PreviewMouseMove="ProviderOrderList_PreviewMouseMove"
+                                         PreviewDragOver="ProviderOrderList_PreviewDragOver" PreviewDrop="ProviderOrderList_PreviewDrop" PreviewKeyDown="ProviderOrderList_PreviewKeyDown">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,7">
+                                                <Border x:Name="OrderRow" Height="54" Padding="9,7" Background="{DynamicResource SettingsInputBackground}" CornerRadius="14">
+                                                    <Border.Style><Style TargetType="Border">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource SettingsInputBorder}"/><Setter Property="BorderThickness" Value="1"/>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="#8A3ED598"/></Trigger>
+                                                            <DataTrigger Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource SettingsAccent}"/><Setter Property="BorderThickness" Value="2"/></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style></Border.Style>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                        <Grid Width="16" Height="22" VerticalAlignment="Center" IsHitTestVisible="False" Opacity=".7">
+                                                            <UniformGrid Rows="3" Columns="2"><Ellipse Width="3" Height="3" Fill="#727C90"/><Ellipse Width="3" Height="3" Fill="#727C90"/><Ellipse Width="3" Height="3" Fill="#727C90"/><Ellipse Width="3" Height="3" Fill="#727C90"/><Ellipse Width="3" Height="3" Fill="#727C90"/><Ellipse Width="3" Height="3" Fill="#727C90"/></UniformGrid>
+                                                        </Grid>
+                                                        <Border Grid.Column="1" Width="38" Height="38" CornerRadius="11" Background="#43A878" IsHitTestVisible="False">
+                                                            <Path Data="{Binding IconData}" Stroke="White" Fill="Transparent" StrokeThickness="2" Width="20" Height="20" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                        </Border>
+                                                        <StackPanel Grid.Column="2" Margin="10,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                                                            <TextBlock Text="{Binding DisplayName}" FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{Binding PositionText}" Foreground="#727C90" FontSize="11"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Button Style="{StaticResource ProviderOrderButton}" IsEnabled="{Binding CanMoveUp}" Tag="{Binding}" Click="ProviderMoveUp_Click" ToolTip="上移 (Alt+↑)" AutomationProperties.Name="上移"><Path Data="{StaticResource IconArrowUp}" Stroke="#657087" StrokeThickness="2.1" Width="15" Height="10" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Button>
+                                                            <Button Style="{StaticResource ProviderOrderButton}" IsEnabled="{Binding CanMoveDown}" Tag="{Binding}" Click="ProviderMoveDown_Click" ToolTip="下移 (Alt+↓)" AutomationProperties.Name="下移"><Path Data="{StaticResource IconArrowDown}" Stroke="#657087" StrokeThickness="2.1" Width="15" Height="10" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                                <Rectangle x:Name="DragOutline" Margin="0" RadiusX="14" RadiusY="14" Stroke="{DynamicResource SettingsAccent}" StrokeThickness="1.5" StrokeDashArray="4,3" IsHitTestVisible="False" Visibility="Collapsed"/>
+                                                <Border x:Name="InsertBefore" Height="3" CornerRadius="2" Background="{DynamicResource SettingsAccent}" VerticalAlignment="Top" Margin="10,-2,10,0" Visibility="Collapsed"/>
+                                                <Border x:Name="InsertAfter" Height="3" CornerRadius="2" Background="{DynamicResource SettingsAccent}" VerticalAlignment="Bottom" Margin="10,0,10,-2" Visibility="Collapsed"/>
+                                            </Grid>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsDragging}" Value="True"><Setter TargetName="OrderRow" Property="Opacity" Value=".38"/><Setter TargetName="DragOutline" Property="Visibility" Value="Visible"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding InsertBefore}" Value="True"><Setter TargetName="InsertBefore" Property="Visibility" Value="Visible"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding InsertAfter}" Value="True"><Setter TargetName="InsertAfter" Property="Visibility" Value="Visible"/></DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
                         <UniformGrid Columns="2"><CheckBox x:Name="CodexActivityCheck" Tag="{StaticResource IconClock}" Content="Codex 活动检测" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexLimitsCheck" Tag="{StaticResource IconChart}" Content="Codex 限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCreditsCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AppLaunchCheck" Tag="{StaticResource IconLaunch}" Content="点击打开应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="HoverExpansionCheck" Tag="{StaticResource IconEye}" Content="悬停展开" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="SpringAnimationCheck" Tag="{StaticResource IconSpark}" Content="回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
                         <DockPanel Margin="0,10,0,0"><TextBlock Text="悬停延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="QuotaScrollSpeedSlider" Minimum="8" Maximum="80" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
@@ -278,7 +350,6 @@
                             </Grid>
                         </Grid>
                         <UniformGrid Columns="2"><CheckBox x:Name="ReplyFirstWhenExpandedUpCheck" Tag="{StaticResource IconPosition}" Content="向上展开时回复置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AllowExpandedBeyondScreenCheck" Tag="{StaticResource IconScreen}" Content="允许展开越过屏幕边界" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
-                        <WrapPanel><Button Style="{StaticResource ActionButton}" Content="顶部居中" Click="ResetPosition_Click"/><Button Style="{StaticResource ActionButton}" Content="恢复默认" Click="ResetAppearance_Click"/></WrapPanel>
                     </StackPanel></Border>
                 </StackPanel>
             </ScrollViewer>
