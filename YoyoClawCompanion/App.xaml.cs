@@ -2,6 +2,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using YoyoClawCompanion.Services;
 using Application = System.Windows.Application;
 
@@ -128,6 +131,14 @@ public partial class App : Application
             return (System.Drawing.Icon)source.Clone();
         }
         finally { DestroyIcon(handle); }
+    }
+
+    internal static ImageSource CreateWindowIcon()
+    {
+        using var icon = LoadTrayIcon();
+        var source = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromWidthAndHeight(64, 64));
+        source.Freeze();
+        return source;
     }
 
     private static System.Drawing.Drawing2D.GraphicsPath RoundedRectangle(System.Drawing.RectangleF bounds, float radius)

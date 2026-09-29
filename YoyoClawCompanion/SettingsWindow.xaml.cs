@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,6 +19,7 @@ using DragEventArgs = System.Windows.DragEventArgs;
 using DragDropEffects = System.Windows.DragDropEffects;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using TextBox = System.Windows.Controls.TextBox;
 
 namespace YoyoClawCompanion;
 
@@ -35,6 +37,10 @@ public partial class SettingsWindow : Window
     private System.Windows.Point _providerDragStart;
     private ProviderOrderItem? _providerDragCandidate;
     private IReadOnlyList<SettingsPresetSlot> _presets = [];
+    private readonly double[] _presetMarqueeOffsets = new double[4];
+    private readonly double[] _presetMarqueeCycles = new double[4];
+    private long _presetMarqueeLastTick;
+    private bool _presetMarqueeSubscribed;
 
     public ObservableCollection<ProviderOrderItem> ProviderOrderItems { get; } = [];
 
@@ -42,9 +48,11 @@ public partial class SettingsWindow : Window
     {
         _island = island;
         InitializeComponent();
+        Icon = App.CreateWindowIcon();
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
         _island.PositionChanged += Island_PositionChanged;
-        Closed += (_, _) => _island.PositionChanged -= Island_PositionChanged;
+        Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; StopPresetMarquees(); };
+        SizeChanged += (_, _) => SchedulePresetMarquees();
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
@@ -72,6 +80,8 @@ public partial class SettingsWindow : Window
         CodexActivityCheck.IsChecked = value.EnableCodexActivityDetection;
         CodexLimitsCheck.IsChecked = value.ShowCodexLimits;
         WorkBuddyCreditsCheck.IsChecked = value.ShowWorkBuddyCredits;
+        CodexResetReminderCheck.IsChecked = value.EnableCodexResetReminder;
+        YoyoAutoCheckinCheck.IsChecked = value.EnableYoyoAutoCheckin;
         AppLaunchCheck.IsChecked = value.EnableAppLaunch;
         HoverExpansionCheck.IsChecked = value.EnableHoverExpansion;
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
@@ -86,6 +96,7 @@ public partial class SettingsWindow : Window
         HoverDelaySlider.Value = value.HoverDelayMs;
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
+        CodexResetReminderSlider.Value = value.CodexResetReminderMinutes;
         foreach (ComboBoxItem item in MaxResponseLinesCombo.Items) if (item.Tag?.ToString() == value.MaxResponseLines.ToString()) MaxResponseLinesCombo.SelectedItem = item;
         if (MaxResponseLinesCombo.SelectedIndex < 0) MaxResponseLinesCombo.SelectedIndex = 2;
         foreach (ComboBoxItem item in DisplayModeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.DisplayMode, StringComparison.OrdinalIgnoreCase)) DisplayModeCombo.SelectedItem = item;
@@ -114,6 +125,8 @@ public partial class SettingsWindow : Window
         current.EnableCodexActivityDetection = CodexActivityCheck.IsChecked == true;
         current.ShowCodexLimits = CodexLimitsCheck.IsChecked == true;
         current.ShowWorkBuddyCredits = WorkBuddyCreditsCheck.IsChecked == true;
+        current.EnableCodexResetReminder = CodexResetReminderCheck.IsChecked == true;
+        current.EnableYoyoAutoCheckin = YoyoAutoCheckinCheck.IsChecked == true;
         current.EnableAppLaunch = AppLaunchCheck.IsChecked == true;
         current.EnableHoverExpansion = HoverExpansionCheck.IsChecked == true;
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
@@ -128,6 +141,7 @@ public partial class SettingsWindow : Window
         current.HoverDelayMs = HoverDelaySlider.Value;
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
+        current.CodexResetReminderMinutes = CodexResetReminderSlider.Value;
         current.MaxResponseLines = int.TryParse((MaxResponseLinesCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var lines) ? lines : 3;
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
@@ -135,6 +149,7 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
             || ReferenceEquals(sender, ConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
+        if (ReferenceEquals(sender, YoyoAutoCheckinCheck)) _island.StartYoyoCheckinFromSettings();
         UpdateLabels();
         UpdateDependencyStates();
         ApplyPanelTheme();
@@ -146,6 +161,7 @@ public partial class SettingsWindow : Window
         SetDependentState(UnchangedAutoHidePanel, UnchangedAutoHideCheck.IsChecked == true);
         SetDependentState(CompletionDisplayPanel,
             CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
+        SetDependentState(CodexResetReminderPanel, CodexResetReminderCheck.IsChecked == true);
     }
 
     private static void SetDependentState(UIElement element, bool enabled)
@@ -199,10 +215,115 @@ public partial class SettingsWindow : Window
             var preset = _presets.FirstOrDefault(item => item.Slot == slot);
             var status = slot switch { 1 => Preset1Status, 2 => Preset2Status, _ => Preset3Status };
             var apply = slot switch { 1 => ApplyPreset1Button, 2 => ApplyPreset2Button, _ => ApplyPreset3Button };
+            var (nameText, nameClone, editor, _, _, _) = PresetNameControls(slot);
+            var displayName = preset is null ? $"方案 {slot}" : SettingsPresetStore.DisplayName(preset);
+            nameText.Text = nameClone.Text = editor.Text = displayName;
             status.Text = preset is null ? "尚未保存" : $"已保存 {preset.SavedAt.LocalDateTime:MM-dd HH:mm}";
             apply.IsEnabled = preset is not null;
         }
+        SchedulePresetMarquees();
     }
+
+    private void PresetNameDisplay_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!TryReadPresetSlot(sender, out var slot) || _presets.All(item => item.Slot != slot)) return;
+        var (_, _, editor, display, _, _) = PresetNameControls(slot);
+        display.Visibility = Visibility.Collapsed;
+        editor.Visibility = Visibility.Visible;
+        editor.Focus();
+        editor.SelectAll();
+        e.Handled = true;
+    }
+
+    private void PresetNameEditor_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox editor) return;
+        if (e.Key == Key.Enter) { FinishPresetRename(editor, true); e.Handled = true; }
+        else if (e.Key == Key.Escape) { FinishPresetRename(editor, false); e.Handled = true; }
+    }
+
+    private void PresetNameEditor_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox { Visibility: Visibility.Visible } editor) FinishPresetRename(editor, true);
+    }
+
+    private void FinishPresetRename(TextBox editor, bool save)
+    {
+        if (!TryReadPresetSlot(editor, out var slot)) return;
+        if (save)
+        {
+            try { SettingsPresetStore.Rename(slot, editor.Text); } catch { }
+        }
+        editor.Visibility = Visibility.Collapsed;
+        var (_, _, _, display, _, _) = PresetNameControls(slot);
+        display.Visibility = Visibility.Visible;
+        RefreshPresetCards();
+    }
+
+    private void SchedulePresetMarquees()
+        => Dispatcher.BeginInvoke(UpdatePresetMarquees, DispatcherPriority.Loaded);
+
+    private void UpdatePresetMarquees()
+    {
+        StopPresetMarquees();
+        var any = false;
+        for (var slot = 1; slot <= 3; slot++)
+        {
+            var (text, clone, editor, _, canvas, transforms) = PresetNameControls(slot);
+            if (editor.Visibility == Visibility.Visible || canvas.ActualWidth <= 0) continue;
+            text.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var width = text.DesiredSize.Width;
+            if (width <= canvas.ActualWidth) { clone.Visibility = Visibility.Collapsed; continue; }
+            var gap = text.FontSize * 5;
+            _presetMarqueeCycles[slot] = width + gap;
+            Canvas.SetLeft(text, 0);
+            Canvas.SetLeft(clone, _presetMarqueeCycles[slot]);
+            transforms.Primary.X = transforms.Clone.X = 0;
+            clone.Visibility = Visibility.Visible;
+            any = true;
+        }
+        if (!any) return;
+        _presetMarqueeLastTick = Stopwatch.GetTimestamp();
+        CompositionTarget.Rendering += AdvancePresetMarquees;
+        _presetMarqueeSubscribed = true;
+    }
+
+    private void AdvancePresetMarquees(object? sender, EventArgs e)
+    {
+        if (!IsVisible) { StopPresetMarquees(); return; }
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = Math.Min(.1, Math.Max(0, (now - _presetMarqueeLastTick) / (double)Stopwatch.Frequency));
+        _presetMarqueeLastTick = now;
+        for (var slot = 1; slot <= 3; slot++)
+        {
+            if (_presetMarqueeCycles[slot] <= 0) continue;
+            var (_, _, editor, _, _, transforms) = PresetNameControls(slot);
+            if (editor.Visibility == Visibility.Visible) continue;
+            _presetMarqueeOffsets[slot] = (_presetMarqueeOffsets[slot] + _island.CurrentSettings.QuotaScrollSpeed * elapsed) % _presetMarqueeCycles[slot];
+            transforms.Primary.X = transforms.Clone.X = -_presetMarqueeOffsets[slot];
+        }
+    }
+
+    private void StopPresetMarquees()
+    {
+        if (_presetMarqueeSubscribed) CompositionTarget.Rendering -= AdvancePresetMarquees;
+        _presetMarqueeSubscribed = false;
+        for (var slot = 1; slot <= 3; slot++)
+        {
+            _presetMarqueeOffsets[slot] = _presetMarqueeCycles[slot] = 0;
+            var (text, clone, _, _, _, transforms) = PresetNameControls(slot);
+            Canvas.SetLeft(text, 0); Canvas.SetLeft(clone, 0);
+            transforms.Primary.X = transforms.Clone.X = 0;
+        }
+    }
+
+    private (TextBlock Text, TextBlock Clone, TextBox Editor, Grid Display, Canvas Canvas, (TranslateTransform Primary, TranslateTransform Clone) Transforms) PresetNameControls(int slot)
+        => slot switch
+        {
+            1 => (Preset1NameText, Preset1NameClone, Preset1NameEditor, Preset1NameDisplay, Preset1NameCanvas, (Preset1NameTranslate, Preset1NameCloneTranslate)),
+            2 => (Preset2NameText, Preset2NameClone, Preset2NameEditor, Preset2NameDisplay, Preset2NameCanvas, (Preset2NameTranslate, Preset2NameCloneTranslate)),
+            _ => (Preset3NameText, Preset3NameClone, Preset3NameEditor, Preset3NameDisplay, Preset3NameCanvas, (Preset3NameTranslate, Preset3NameCloneTranslate))
+        };
 
     private void UpdateLabels()
     {
@@ -214,6 +335,7 @@ public partial class SettingsWindow : Window
         HoverDelayValue.Text = $"{HoverDelaySlider.Value:0} ms";
         QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
         CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
+        CodexResetReminderValue.Text = $"{CodexResetReminderSlider.Value:0} 分钟";
         UnchangedAutoHideValue.Text = $"{UnchangedAutoHideSlider.Value:0} 分钟";
         PreviewIsland.Width = Math.Min(400, Math.Max(190, WidthSlider.Value));
         PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));

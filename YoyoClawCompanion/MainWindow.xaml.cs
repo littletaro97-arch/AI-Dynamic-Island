@@ -30,6 +30,9 @@ public partial class MainWindow : Window
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
     private readonly WorkBuddyCreditsService _workBuddyCreditsService = new();
     private readonly CodexStatusService _codexStatusService = new();
+    private readonly YoyoCheckinService _yoyoCheckinService = new();
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private CancellationTokenSource? _checkinCancellation;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
@@ -46,6 +49,7 @@ public partial class MainWindow : Window
     private bool _completionBaselineReady, _notificationHoldActive;
     private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
+    private string? _activeSystemNotice;
     private string? _activeConfirmationNotice, _workBuddyConfirmationId;
     private string _latestCombinedResult = "尚未检测到任务结果";
     private Brush _secondaryTextBrush = Brush("#9AA5BC");
@@ -72,6 +76,8 @@ public partial class MainWindow : Window
     private bool _appliedUnchangedAutoHide;
     private double _appliedUnchangedAutoHideMinutes;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
+    private string? _codexFiveHourReminderId, _codexWeeklyReminderId;
+    private string? _highlightedProvider;
 
     public MainWindow()
     {
@@ -88,7 +94,7 @@ public partial class MainWindow : Window
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -104,6 +110,16 @@ public partial class MainWindow : Window
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: true);
         ExpandIsland(true);
+    }
+
+    internal void StartYoyoCheckinFromSettings()
+    {
+        _checkinCancellation?.Cancel();
+        _checkinCancellation?.Dispose();
+        _checkinCancellation = null;
+        if (!_settings.EnableYoyoAutoCheckin || !IsLoaded) return;
+        _checkinCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        _ = RunYoyoCheckinAsync(_checkinCancellation.Token);
     }
 
     private async Task ResetAndRefreshStatusAsync()
@@ -122,7 +138,9 @@ public partial class MainWindow : Window
         _completionBaselineReady = false;
         _yoyoCompletionId = _codexCompletionId = _workBuddyCompletionId = null;
         _workBuddyConfirmationId = null;
-        _activeCompletionNotice = _activeConfirmationNotice = null;
+        _activeCompletionNotice = _activeConfirmationNotice = _activeSystemNotice = null;
+        _codexFiveHourReminderId = _codexWeeklyReminderId = null;
+        ClearProviderHighlight();
         _latestCombinedResult = "正在重新抓取三个应用的状态…";
         _stateFingerprint = null;
         _balanceSummaryKey = null;
@@ -160,6 +178,7 @@ public partial class MainWindow : Window
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
         settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
+        settings.CodexResetReminderMinutes = Math.Clamp(settings.CodexResetReminderMinutes, 1, 120);
         settings.MaxResponseLines = Math.Clamp(settings.MaxResponseLines, 1, 6);
         settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
         settings.UnchangedAutoHideMinutes = Math.Clamp(settings.UnchangedAutoHideMinutes, 1, 60);
@@ -246,6 +265,7 @@ public partial class MainWindow : Window
         var requestedY = settings.Y;
         var requestedPreset = NormalizePositionPreset(settings.PositionPreset);
         ApplySettings(settings, persist: true, refreshStatus: true);
+        StartYoyoCheckinFromSettings();
         if (!IsLoaded || !_positionInitialized) return;
 
         if (requestedPreset != "custom")
@@ -464,6 +484,7 @@ public partial class MainWindow : Window
         _refreshTimer.Start();
         _zOrderTimer.Start();
         if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
+        if (_settings.EnableYoyoAutoCheckin) StartYoyoCheckinFromSettings();
     }
 
     private void SavePosition()
@@ -512,7 +533,8 @@ public partial class MainWindow : Window
             _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
             UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
-            RecentResultText.Text = _activeConfirmationNotice ?? _activeCompletionNotice ?? _latestCombinedResult;
+            if (completion is null && _activeConfirmationNotice is null) UpdateCodexResetReminder(codex);
+            RecentResultText.Text = ActiveNoticeText;
             _anyBusy = status.IsBusy || codex.IsBusy || workBuddy.IsBusy;
             UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 2 : 5);
@@ -691,11 +713,72 @@ public partial class MainWindow : Window
     private void ShowCompletionNotice(CompletionNotice notice)
     {
         _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
-        RecentResultText.Text = _activeCompletionNotice;
+        _activeSystemNotice = null;
+        HighlightProvider(notice.Provider);
+        RecentResultText.Text = ActiveNoticeText;
         BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
         ExpandIsland(true);
+    }
+
+    private string ActiveNoticeText => _activeConfirmationNotice ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
+
+    private void UpdateCodexResetReminder(CodexStatus codex)
+    {
+        if (!_settings.EnableCodexResetReminder || _activeCompletionNotice is not null || _activeSystemNotice is not null) return;
+        var now = DateTimeOffset.Now;
+        var window = TimeSpan.FromMinutes(_settings.CodexResetReminderMinutes);
+        var candidates = new List<(string Kind, DateTimeOffset At, int? Remaining)>();
+        if (codex.FiveHourResetsAt is DateTimeOffset five && five > now && five - now <= window)
+            candidates.Add(("5 小时额度", five, codex.FiveHourRemainingPercent));
+        if (codex.WeeklyResetsAt is DateTimeOffset weekly && weekly > now && weekly - now <= window)
+            candidates.Add(("周额度", weekly, codex.WeeklyRemainingPercent));
+        foreach (var candidate in candidates.OrderBy(item => item.At))
+        {
+            var id = $"{candidate.Kind}|{candidate.At:O}";
+            if (candidate.Kind.StartsWith("5", StringComparison.Ordinal) && id == _codexFiveHourReminderId) continue;
+            if (candidate.Kind.StartsWith("周", StringComparison.Ordinal) && id == _codexWeeklyReminderId) continue;
+            if (candidate.Kind.StartsWith("5", StringComparison.Ordinal)) _codexFiveHourReminderId = id;
+            else _codexWeeklyReminderId = id;
+            var minutes = Math.Max(1, (int)Math.Ceiling((candidate.At - now).TotalMinutes));
+            var remaining = candidate.Remaining is int percent ? $" · 当前剩余 {percent}%" : "";
+            ShowSystemNotice("Codex", $"Codex {candidate.Kind}将在 {minutes} 分钟后重置{remaining}");
+            break;
+        }
+    }
+
+    private async Task RunYoyoCheckinAsync(CancellationToken cancellationToken)
+    {
+        var result = await _yoyoCheckinService.RunAfterNetworkAsync(_settings.YoyoExecutablePath, cancellationToken);
+        if (!result.ShouldNotify || !_settings.EnableYoyoAutoCheckin || !IsLoaded) return;
+        ShowSystemNotice("YOYO Claw", result.Message);
+        if (result.Success) _ = RefreshStatusAsync();
+    }
+
+    private void ShowSystemNotice(string provider, string message)
+    {
+        _activeSystemNotice = message;
+        HighlightProvider(provider);
+        RecentResultText.Text = ActiveNoticeText;
+        BeginNotificationHold();
+        RestoreReverseHoverIsland();
+        ShowIslandForFocusMode(animate: _inactivityHidden);
+        ExpandIsland(true);
+    }
+
+    private void HighlightProvider(string provider)
+    {
+        _highlightedProvider = provider;
+        YoyoRowButton.IsChecked = string.Equals(provider, "YOYO Claw", StringComparison.OrdinalIgnoreCase);
+        CodexRowButton.IsChecked = string.Equals(provider, "Codex", StringComparison.OrdinalIgnoreCase);
+        WorkBuddyRowButton.IsChecked = string.Equals(provider, "WorkBuddy", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ClearProviderHighlight()
+    {
+        _highlightedProvider = null;
+        YoyoRowButton.IsChecked = CodexRowButton.IsChecked = WorkBuddyRowButton.IsChecked = false;
     }
 
     private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
@@ -709,6 +792,7 @@ public partial class MainWindow : Window
             {
                 _completionTimer.Stop();
                 _notificationHoldActive = false;
+                ClearProviderHighlight();
                 if (!Island.IsMouseOver) CollapseIsland(true);
             }
             return;
@@ -718,7 +802,9 @@ public partial class MainWindow : Window
         if (workBuddy.ConfirmationId == _workBuddyConfirmationId) return;
         _workBuddyConfirmationId = workBuddy.ConfirmationId;
         _activeCompletionNotice = null;
-        RecentResultText.Text = _activeConfirmationNotice;
+        _activeSystemNotice = null;
+        HighlightProvider("WorkBuddy");
+        RecentResultText.Text = ActiveNoticeText;
         BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
@@ -738,7 +824,9 @@ public partial class MainWindow : Window
         _completionTimer.Stop();
         _notificationHoldActive = false;
         _activeCompletionNotice = null;
-        RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+        _activeSystemNotice = null;
+        if (_activeConfirmationNotice is null) ClearProviderHighlight();
+        RecentResultText.Text = ActiveNoticeText;
         if (_settings.EnableReverseHover && Island.IsMouseOver)
         {
             CollapseIsland(true);
@@ -766,7 +854,9 @@ public partial class MainWindow : Window
         _completionTimer.Stop();
         _notificationHoldActive = false;
         _activeCompletionNotice = null;
-        RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+        _activeSystemNotice = null;
+        ClearProviderHighlight();
+        RecentResultText.Text = ActiveNoticeText;
         CollapseIsland(true);
         e.Handled = true;
     }
@@ -778,7 +868,7 @@ public partial class MainWindow : Window
             ShowIslandForFocusMode(animate: _inactivityHidden);
             return;
         }
-        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null)
+        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null || _activeSystemNotice is not null)
         {
             ShowIslandForFocusMode(animate: _inactivityHidden);
             return;
@@ -1244,7 +1334,7 @@ public partial class MainWindow : Window
             ExpandedPanel.Visibility = Visibility.Collapsed;
             _islandAnimationInProgress = false;
             ScheduleSummaryMarquee();
-            if ((_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy)) && _activeCompletionNotice is null && _activeConfirmationNotice is null) HideIslandForFocusMode();
+            if ((_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy)) && _activeCompletionNotice is null && _activeConfirmationNotice is null && _activeSystemNotice is null) HideIslandForFocusMode();
             else if (!_manualCollapseUntilPointerExit && IsCursorNearIsland() && _settings.EnableHoverExpansion && !_settings.EnableReverseHover) _enterTimer.Start();
         };
         Island.BeginAnimation(WidthProperty, width);
@@ -1581,6 +1671,8 @@ public partial class MainWindow : Window
                     busy = codex.IsBusy,
                     fiveHourRemainingPercent = codex.FiveHourRemainingPercent,
                     weeklyRemainingPercent = codex.WeeklyRemainingPercent,
+                    fiveHourResetsAt = codex.FiveHourResetsAt,
+                    weeklyResetsAt = codex.WeeklyResetsAt,
                     limitsLoading = codex.LimitsLoading,
                     limitsError = codex.LimitsError,
                     recentResponseAt = codex.RecentResponseAt,
@@ -1612,22 +1704,29 @@ public partial class MainWindow : Window
     private readonly record struct TimedResult<T>(T Value, long ElapsedMilliseconds);
     private readonly record struct RefreshTimings(long YoyoReadMilliseconds, long CodexReadMilliseconds, long WorkBuddyReadMilliseconds, long WorkBuddyCreditsReadMilliseconds);
     private void OpenHome_Click(object sender, RoutedEventArgs e) => OpenHome();
-    private void OpenYoyo_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenYoyo, e);
-    private void OpenCodex_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenCodex, e);
-    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge(OpenWorkBuddy, e);
+    private void OpenYoyo_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge("YOYO Claw", OpenYoyo, e);
+    private void OpenCodex_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge("Codex", OpenCodex, e);
+    private void OpenWorkBuddy_Click(object sender, RoutedEventArgs e) => OpenProviderAndAcknowledge("WorkBuddy", OpenWorkBuddy, e);
 
-    private void OpenProviderAndAcknowledge(Func<bool> openProvider, RoutedEventArgs e)
+    private void OpenProviderAndAcknowledge(string provider, Func<bool> openProvider, RoutedEventArgs e)
     {
-        if (_settings.EnableAppLaunch && !_dragging && openProvider() && _activeCompletionNotice is not null)
+        var opened = _settings.EnableAppLaunch && !_dragging && openProvider();
+        if (opened
+            && string.Equals(provider, _highlightedProvider, StringComparison.OrdinalIgnoreCase)
+            && (_activeCompletionNotice is not null || _activeSystemNotice is not null))
         {
             _manualCollapseUntilPointerExit = true;
             _completionTimer.Stop();
             _notificationHoldActive = false;
             _activeCompletionNotice = null;
-            RecentResultText.Text = _activeConfirmationNotice ?? _latestCombinedResult;
+            _activeSystemNotice = null;
+            ClearProviderHighlight();
+            RecentResultText.Text = ActiveNoticeText;
             CollapseIsland(true);
             UpdateDisplayMode();
         }
+        else if (_activeCompletionNotice is null && _activeConfirmationNotice is null && _activeSystemNotice is null)
+            ClearProviderHighlight();
         e.Handled = true;
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await ResetAndRefreshStatusAsync();

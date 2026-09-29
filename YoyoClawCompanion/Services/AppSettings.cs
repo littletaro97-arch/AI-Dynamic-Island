@@ -22,6 +22,8 @@ internal sealed class IslandSettings
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowCodexLimits { get; set; } = true;
     public bool ShowWorkBuddyCredits { get; set; } = true;
+    public bool EnableCodexResetReminder { get; set; } = true;
+    public bool EnableYoyoAutoCheckin { get; set; }
     public bool EnableAppLaunch { get; set; } = true;
     public bool EnableHoverExpansion { get; set; } = true;
     public bool EnableSpringAnimation { get; set; } = true;
@@ -37,6 +39,7 @@ internal sealed class IslandSettings
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;
     public double CompletionDisplaySeconds { get; set; } = 10;
+    public double CodexResetReminderMinutes { get; set; } = 15;
     public int MaxResponseLines { get; set; } = 3;
     public double TextSize { get; set; } = 11;
     public string DisplayMode { get; set; } = "always";
@@ -74,6 +77,7 @@ internal static class AppSettings
 internal sealed class SettingsPresetSlot
 {
     public int Slot { get; set; }
+    public string Name { get; set; } = "";
     public DateTimeOffset SavedAt { get; set; }
     public IslandSettings Settings { get; set; } = new();
 }
@@ -101,12 +105,26 @@ internal static class SettingsPresetStore
     public static SettingsPresetSlot Save(int slot, IslandSettings current)
     {
         if (slot is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(slot));
-        var presets = Load().Where(item => item.Slot != slot).ToList();
-        var saved = new SettingsPresetSlot { Slot = slot, SavedAt = DateTimeOffset.Now, Settings = Snapshot(current) };
+        var loaded = Load();
+        var existing = loaded.FirstOrDefault(item => item.Slot == slot);
+        var presets = loaded.Where(item => item.Slot != slot).ToList();
+        var saved = new SettingsPresetSlot { Slot = slot, Name = NormalizeName(existing?.Name, slot), SavedAt = DateTimeOffset.Now, Settings = Snapshot(current) };
         presets.Add(saved);
         Write(presets.OrderBy(item => item.Slot));
         return saved;
     }
+
+    public static void Rename(int slot, string? name)
+    {
+        if (slot is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(slot));
+        var presets = Load().ToList();
+        var preset = presets.FirstOrDefault(item => item.Slot == slot);
+        if (preset is null) return;
+        preset.Name = NormalizeName(name, slot);
+        Write(presets.OrderBy(item => item.Slot));
+    }
+
+    public static string DisplayName(SettingsPresetSlot preset) => NormalizeName(preset.Name, preset.Slot);
 
     public static IslandSettings Apply(SettingsPresetSlot preset, IslandSettings current)
     {
@@ -129,6 +147,13 @@ internal static class SettingsPresetStore
 
     private static IslandSettings Clone(IslandSettings value)
         => JsonSerializer.Deserialize<IslandSettings>(JsonSerializer.Serialize(value, JsonOptions), JsonOptions) ?? new IslandSettings();
+
+    private static string NormalizeName(string? value, int slot)
+    {
+        var normalized = string.Join(' ', (value ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(normalized)) return $"方案 {slot}";
+        return normalized.Length <= 60 ? normalized : normalized[..60];
+    }
 
     private static void Write(IEnumerable<SettingsPresetSlot> presets)
     {

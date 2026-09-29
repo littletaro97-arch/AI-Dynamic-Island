@@ -13,6 +13,8 @@ internal sealed record CodexStatus(
     string? LimitsError,
     int? FiveHourRemainingPercent,
     int? WeeklyRemainingPercent,
+    DateTimeOffset? FiveHourResetsAt,
+    DateTimeOffset? WeeklyResetsAt,
     string? RecentResponse,
     string? RecentResponseId,
     DateTimeOffset? RecentResponseAt,
@@ -25,6 +27,7 @@ internal sealed record CodexStatus(
 
 internal sealed class CodexStatusService
 {
+    private sealed record RateLimitsSnapshot(int? FiveHour, int? Weekly, DateTimeOffset? FiveHourResetsAt, DateTimeOffset? WeeklyResetsAt);
     private const int ActivityCandidateLimit = 32;
     private const int CompletionCandidateLimit = 16;
     private const int LifecycleTailBytes = 2 * 1024 * 1024;
@@ -39,7 +42,7 @@ internal sealed class CodexStatusService
     private readonly string _sessionsRoot = Path.Combine(ProductPaths.CodexHome, "sessions");
     private readonly object _limitsGate = new();
     private DateTimeOffset _lastLimitAttempt = DateTimeOffset.MinValue;
-    private (int? FiveHour, int? Weekly)? _cachedLimits;
+    private RateLimitsSnapshot? _cachedLimits;
     private Task? _limitRefreshTask;
     private int _limitGeneration;
     private long? _lastLimitReadMilliseconds;
@@ -77,7 +80,7 @@ internal sealed class CodexStatusService
         var running = IsCodexRunning();
         var activity = running && detectActivity ? ReadActivityState() : default;
         var completion = ReadRecentCompletion();
-        (int? FiveHour, int? Weekly)? limits;
+        RateLimitsSnapshot? limits;
         long? limitReadMilliseconds;
         bool limitsLoading;
         string? limitsError;
@@ -98,6 +101,8 @@ internal sealed class CodexStatusService
             limitsError,
             limits?.FiveHour,
             limits?.Weekly,
+            limits?.FiveHourResetsAt,
+            limits?.WeeklyResetsAt,
             completion.Response,
             completion.Id,
             completion.Timestamp,
@@ -332,7 +337,7 @@ internal sealed class CodexStatusService
         return oneLine.Length <= 600 ? oneLine : oneLine[..599] + "…";
     }
 
-    private async Task<(int? FiveHour, int? Weekly)?> ReadLimitsAsync()
+    private async Task<RateLimitsSnapshot?> ReadLimitsAsync()
     {
         LastError = "locate";
         var executable = FindCodexExecutable();
@@ -399,9 +404,10 @@ internal sealed class CodexStatusService
         return null;
     }
 
-    private static (int? FiveHour, int? Weekly) ParseLimits(JsonElement root)
+    private static RateLimitsSnapshot ParseLimits(JsonElement root)
     {
         int? fiveHour = null, weekly = null;
+        DateTimeOffset? fiveHourResetsAt = null, weeklyResetsAt = null;
         if (root.TryGetProperty("rateLimitsByLimitId", out var byId) && byId.ValueKind == JsonValueKind.Object && byId.TryGetProperty("codex", out var codex)) root = codex;
         else if (root.TryGetProperty("rateLimits", out var legacy) && legacy.ValueKind == JsonValueKind.Object) root = legacy;
         foreach (var name in new[] { "primary", "secondary" })
@@ -411,10 +417,21 @@ internal sealed class CodexStatusService
             var used = Number(window, "usedPercent");
             if (duration is null || used is null) continue;
             var remaining = (int)Math.Round(Math.Clamp(100 - used.Value, 0, 100));
-            if (Math.Abs(duration.Value - 300) < 1) fiveHour = remaining;
-            if (Math.Abs(duration.Value - 10080) < 1) weekly = remaining;
+            var resetsAt = UnixTime(window, "resetsAt");
+            if (Math.Abs(duration.Value - 300) < 1) { fiveHour = remaining; fiveHourResetsAt = resetsAt; }
+            if (Math.Abs(duration.Value - 10080) < 1) { weekly = remaining; weeklyResetsAt = resetsAt; }
         }
-        return (fiveHour, weekly);
+        return new(fiveHour, weekly, fiveHourResetsAt, weeklyResetsAt);
+    }
+
+    private static DateTimeOffset? UnixTime(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value)) return null;
+        if (value.TryGetInt64(out var seconds))
+        {
+            try { return seconds > 100_000_000_000 ? DateTimeOffset.FromUnixTimeMilliseconds(seconds) : DateTimeOffset.FromUnixTimeSeconds(seconds); } catch { return null; }
+        }
+        return value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var parsed) ? parsed : null;
     }
 
     private static double? Number(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.TryGetDouble(out var number) ? number : null;
