@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private readonly WorkBuddyCreditsService _workBuddyCreditsService = new();
     private readonly CodexStatusService _codexStatusService = new();
     private readonly YoyoCheckinService _yoyoCheckinService = new();
+    private readonly GitHubUpdateService _updateService = new();
     private readonly ContextMenu _islandMenu = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _checkinCancellation;
@@ -106,6 +107,7 @@ public partial class MainWindow : Window
     }
 
     internal IslandSettings CurrentSettings => _settings;
+    internal GitHubUpdateService UpdateService => _updateService;
     internal event EventHandler? PositionChanged;
     internal event EventHandler? ProviderAvailabilityChanged;
     private double CollapsedHeight => _settings.IslandHeight;
@@ -603,6 +605,7 @@ public partial class MainWindow : Window
         else SavePosition();
         await RefreshStatusAsync();
         _refreshTimer.Start();
+        if (_settings.AutoCheckForUpdates) _ = _updateService.CheckAsync();
         _zOrderTimer.Start();
         if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
         if (_settings.EnableYoyoAutoCheckin) StartYoyoCheckinFromSettings();

@@ -53,13 +53,15 @@ public partial class SettingsWindow : Window
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
         _island.PositionChanged += Island_PositionChanged;
         _island.ProviderAvailabilityChanged += Island_ProviderAvailabilityChanged;
-        Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; _island.ProviderAvailabilityChanged -= Island_ProviderAvailabilityChanged; StopPresetMarquees(); };
+        _island.UpdateService.Changed += UpdateService_Changed;
+        Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; _island.ProviderAvailabilityChanged -= Island_ProviderAvailabilityChanged; _island.UpdateService.Changed -= UpdateService_Changed; StopPresetMarquees(); };
         SizeChanged += (_, _) => SchedulePresetMarquees();
         LoadValues(island.CurrentSettings);
         _loading = false;
         UpdateLabels();
         UpdateDependencyStates();
         RefreshProviderInstallations();
+        RefreshUpdateState();
         RefreshPresetCards();
         ApplyPanelTheme();
     }
@@ -78,6 +80,7 @@ public partial class SettingsWindow : Window
         WorkBuddyCheck.IsChecked = value.ShowWorkBuddy;
         TrayIconCheck.IsChecked = value.ShowTrayIcon;
         StartupCheck.IsChecked = value.StartWithWindows;
+        AutoUpdateCheck.IsChecked = value.AutoCheckForUpdates;
         foreach (ComboBoxItem item in ThemeCombo.Items) if (string.Equals(item.Tag?.ToString(), value.ThemeMode, StringComparison.OrdinalIgnoreCase)) ThemeCombo.SelectedItem = item;
         if (ThemeCombo.SelectedIndex < 0) ThemeCombo.SelectedIndex = 0;
         CodexActivityCheck.IsChecked = value.EnableCodexActivityDetection;
@@ -125,6 +128,7 @@ public partial class SettingsWindow : Window
         current.ShowWorkBuddy = WorkBuddyCheck.IsChecked == true;
         current.ShowTrayIcon = TrayIconCheck.IsChecked == true;
         current.StartWithWindows = StartupCheck.IsChecked == true;
+        current.AutoCheckForUpdates = AutoUpdateCheck.IsChecked == true;
         current.ThemeMode = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         current.EnableCodexActivityDetection = CodexActivityCheck.IsChecked == true;
         current.ShowYoyoCredits = YoyoCreditsCheck.IsChecked == true;
@@ -192,6 +196,22 @@ public partial class SettingsWindow : Window
     }
 
     private void RescanProviders_Click(object sender, RoutedEventArgs e) => _island.RescanProviderInstallations();
+
+    private void UpdateService_Changed(object? sender, EventArgs e) => Dispatcher.BeginInvoke(RefreshUpdateState);
+
+    private void RefreshUpdateState()
+    {
+        var state = _island.UpdateService.Snapshot;
+        UpdateVersionText.Text = state.LatestVersion is null ? $"当前版本 {state.CurrentVersion}" : $"当前 {state.CurrentVersion} · 最新 {state.LatestVersion}";
+        UpdateStatusText.Text = state.Status;
+        UpdateProgress.Value = state.Progress;
+        UpdateProgress.Visibility = state.IsBusy && state.Progress > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CheckUpdateButton.IsEnabled = !state.IsBusy;
+        InstallUpdateButton.IsEnabled = !state.IsBusy && state.UpdateAvailable;
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e) => await _island.UpdateService.CheckAsync();
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e) => await _island.UpdateService.DownloadAndInstallAsync();
 
     private void ChooseProviderPath_Click(object sender, RoutedEventArgs e)
     {
@@ -659,7 +679,7 @@ public partial class SettingsWindow : Window
         Resources["SettingsHoverBackground"] = Brush(light ? "#EEF1F3" : "#2A3444");
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
-        PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; PositionCard.Background = card;
+        PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; UpdateCard.Background = card; PositionCard.Background = card;
         PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");

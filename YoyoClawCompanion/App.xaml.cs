@@ -25,6 +25,11 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         RegisterGlobalExceptionLogging();
+        if (GitHubUpdateService.TryApplyUpdate(e.Args))
+        {
+            Shutdown();
+            return;
+        }
         _singleInstanceMutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
@@ -37,6 +42,8 @@ public partial class App : Application
             Dispatcher.BeginInvoke(() => (this.MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest()), null, Timeout.Infinite, false);
         CleanupStaleSnapshots();
         base.OnStartup(e);
+        MainWindow = new YoyoClawCompanion.MainWindow();
+        MainWindow.Show();
     }
 
     private void RegisterGlobalExceptionLogging()

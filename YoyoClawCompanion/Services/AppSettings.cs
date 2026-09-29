@@ -18,6 +18,7 @@ internal sealed class IslandSettings
     public bool ShowShadow { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
     public bool StartWithWindows { get; set; }
+    public bool AutoCheckForUpdates { get; set; } = true;
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowYoyoCredits { get; set; } = true;

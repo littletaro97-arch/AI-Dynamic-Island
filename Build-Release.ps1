@@ -8,4 +8,9 @@ dotnet publish (Join-Path $PSScriptRoot 'YoyoClawCompanion\YoyoClawCompanion.csp
     -p:PublishSingleFile=true `
     -o (Join-Path $PSScriptRoot 'publish-v0.6.0')
 if ($LASTEXITCODE -ne 0) { throw "发布失败，退出代码：$LASTEXITCODE" }
-Write-Host "发布完成：$(Join-Path $PSScriptRoot 'publish-v0.6.0\YoyoClawCompanion.exe')"
+$publishDirectory = Join-Path $PSScriptRoot 'publish-v0.6.0'
+$assetPath = Join-Path $PSScriptRoot 'AI-Dynamic-Island-win-x64.zip'
+if (Test-Path -LiteralPath $assetPath) { Remove-Item -LiteralPath $assetPath -Force }
+Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $assetPath -CompressionLevel Optimal
+Write-Host "发布完成：$(Join-Path $publishDirectory 'YoyoClawCompanion.exe')"
+Write-Host "GitHub Release 资产：$assetPath"
