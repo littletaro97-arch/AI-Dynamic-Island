@@ -373,7 +373,7 @@ public partial class MainWindow : Window
         }
         if (requestedX is not double x || requestedY is not double y) return;
         if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
-        Left = x;
+        Left = x - (Width - DefaultHostWidth) / 2;
         Top = y;
         _settings.PositionPreset = "custom";
         ClampCollapsedPosition();
@@ -626,7 +626,9 @@ public partial class MainWindow : Window
     private void SavePosition()
     {
         if (!IsLoaded) return;
-        _settings.X = Left;
+        _settings.X = _expanded
+            ? _collapsedLeftBeforeExpansion
+            : Left + (Width - DefaultHostWidth) / 2;
         _settings.Y = _expandUp ? _collapsedAnchorTop : Top;
         AppSettings.Save(_settings);
     }
@@ -1498,7 +1500,9 @@ public partial class MainWindow : Window
         SummaryTextClone.Visibility = Visibility.Collapsed;
         if (!_expandUp) _collapsedAnchorTop = Top;
         OrientCollapsedIsland();
-        _collapsedLeftBeforeExpansion = Left;
+        // Store the canonical collapsed host position even when a previous normal
+        // collapse intentionally kept the wider transparent host alive.
+        _collapsedLeftBeforeExpansion = Left + (Width - DefaultHostWidth) / 2;
         _horizontalExpansionCompensated = false;
         _expanded = true;
         _islandAnimationInProgress = true;
@@ -1603,7 +1607,6 @@ public partial class MainWindow : Window
         _leaveTimer.Stop();
         _expanded = false;
         _islandAnimationInProgress = true;
-        var hostExpanded = Math.Abs(Width - DefaultHostWidth) > .1;
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(160))
@@ -1615,8 +1618,9 @@ public partial class MainWindow : Window
             : _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .12, EasingMode = EasingMode.EaseInOut }
             : new CubicEase { EasingMode = EasingMode.EaseInOut };
-        if (_horizontalExpansionCompensated || hostExpanded)
-            BeginAnimation(LeftProperty, new DoubleAnimation(Left, CollapsedLeftForCurrentHost(), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
+        var collapsedLeft = CollapsedLeftForCurrentHost();
+        if (Math.Abs(Left - collapsedLeft) > .1)
+            BeginAnimation(LeftProperty, new DoubleAnimation(Left, collapsedLeft, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
         var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         height.Completed += (_, _) =>
@@ -1627,8 +1631,9 @@ public partial class MainWindow : Window
             Island.BeginAnimation(HeightProperty, null);
             Island.Height = CollapsedHeight;
             BeginAnimation(LeftProperty, null);
-            Width = DefaultHostWidth;
-            Left = _collapsedLeftBeforeExpansion;
+            // Keep the transparent host width stable after a normal animated
+            // collapse. Resizing the HWND and changing Left in the same closing
+            // frame can be presented by DWM as a brief whole-island jump.
             _horizontalExpansionCompensated = false;
             ExpandedPanel.Visibility = Visibility.Collapsed;
             _islandAnimationInProgress = false;
