@@ -265,6 +265,8 @@ public partial class MainWindow : Window
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
         settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 400);
+        settings.ExpandedIslandWidth = Math.Clamp(settings.ExpandedIslandWidth ?? Math.Min(settings.IslandWidth + 100, 500),
+            settings.IslandWidth, Math.Min(settings.IslandWidth + 100, 500));
         settings.IslandHeight = Math.Clamp(settings.IslandHeight, 32, 72);
         settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
@@ -1498,7 +1500,7 @@ public partial class MainWindow : Window
 
     private void StartExpandAnimations(int animationVersion)
     {
-        var targetWidth = Math.Max(408, _settings.IslandWidth);
+        var targetWidth = ExpandedIslandWidth;
         var constrainToScreen = !_settings.AllowExpandedBeyondScreen;
         IEasingFunction easing = constrainToScreen
             ? new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -1525,6 +1527,9 @@ public partial class MainWindow : Window
         Island.BeginAnimation(HeightProperty, height);
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { BeginTime = TimeSpan.FromMilliseconds(70) });
     }
+
+    private double ExpandedIslandWidth => Math.Clamp(_settings.ExpandedIslandWidth ?? Math.Min(_settings.IslandWidth + 100, 500),
+        _settings.IslandWidth, Math.Min(_settings.IslandWidth + 100, 500));
 
     private double GetConstrainedExpansionLeft(double targetWidth)
     {

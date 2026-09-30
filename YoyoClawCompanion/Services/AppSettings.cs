@@ -10,6 +10,7 @@ internal sealed class IslandSettings
     public double CornerRadius { get; set; } = 24;
     public double Opacity { get; set; } = 0.92;
     public double IslandWidth { get; set; } = 224;
+    public double? ExpandedIslandWidth { get; set; }
     public double IslandHeight { get; set; } = 48;
     public bool Topmost { get; set; } = true;
     public bool ShowYoyo { get; set; } = true;

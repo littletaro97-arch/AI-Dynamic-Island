@@ -30,8 +30,8 @@ internal sealed class CodexStatusService
     private sealed record RateLimitsSnapshot(int? FiveHour, int? Weekly, DateTimeOffset? FiveHourResetsAt, DateTimeOffset? WeeklyResetsAt);
     private const int ActivityCandidateLimit = 32;
     private const int CompletionCandidateLimit = 16;
-    private const int LifecycleTailBytes = 2 * 1024 * 1024;
-    private const int ExpandedLifecycleTailBytes = 8 * 1024 * 1024;
+    private const int LifecycleTailBytes = 1024 * 1024;
+    private const int ExpandedLifecycleTailBytes = 4 * 1024 * 1024;
     private static readonly TimeSpan LimitRefreshInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan LimitFailureRetryInterval = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan InitializeTimeout = TimeSpan.FromSeconds(15);
@@ -183,7 +183,7 @@ internal sealed class CodexStatusService
 
         string? response = null, id = null;
         DateTimeOffset? timestamp = null;
-        foreach (var line in ReadTailLines(file.FullName, LifecycleTailBytes))
+        foreach (var line in JsonLineTailReader.Read(file.FullName, LifecycleTailBytes))
         {
             if (!line.Contains("\"phase\":\"final_answer\"", StringComparison.Ordinal) || !line.Contains("\"role\":\"assistant\"", StringComparison.Ordinal)) continue;
             try
@@ -278,7 +278,7 @@ internal sealed class CodexStatusService
         string? state = null;
         DateTimeOffset? lifecycleAt = null;
         DateTimeOffset? latestActivityAt = null;
-        foreach (var line in ReadTailLines(path, maxBytes))
+        foreach (var line in JsonLineTailReader.Read(path, maxBytes))
         {
             var timestamp = TryReadTimestamp(line);
             if (timestamp is not null && (latestActivityAt is null || timestamp > latestActivityAt)) latestActivityAt = timestamp;
@@ -313,16 +313,6 @@ internal sealed class CodexStatusService
         start += marker.Length;
         var end = line.IndexOf('"', start);
         return end > start && DateTimeOffset.TryParse(line[start..end], out var timestamp) ? timestamp : null;
-    }
-
-    private static IEnumerable<string> ReadTailLines(string path, int maxBytes)
-    {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var start = Math.Max(0, stream.Length - maxBytes);
-        stream.Seek(start, SeekOrigin.Begin);
-        using var reader = new StreamReader(stream, Encoding.UTF8, true);
-        if (start > 0) reader.ReadLine();
-        while (reader.ReadLine() is { } line) yield return line;
     }
 
     private static string? ExtractOutputText(JsonElement message)

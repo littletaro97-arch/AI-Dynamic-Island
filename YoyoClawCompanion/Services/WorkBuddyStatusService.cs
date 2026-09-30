@@ -22,11 +22,17 @@ internal sealed partial class WorkBuddyStatusService
     private readonly string _projectsRoot = Path.Combine(ProductPaths.WorkBuddyConfigDirectory, "projects");
     private string? _cachedSessionPath;
     private string? _cachedTask;
+    private WorkBuddyStatus? _cachedStatus;
+    private long _cachedStatusLength;
+    private DateTime _cachedStatusWriteUtc;
 
     internal void ResetCache()
     {
         _cachedSessionPath = null;
         _cachedTask = null;
+        _cachedStatus = null;
+        _cachedStatusLength = 0;
+        _cachedStatusWriteUtc = default;
     }
 
     public Task<WorkBuddyStatus> ReadAsync() => Task.Run(Read);
@@ -41,7 +47,17 @@ internal sealed partial class WorkBuddyStatusService
                 .OrderByDescending(item => item.LastWriteTimeUtc).FirstOrDefault();
             if (session is null) return new(running, false, false, running ? "无会话数据" : "未运行");
 
-            var lines = ReadTailLines(session.FullName, 2 * 1024 * 1024);
+            session.Refresh();
+            if (_cachedStatus is not null
+                && string.Equals(_cachedSessionPath, session.FullName, StringComparison.OrdinalIgnoreCase)
+                && _cachedStatusLength == session.Length
+                && _cachedStatusWriteUtc == session.LastWriteTimeUtc)
+            {
+                var stillFresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromSeconds(30);
+                return _cachedStatus with { IsRunning = running, IsBusy = running && stillFresh && _cachedStatus.IsBusy };
+            }
+
+            var lines = JsonLineTailReader.Read(session.FullName, 1024 * 1024);
             string? latestTask = null;
             string? latestAction = null;
             string? latestResponse = null;
@@ -126,8 +142,13 @@ internal sealed partial class WorkBuddyStatusService
                 : busy
                 ? latestAction ?? "正在处理任务"
                 : latestTask is not null ? $"最近 · {latestTask}" : session.Directory?.Name ?? "已检测到会话";
-            return new(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt,
+            var status = new WorkBuddyStatus(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt,
                 requiresConfirmation, confirmationId, confirmationPrompt);
+            _cachedSessionPath = session.FullName;
+            _cachedStatusLength = session.Length;
+            _cachedStatusWriteUtc = session.LastWriteTimeUtc;
+            _cachedStatus = status;
+            return status;
         }
         catch
         {
@@ -154,16 +175,6 @@ internal sealed partial class WorkBuddyStatusService
         }
         catch { }
         return null;
-    }
-
-    private static IEnumerable<string> ReadTailLines(string path, int maxBytes)
-    {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var start = Math.Max(0, stream.Length - maxBytes);
-        stream.Seek(start, SeekOrigin.Begin);
-        using var reader = new StreamReader(stream, Encoding.UTF8, true);
-        if (start > 0) reader.ReadLine();
-        while (reader.ReadLine() is { } line) yield return line;
     }
 
     private static string? ExtractUserQuery(JsonElement root)

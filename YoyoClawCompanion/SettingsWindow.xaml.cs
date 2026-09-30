@@ -34,6 +34,7 @@ public partial class SettingsWindow : Window
 
     private readonly MainWindow _island;
     private bool _loading = true;
+    private bool _updatingWidthRange;
     private System.Windows.Point _providerDragStart;
     private ProviderOrderItem? _providerDragCandidate;
     private IReadOnlyList<SettingsPresetSlot> _presets = [];
@@ -72,6 +73,7 @@ public partial class SettingsWindow : Window
         CornerSlider.Value = value.CornerRadius;
         OpacitySlider.Value = value.Opacity * 100;
         WidthSlider.Value = value.IslandWidth;
+        UpdateExpandedWidthRange(value.ExpandedIslandWidth ?? Math.Min(value.IslandWidth + 100, 500));
         HeightSlider.Value = value.IslandHeight;
         TextSizeSlider.Value = value.TextSize;
         ShadowCheck.IsChecked = value.ShowShadow;
@@ -118,10 +120,13 @@ public partial class SettingsWindow : Window
     private void Setting_ValueChanged(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
+        if (_updatingWidthRange) return;
+        UpdateExpandedWidthRange(ExpandedWidthSlider.Value);
         var current = _island.CurrentSettings;
         current.CornerRadius = CornerSlider.Value;
         current.Opacity = OpacitySlider.Value / 100;
         current.IslandWidth = WidthSlider.Value;
+        current.ExpandedIslandWidth = ExpandedWidthSlider.Value;
         current.IslandHeight = HeightSlider.Value;
         current.TextSize = TextSizeSlider.Value;
         current.ShowShadow = ShadowCheck.IsChecked == true;
@@ -397,6 +402,7 @@ public partial class SettingsWindow : Window
         CornerValue.Text = $"{CornerSlider.Value:0} px";
         OpacityValue.Text = $"{OpacitySlider.Value:0}%";
         WidthValue.Text = $"{WidthSlider.Value:0} px";
+        ExpandedWidthValue.Text = $"{ExpandedWidthSlider.Value:0} px";
         HeightValue.Text = $"{HeightSlider.Value:0} px";
         TextSizeValue.Text = $"{TextSizeSlider.Value:0.#} px";
         HoverDelayValue.Text = $"{HoverDelaySlider.Value:0} ms";
@@ -408,6 +414,23 @@ public partial class SettingsWindow : Window
         PreviewIsland.Height = Math.Min(72, Math.Max(32, HeightSlider.Value));
         PreviewIsland.CornerRadius = new CornerRadius(Math.Min(CornerSlider.Value, PreviewIsland.Height / 2));
         PreviewIsland.Opacity = OpacitySlider.Value / 100;
+    }
+
+    private void UpdateExpandedWidthRange(double preferredValue)
+    {
+        _updatingWidthRange = true;
+        try
+        {
+            var minimum = WidthSlider.Value;
+            var maximum = Math.Min(500, minimum + 100);
+            ExpandedWidthSlider.Minimum = minimum;
+            ExpandedWidthSlider.Maximum = maximum;
+            ExpandedWidthSlider.Value = Math.Clamp(preferredValue, minimum, maximum);
+        }
+        finally
+        {
+            _updatingWidthRange = false;
+        }
     }
 
     private void PositionPreset_Click(object sender, RoutedEventArgs e)
