@@ -26,6 +26,8 @@ namespace YoyoClawCompanion;
 public partial class MainWindow : Window
 {
     private const double IslandMargin = 16;
+    private const double DefaultHostWidth = 456;
+    private const double ShadowHorizontalMargin = 24;
     private static readonly Brush OnlineBrush = Brush("#3ED598"), BusyBrush = Brush("#F2C94C"), OfflineBrush = Brush("#727C90"), ErrorBrush = Brush("#F2686F"), AccentBrush = Brush("#8FA0FF");
     private readonly YoyoStatusService _statusService = new();
     private readonly WorkBuddyStatusService _workBuddyStatusService = new();
@@ -116,6 +118,11 @@ public partial class MainWindow : Window
     private double CollapsedHeight => _settings.IslandHeight;
     internal void OpenHomeFromExternalRequest() => OpenHome();
     internal void RefreshFromExternalRequest() => _ = ResetAndRefreshStatusAsync();
+    internal void NotifyStatusChangedFromExternalRequest()
+    {
+        if (_refreshing) _refreshAfterCurrent = true;
+        else _ = RefreshStatusAsync();
+    }
     internal void WakeFromTray()
     {
         _lastStateChangeAt = DateTimeOffset.Now;
@@ -1451,7 +1458,9 @@ public partial class MainWindow : Window
         // Restore the collapsed island to its saved screen anchor before DragMove starts.
         // Mapping the expanded handle's pointer position into the much shorter collapsed
         // island makes an upward-expanded island jump from the taskbar to the pointer.
-        var collapsedLeft = _horizontalExpansionCompensated ? _collapsedLeftBeforeExpansion : Left;
+        var collapsedLeft = Math.Abs(Width - DefaultHostWidth) > .1 || _horizontalExpansionCompensated
+            ? _collapsedLeftBeforeExpansion
+            : Left;
         var collapsedTop = _expandUp ? _collapsedAnchorTop : Top;
 
         BeginAnimation(LeftProperty, null);
@@ -1464,6 +1473,7 @@ public partial class MainWindow : Window
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         Island.Width = _settings.IslandWidth;
         Island.Height = CollapsedHeight;
+        Width = DefaultHostWidth;
         Island.VerticalAlignment = VerticalAlignment.Top;
         Island.Margin = new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
@@ -1501,6 +1511,7 @@ public partial class MainWindow : Window
     private void StartExpandAnimations(int animationVersion)
     {
         var targetWidth = ExpandedIslandWidth;
+        ExpandHostForIsland(targetWidth);
         var constrainToScreen = !_settings.AllowExpandedBeyondScreen;
         IEasingFunction easing = constrainToScreen
             ? new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -1531,6 +1542,22 @@ public partial class MainWindow : Window
     private double ExpandedIslandWidth => Math.Clamp(_settings.ExpandedIslandWidth ?? Math.Min(_settings.IslandWidth + 100, 500),
         _settings.IslandWidth, Math.Min(_settings.IslandWidth + 100, 500));
 
+    private void ExpandHostForIsland(double islandWidth)
+    {
+        var targetHostWidth = Math.Max(DefaultHostWidth, islandWidth + ShadowHorizontalMargin * 2);
+        if (Math.Abs(Width - targetHostWidth) <= .1) return;
+
+        // WPF clips transparent content and effects at the host window boundary.
+        // Grow the invisible host around the same visible island center.
+        var widthDelta = targetHostWidth - Width;
+        Width = targetHostWidth;
+        Left -= widthDelta / 2;
+        UpdateLayout();
+    }
+
+    private double CollapsedLeftForCurrentHost()
+        => _collapsedLeftBeforeExpansion - (Width - DefaultHostWidth) / 2;
+
     private double GetConstrainedExpansionLeft(double targetWidth)
     {
         var bounds = GetIslandScreenPixelBounds();
@@ -1550,14 +1577,16 @@ public partial class MainWindow : Window
     private void CompleteCollapseImmediately()
     {
         _islandAnimationVersion++;
+        var hostExpanded = Math.Abs(Width - DefaultHostWidth) > .1;
         BeginAnimation(LeftProperty, null);
-        if (_horizontalExpansionCompensated) Left = _collapsedLeftBeforeExpansion;
+        if (_horizontalExpansionCompensated || hostExpanded) Left = _collapsedLeftBeforeExpansion;
         _horizontalExpansionCompensated = false;
         Island.BeginAnimation(WidthProperty, null);
         Island.BeginAnimation(HeightProperty, null);
         ExpandedPanel.BeginAnimation(OpacityProperty, null);
         Island.Width = _settings.IslandWidth;
         Island.Height = CollapsedHeight;
+        Width = DefaultHostWidth;
         ExpandedPanel.Opacity = 0;
         ExpandedPanel.Visibility = Visibility.Collapsed;
         CollapseHandleButton.Visibility = Visibility.Collapsed;
@@ -1574,6 +1603,7 @@ public partial class MainWindow : Window
         _leaveTimer.Stop();
         _expanded = false;
         _islandAnimationInProgress = true;
+        var hostExpanded = Math.Abs(Width - DefaultHostWidth) > .1;
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(ExpandedPanel.Opacity, 0, TimeSpan.FromMilliseconds(160))
@@ -1585,8 +1615,8 @@ public partial class MainWindow : Window
             : _settings.EnableSpringAnimation
             ? new BackEase { Amplitude = .12, EasingMode = EasingMode.EaseInOut }
             : new CubicEase { EasingMode = EasingMode.EaseInOut };
-        if (_horizontalExpansionCompensated)
-            BeginAnimation(LeftProperty, new DoubleAnimation(Left, _collapsedLeftBeforeExpansion, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
+        if (_horizontalExpansionCompensated || hostExpanded)
+            BeginAnimation(LeftProperty, new DoubleAnimation(Left, CollapsedLeftForCurrentHost(), TimeSpan.FromMilliseconds(260)) { EasingFunction = easing }, HandoffBehavior.SnapshotAndReplace);
         var width = new DoubleAnimation(Island.ActualWidth, _settings.IslandWidth, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         var height = new DoubleAnimation(Island.ActualHeight, CollapsedHeight, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing };
         height.Completed += (_, _) =>
@@ -1597,7 +1627,8 @@ public partial class MainWindow : Window
             Island.BeginAnimation(HeightProperty, null);
             Island.Height = CollapsedHeight;
             BeginAnimation(LeftProperty, null);
-            if (_horizontalExpansionCompensated) Left = _collapsedLeftBeforeExpansion;
+            Width = DefaultHostWidth;
+            Left = _collapsedLeftBeforeExpansion;
             _horizontalExpansionCompensated = false;
             ExpandedPanel.Visibility = Visibility.Collapsed;
             _islandAnimationInProgress = false;

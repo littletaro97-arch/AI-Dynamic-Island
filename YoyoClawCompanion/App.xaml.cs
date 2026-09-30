@@ -15,9 +15,12 @@ public partial class App : Application
 {
     private const string MutexName = @"Local\YoyoClawCompanion.SingleInstance";
     private const string ShowSettingsEventName = @"Local\YoyoClawCompanion.ShowSettings";
+    internal const string ProviderStatusChangedEventName = @"Local\YoyoClawCompanion.ProviderStatusChanged";
     private Mutex? _singleInstanceMutex;
     private EventWaitHandle? _showSettingsEvent;
     private RegisteredWaitHandle? _showSettingsRegistration;
+    private EventWaitHandle? _providerStatusChangedEvent;
+    private RegisteredWaitHandle? _providerStatusChangedRegistration;
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private System.Drawing.Icon? _trayDrawingIcon;
     private static readonly object CrashLogLock = new();
@@ -33,13 +36,17 @@ public partial class App : Application
         _singleInstanceMutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
-            try { EventWaitHandle.OpenExisting(ShowSettingsEventName).Set(); } catch { }
+            var providerChanged = e.Args.Any(arg => string.Equals(arg, "--provider-status-changed", StringComparison.OrdinalIgnoreCase));
+            try { EventWaitHandle.OpenExisting(providerChanged ? ProviderStatusChangedEventName : ShowSettingsEventName).Set(); } catch { }
             Shutdown();
             return;
         }
         _showSettingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSettingsEventName);
         _showSettingsRegistration = ThreadPool.RegisterWaitForSingleObject(_showSettingsEvent, (_, _) =>
             Dispatcher.BeginInvoke(() => (this.MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest()), null, Timeout.Infinite, false);
+        _providerStatusChangedEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ProviderStatusChangedEventName);
+        _providerStatusChangedRegistration = ThreadPool.RegisterWaitForSingleObject(_providerStatusChangedEvent, (_, _) =>
+            Dispatcher.BeginInvoke(() => (this.MainWindow as YoyoClawCompanion.MainWindow)?.NotifyStatusChangedFromExternalRequest()), null, Timeout.Infinite, false);
         CleanupStaleSnapshots();
         base.OnStartup(e);
         MainWindow = new YoyoClawCompanion.MainWindow();
@@ -75,6 +82,8 @@ public partial class App : Application
         try { _singleInstanceMutex?.ReleaseMutex(); } catch { }
         _showSettingsRegistration?.Unregister(null);
         _showSettingsEvent?.Dispose();
+        _providerStatusChangedRegistration?.Unregister(null);
+        _providerStatusChangedEvent?.Dispose();
         DisposeTrayIcon();
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);
