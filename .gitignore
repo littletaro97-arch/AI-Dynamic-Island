@@ -5,4 +5,7 @@ publish*/
 WorkBuddyIsland-Windows-便携版(1)/
 *.user
 *.suo
+.tools/
+.build-check/
+artifacts/
 AI-Dynamic-Island-*-win-x64.zip

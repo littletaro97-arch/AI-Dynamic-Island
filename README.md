@@ -1,91 +1,78 @@
-# AI Dynamic Island v0.6.0
+# AI Dynamic Island v0.7.0
 
-YOYO Claw 自动签到功能移植自 `YOYOClawCheckin v1.3`，仅供本人账号在本人有权使用的电脑上使用；禁止代签、批量签到、规避服务限制及商业用途。完整许可见 `THIRD_PARTY_NOTICES/YOYOClawCheckin-LICENSE.txt`。
+Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOYO Claw 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
 
-面向 Windows 的桌面 AI 状态灵动岛，将 Codex、WorkBuddy 与 YOYO Claw 的任务状态、可用额度和最近回复汇总到一个轻量浮层中。它会根据任务执行、完成或待确认等状态切换显示方式，并提供主题、布局、组件、提醒和多显示器设置。
+## 下载与安装
 
-主程序通过各应用的本地会话数据与接口读取信息，不替代这些应用，也不伪造任务进度。各数据来源需要对应应用的本地数据或运行接口可用；隐藏 YOYO Claw 官方悬浮球是独立的可选操作，由辅助脚本备份后切换其显示设置。
+在 [Releases](https://github.com/littletaro97-arch/AI-Dynamic-Island/releases/latest) 中选择：
 
-## 当前功能
+| 下载包 | 使用方式 | 卸载方式 |
+| --- | --- | --- |
+| `AI-Dynamic-Island-v0.7.0-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
+| `AI-Dynamic-Island-v0.7.0-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
 
-- 读取 `%APPDATA%\hclaw\billing\quota.json` 显示剩余积分。
-- 通过 YOYO 自带的 Magicore SDK 只读调用 `conversation.list_views` 和 `conversation.thread_view`，显示当前账号的空闲/忙碌与最近任务结果。
-- 折叠态显示 YOYO、Codex、WorkBuddy 三个状态灯，悬停展开为多来源状态面板。
-- Codex 结合本地会话生命周期区分“空闲/执行中”，并通过 Codex app-server 的只读接口显示 5 小时与周限额。
-- 可读取 Codex 返回的 5 小时与周额度重置时间，并按设置提前展开提醒。
-- WorkBuddy 只读解析 `%USERPROFILE%\.workbuddy\projects` 的最近会话流水，并通过宿主 `wb.request` 通道显示真实剩余积分。
-- 可选启用 YOYO 开机联网签到；成功或异常会通过灵动岛汇报，并兼容原 `YOYOClawCheckin` 的本地签到记录。
-- 单击每个状态点或展开后的整行可打开/激活对应应用；长按拖动可改变位置，右键可打开主页或退出。
-- 支持跟随系统、浅色、深色三种主题；悬停延时、回弹动效、点击启动及各数据组件均可在主页独立开关。
-- 支持保存三套可重命名的设置预设，并一键切换。
-- YOYO Claw、Codex 或 WorkBuddy 产生新的最终回复后，灵动岛默认展开 10 秒并用三行区域显示来源与回复摘要；展开时间可调，首次启动只建立基线，不弹出历史完成记录。
-- “全部就绪”摘要按 `YOYO Claw | Codex | WorkBuddy` 顺序滚动显示三方余额；Codex 优先显示 5 小时额度，没有时再显示周额度，滚动速度可调。
-- 状态色：绿色空闲、黄色忙碌、红色错误或最近失败、灰色未运行；三方额度统一使用积分强调色。
-- 可切换为“仅任务活动时显示”：全部空闲时隐藏，执行任务时显示折叠态，完成时显示展开态。隐藏期间再次启动程序会直接打开设置主页。
-- 可设置状态连续 1–60 分钟未变化时自动隐藏；三方运行状态、额度或最近结果变化后恢复显示折叠态。
-- 拖动接近屏幕水平中心时会小范围吸附；允许放置在屏幕底部，靠近任务栏时自动按固定锚点向上展开，展开/收起期间不会因边缘悬停事件累积位置偏移。
-- 位置约束使用显示器完整边界，可把岛放到任务栏高度；向上展开换锚时先隐藏旧合成帧，避免收起岛在窗口顶部闪现。
-- 岛与 Windows 任务栏相交时会定期执行不抢焦点的顶层校正，并在拖动结束或重新显示时立即校正，避免被任务栏覆盖。
-- 长按拖动使用 Windows 原生窗口移动，拖动前会立即收起灵动岛；支持不同 DPI 的多显示器，并可在副屏保存和恢复位置。
-- 可选择是否显示系统托盘图标；双击托盘图标打开主页，右键可刷新状态或退出。
-- 折叠态余额使用与 WPF 合成帧同步的连续滚动轨道，以设置面板中的可调速度从右向左匀速循环；YOYO、Codex、WorkBuddy 会完整经过可视区域，相邻两轮只保留约 5 个中文字符宽度的间隔。
-- 灵动岛文本统一使用半粗体；字号可实时调整，字号过大无法容纳两行时折叠态自动切换为单行。
-- 折叠高度可在 32–72 px 间实时调整；单行模式按“状态标题、滚动额度、三方状态点”横向排列。
-- 单行模式统一状态标题与滚动额度的字号、垂直居中和像素取整，避免不同高度下出现基线错位。
-- 回复区域可设置最多显示 1–6 行，展开高度会随字号与最大行数自动调整。
-- 展开区按三方真实回复时间选择 YOYO Claw、Codex、WorkBuddy 中最新的一条，不再在完成提示结束后固定回退到 YOYO 或停留在旧 WorkBuddy 回复。
-- WorkBuddy 状态按所有项目中的会话文件更新时间全局选择，不依赖父目录时间；检测到尚未返回结果的 `AskUserQuestion` 时显示“待确认”并可自动展开提醒。
-- 可在设置中调整三个程序的显示顺序；折叠额度、右侧状态点、展开列表和多任务摘要会保持同一顺序。
-- 展开列表的鼠标悬停与选中态采用薄荷绿描边、浅色底纹和左侧短色条，选中项在打开对应程序后保持可辨识。
-- 可启用“反向选择”：鼠标移入时以 150ms 渐隐并立即将点击穿透给下方程序，移出原区域后渐显恢复；该模式仅在任务完成时展开，设置仍可从托盘或再次启动程序进入。
-- 可启用“全屏应用或游戏时临时仅在任务活动时显示”：进入覆盖整块显示器的前台窗口后自动隐藏空闲岛，任务活动或完成提醒仍会出现，退出全屏后恢复用户原本的显示模式。
-- 设置主页采用左右双栏结构，左侧按外观、组件、行为、提醒和位置快速跳转，右侧使用预览图形与精简设置项；用户可见名称统一为 `AI Dynamic Island`。
-- 布尔设置采用本地 XAML 矢量图标卡片和滑动开关，不依赖外部图片文件；选中、悬停和禁用状态分别显示。
+适用于 Windows 10/11 x64。两种包均内含 .NET 8 Desktop Runtime。YOYO 任务桥接需要另行安装 [Node.js](https://nodejs.org/)，对应功能还需要本机安装并登录相应 AI 应用。缺少某个来源时不影响其他来源。
 
-## 使用发布包
+首次使用可从托盘或再次启动程序进入设置，选择显示来源、主题和位置。应用可按任务活动自动显示，也可在全屏时临时隐藏空闲状态。
 
-- 适用于 Windows x64；需要安装 .NET 8 Desktop Runtime 和 Node.js。
-- 解压发布 ZIP 后运行 `YoyoClawCompanion.exe`，并保留同目录下的 `magicore-bridge` 文件夹。
-- YOYO 积分与 Magicore 任务状态依赖本机 YOYO Claw 安装及其登录状态；不影响应用启动。
+升级前请先从托盘退出旧版本。安装版按向导升级，便携版解压到新目录运行。配置统一保存在 `%LOCALAPPDATA%\YoyoClawCompanion`，与程序目录分离；从便携版迁移到安装版时会沿用配置。卸载默认保留配置与诊断日志，确认不再需要后可手动删除此数据目录。
 
-## 构建与运行
+## 核心功能
 
-```powershell
-dotnet build ".\AI Dynamic Island.sln" -c Release
-dotnet run --project .\YoyoClawCompanion\YoyoClawCompanion.csproj -c Release
+- Codex：读取本地会话生命周期和最终回复，通过本机 app-server 获取额度与重置时间。
+- WorkBuddy：读取本地会话，识别执行、完成与待确认；通过本机宿主通道获取真实积分。
+- YOYO Claw：读取本地积分及 Magicore 任务状态，可选启用联网签到。
+- 可调字号、折叠与展开宽度、圆角、透明度、滚动速度和程序顺序。
+- 完成提醒、待确认提醒、额度重置提醒、状态长时间不变自动隐藏。
+- 多显示器与 DPI 支持、边缘展开、屏幕中心吸附、托盘和设置预设。
+- 设置 → 更新：自动检查或手动检查，显示版本、下载进度和失败原因；下载后校验 GitHub 提供的 SHA-256。
+
+## 更新说明
+
+更新来源为本仓库最新正式 Release，预发布和草稿不参与更新。GitHub API 限流时改用仓库中的公开版本清单 `docs/update.json`；发布维护者需在两个资产上传并校验后同步清单。安装版下载对应安装 EXE 并打开向导；便携版下载 ZIP，等待旧进程退出后替换文件并重新启动。
+
+v0.6.0 的更新代码使用固定 ZIP 名称，与实际 Release 文件不一致。因此已有 v0.6.0 用户首次升级到 v0.7.0 需要从 Releases 手动下载。v0.7.0 开始使用一致的版本化文件名。更新失败时查看设置中的提示及 `%LOCALAPPDATA%\YoyoClawCompanion\update.log`。
+
+## 项目结构
+
+```text
+AI Dynamic Island.sln       WPF 解决方案
+YoyoClawCompanion/          .NET 8 Windows 主程序
+  MainWindow.xaml[.cs]      灵动岛显示、布局、状态与提醒
+  SettingsWindow.xaml[.cs]  设置主页与更新界面
+  App.xaml[.cs]             单实例、托盘、启动与异常记录
+  Services/                状态来源、配置、窗口、更新与启动注册
+magicore-bridge/            YOYO Magicore 只读桥接
+integrations/workbuddy/     WorkBuddy 完成信号辅助脚本
+installer/                 Inno Setup 安装/卸载向导源文件
+scripts/                   官方悬浮球设置备份与恢复
+THIRD_PARTY_NOTICES/        第三方许可
+Build-Release.ps1          生成两个 Windows x64 发布包
+Start-YoyoClawCompanion.ps1 本地启动发布程序
+docs/                      发布说明、验证记录与架构说明
 ```
 
-也可以运行 `Build-Release.ps1` 生成 `publish-v0.6.0\YoyoClawCompanion.exe`，之后通过
-`Start-YoyoClawCompanion.ps1` 启动。
+## 开发与打包
 
-## 已知边界
+开发需要 .NET 8 SDK。安装 EXE 的编译另需 Inno Setup 6。
 
-- 当前版本依据各应用的任务生命周期判断忙碌，不把“应用进程存在”误报为“正在执行任务”，也不伪造百分比进度。
-- Windows 没有稳定通用的“游戏窗口”标记；全屏自动模式按前台窗口是否覆盖整块显示器判断，因此全屏视频、演示等也会触发。该功能默认关闭，可在主页独立开启。
-- 浅色和深色模式下，组件悬停统一使用随外框圆角变化的灰色描边，不再使用会遮挡文字的系统蓝色按钮背景。
-- 圆角、不透明度、宽度和字号属于纯外观更新，不会触发三方重新取数或短暂覆盖状态颜色；折叠宽度会即时生效。
-- 仅读取当前列出的 Agent 与活动会话，并按真实会话更新时间排序；不再读取旧的 `host_runtime.db`。
-- Magicore 接口不可访问时会明确显示“任务状态不可用”，不会静默回退到历史数据库。
-- YOYO 刷新禁止异步重入；接口异常会明确降级，不把旧成功快照伪装成当前在线状态。诊断信息写入 `%LOCALAPPDATA%\YoyoClawCompanion\diagnostics.log`。
-- 最近任务只有在 30 分钟内确实失败时才显示红色，历史错误不会让状态灯永久告警。
-- Codex 限额使用本机已登录 Codex 的 app-server，不读取或保存认证文件；接口不可用时只降级该项显示。
-- WorkBuddy 积分通过带双向校验的本机命名管道读取，票据只在内存中用于握手，不写入日志或设置文件。
-- WorkBuddy 的 JSONL 与宿主 IPC 都属于内部接口，升级后如果结构变化，只影响 WorkBuddy 一行，不会拖垮 YOYO 或 Codex 状态。
-- 应用启动路径不绑定安装盘：优先记忆运行中进程的真实路径，再查询 Windows `App Paths`、卸载信息和常见安装目录。Codex 商店版还可通过 AppsFolder 激活。
-- WorkBuddy 数据目录支持 `WORKBUDDY_CONFIG_DIR`，Codex 会话目录支持 `CODEX_HOME`；未配置时分别使用当前用户的 `%USERPROFILE%\.workbuddy` 与 `%USERPROFILE%\.codex`。
-- 完全未注册且从未运行过的任意目录便携版无法由 Windows 全盘无损定位；先运行一次应用，灵动岛会自动记录其真实路径，之后关闭状态下也能重新打开。
-- 任务桥接依赖本机 Node.js；发布目录内包含从当前 YOYO 安装包提取的只读 SDK 运行组件。
-- `@magicore/*` 是随 YOYO 版本提取的 vendor 依赖，不要在 `magicore-bridge` 内运行 `npm ci`；构建脚本会在依赖缺失时中止并给出明确错误。
-- 程序具有单实例保护；再次启动不会生成重叠的第二个灵动岛，而是唤出已有实例的设置主页。
-- 官方悬浮球需从 YOYO Claw 托盘菜单正常关闭；本项目不修改官方 ASAR。
+```powershell
+dotnet build '.\AI Dynamic Island.sln' -c Release
+.\Build-Release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+# 仅生成便携版
+.\Build-Release.ps1 -PortableOnly
+```
 
-## 隐藏官方悬浮球
+输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.0`。版本号以 `YoyoClawCompanion.csproj` 为准。
 
-首选方式是在 YOYO Claw 托盘菜单中选择“隐藏悬浮球”。如果需要持久化处理：
+Magicore 的 `@magicore/*` 是从本机 YOYO 安装包取得的 vendor 运行组件，不属于普通 npm 可还原依赖。不要在桥接目录运行 `npm ci`；缺少 SDK 时打包会明确失败。第三方运行组件的再分发应遵循其授权。
 
-1. 从托盘正常退出 YOYO Claw。
-2. 运行 `scripts\Hide-OfficialFloatingBall.ps1`。
-3. 重新启动 YOYO Claw。
+## 数据与使用边界
 
-脚本会先备份官方 `state.json`，检测到 YOYO 仍在运行时会拒绝写入。使用
-`scripts\Restore-OfficialFloatingBall.ps1` 可恢复显示。
+状态依据本地应用数据或接口推断，不代表官方通用进度 API，也不提供虚构百分比。独立 ChatGPT 网页没有连接到本应用的 Codex 状态来源。全屏检测按窗口覆盖显示器判断，因此全屏视频和演示也会触发。
+
+Codex 支持 `CODEX_HOME`，WorkBuddy 支持 `WORKBUDDY_CONFIG_DIR`。更新检查会连接 GitHub，YOYO 签到会连接对应服务；本项目不上传用户会话用于更新检查，不读取或保存 Codex 认证文件。内部接口可能随第三方应用升级而改变。
+
+YOYO Claw 自动签到功能移植自 `YOYOClawCheckin v1.3`，仅供本人账号在本人有权使用的电脑上使用；禁止代签、批量签到、规避服务限制及商业用途。完整许可见 [第三方许可](THIRD_PARTY_NOTICES/YOYOClawCheckin-LICENSE.txt)。项目没有授予超出第三方许可的使用权。
+
+如需隐藏 YOYO 官方悬浮球，优先使用官方托盘菜单。辅助脚本需先正常退出 YOYO，并会备份其设置；使用 `scripts\Restore-OfficialFloatingBall.ps1` 恢复。

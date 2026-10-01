@@ -1,0 +1,16 @@
+﻿AI Dynamic Island 安装与卸载说明
+
+适用于 Windows 10/11 x64。本安装包已内含 .NET 桌面运行时。
+YOYO Magicore 任务桥接需要另行安装 Node.js。
+每个 AI 来源均需要本机已安装对应应用及可用的本地账号数据。
+
+本程序仅为当前 Windows 用户安装，无需管理员权限。
+升级前请从托盘退出旧版本。默认安装目录的 Installed 子目录与已有便携版分开。
+设置统一保存在 %LOCALAPPDATA%\YoyoClawCompanion，升级和卸载均保留设置与日志。
+
+卸载方式：Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，
+或开始菜单中的“卸载 AI Dynamic Island”。请先从托盘退出程序。
+卸载完成后，确认不再需要设置时，可手动删除上述数据目录。
+卸载不会删除 Codex、WorkBuddy 或 YOYO Claw。
+
+v0.6.0 用户首次升级需要手动下载 v0.7.0；之后可从应用设置中的“更新”检查新版本。

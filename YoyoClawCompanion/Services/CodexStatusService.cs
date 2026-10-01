@@ -349,7 +349,7 @@ internal sealed class CodexStatusService
             };
             if (!process.Start()) return null;
             _ = process.StandardError.ReadToEndAsync();
-            await process.StandardInput.WriteLineAsync("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"ai-dynamic-island\",\"version\":\"0.6\"},\"capabilities\":{\"experimentalApi\":true}}}");
+            await process.StandardInput.WriteLineAsync("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"ai-dynamic-island\",\"version\":\"0.7.0\"},\"capabilities\":{\"experimentalApi\":true}}}");
             await process.StandardInput.FlushAsync();
             LastError = "initialize";
             var initialized = false;
