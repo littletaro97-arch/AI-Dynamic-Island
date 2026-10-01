@@ -4,7 +4,11 @@
 
 数据流：本地来源 → 对应 Service → 状态快照 → MainWindow → 折叠/展开显示与完成提醒。Magicore 通过 Node.js 子进程桥接。WorkBuddy 辅助信号用于触发刷新，实际内容仍读取本地来源。
 
-发布流：csproj 版本号 → dotnet self-contained publish → 便携 ZIP + Inno Setup EXE → GitHub Release。两种发行共享数据目录，但安装目录单独使用 Installed 子目录，避免覆盖已有便携版。
+发布流：csproj 版本号 → dotnet self-contained publish → 便携 ZIP + Inno Setup EXE → GitHub Release。两种发行共享数据目录；新安装默认目录名为 AI Dynamic Island，不追加 Installed。已有安装升级保留原路径；安装版应与便携版使用不同目录。
+
+Magicore 脚本、SDK 与第三方许可必须标记 ExcludeFromSingleFile=true 并独立落盘，Node.js 无法直接读取 .NET 单文件内部资源。Publish 完成后会检查关键外部文件，缺失时拒绝交付。
+
+Assets/App.ico 是统一图标源，包含 16–256 px 多分辨率帧；EXE、WPF 窗口、托盘和安装器共同使用。scripts/Generate-AppIcon.ps1 按原有托盘图形生成该资源。
 
 更新流：GitHub latest → 比较版本 → 按发行类型选包 → 下载 → SHA-256 验证 → 安装向导或外部 helper 替换。安装类型通过同目录 unins000.exe 识别。发布必须同时包含符合命名的两个资产及 GitHub digest。
 

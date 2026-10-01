@@ -93,6 +93,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Icon = App.CreateWindowIcon();
         ConfigureIslandMenu();
         Loaded += OnLoaded;
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowProc);

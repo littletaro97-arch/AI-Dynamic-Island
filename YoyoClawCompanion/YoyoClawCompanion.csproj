@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <AssemblyTitle>AI Dynamic Island</AssemblyTitle>
     <Product>AI Dynamic Island</Product>
     <Version>0.7.0</Version>
@@ -16,17 +17,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\App.ico" />
     <Content Include="..\THIRD_PARTY_NOTICES\YOYOClawCheckin-LICENSE.txt">
       <Link>THIRD_PARTY_NOTICES\YOYOClawCheckin-LICENSE.txt</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
     <Content Include="..\magicore-bridge\**\*"
              Exclude="..\magicore-bridge\node_modules\.cache\**\*;..\magicore-bridge\node_modules\.bin\**\*;..\magicore-bridge\node_modules\@types\**\*;..\magicore-bridge\node_modules\undici-types\**\*;..\magicore-bridge\node_modules\**\*.d.ts;..\magicore-bridge\node_modules\**\*.map;..\magicore-bridge\probe.mjs;..\magicore-bridge\package-lock.json">
       <Link>magicore-bridge\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
   </ItemGroup>
 
+  <Target Name="VerifyExternalBridgePayload" AfterTargets="Publish">
+    <Error Condition="!Exists('$(PublishDir)magicore-bridge\status.mjs')" Text="发布缺少外部 Magicore status.mjs，不能交付。" />
+    <Error Condition="!Exists('$(PublishDir)magicore-bridge\node_modules\@magicore\sdk\package.json')" Text="发布缺少外部 Magicore SDK，不能交付。" />
+    <Error Condition="!Exists('$(PublishDir)THIRD_PARTY_NOTICES\YOYOClawCheckin-LICENSE.txt')" Text="发布缺少第三方许可，不能交付。" />
+  </Target>
 </Project>

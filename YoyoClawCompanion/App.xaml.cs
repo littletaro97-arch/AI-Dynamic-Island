@@ -1,5 +1,4 @@
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
@@ -208,29 +207,9 @@ public partial class App : Application
 
     private static System.Drawing.Icon LoadTrayIcon()
     {
-        using var bitmap = new System.Drawing.Bitmap(64, 64, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-        {
-            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            graphics.Clear(System.Drawing.Color.Transparent);
-            using var background = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(24, 32, 51));
-            using var shape = RoundedRectangle(new System.Drawing.RectangleF(4, 4, 56, 56), 16);
-            graphics.FillPath(background, shape);
-            using var green = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(62, 213, 152));
-            using var purple = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(143, 160, 255));
-            using var yellow = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(242, 201, 76));
-            graphics.FillEllipse(green, 16, 27, 10, 10);
-            graphics.FillEllipse(purple, 27, 27, 10, 10);
-            graphics.FillEllipse(yellow, 38, 27, 10, 10);
-        }
-
-        var handle = bitmap.GetHicon();
-        try
-        {
-            using var source = System.Drawing.Icon.FromHandle(handle);
-            return (System.Drawing.Icon)source.Clone();
-        }
-        finally { DestroyIcon(handle); }
+        using var stream = GetResourceStream(new Uri("pack://application:,,,/Assets/App.ico")).Stream;
+        using var icon = new System.Drawing.Icon(stream, 64, 64);
+        return (System.Drawing.Icon)icon.Clone();
     }
 
     internal static ImageSource CreateWindowIcon()
@@ -239,18 +218,6 @@ public partial class App : Application
         var source = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromWidthAndHeight(64, 64));
         source.Freeze();
         return source;
-    }
-
-    private static System.Drawing.Drawing2D.GraphicsPath RoundedRectangle(System.Drawing.RectangleF bounds, float radius)
-    {
-        var path = new System.Drawing.Drawing2D.GraphicsPath();
-        var diameter = radius * 2;
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        return path;
     }
 
     private void DisposeTrayIcon()
@@ -283,6 +250,4 @@ public partial class App : Application
         catch { }
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyIcon(IntPtr handle);
 }

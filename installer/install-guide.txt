@@ -5,7 +5,8 @@ YOYO Magicore 任务桥接需要另行安装 Node.js。
 每个 AI 来源均需要本机已安装对应应用及可用的本地账号数据。
 
 本程序仅为当前 Windows 用户安装，无需管理员权限。
-升级前请从托盘退出旧版本。默认安装目录的 Installed 子目录与已有便携版分开。
+升级前请从托盘退出旧版本。新安装默认目录名为 AI Dynamic Island，不追加 Installed。
+请选择与便携版不同的目录。已有安装升级时保留原目录，不会自动搬移文件。
 设置统一保存在 %LOCALAPPDATA%\YoyoClawCompanion，升级和卸载均保留设置与日志。
 
 卸载方式：Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，
