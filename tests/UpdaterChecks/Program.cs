@@ -47,7 +47,7 @@ internal class Program
             var live = new GitHubUpdateService();
             await live.CheckAsync();
             Console.WriteLine("LIVE " + live.Snapshot.Status);
-            var expectedVersion = Environment.GetEnvironmentVariable("ISLAND_EXPECTED_VERSION") ?? "0.7.1";
+            var expectedVersion = Environment.GetEnvironmentVariable("ISLAND_EXPECTED_VERSION") ?? "0.7.2";
             Assert(live.Snapshot.LatestVersion == expectedVersion, "anonymous GitHub release access");
             Assert(live.Snapshot.UpdateAvailable == (Version.Parse(GitHubUpdateService.CurrentVersion) < Version.Parse(expectedVersion)), "live version comparison");
             try
