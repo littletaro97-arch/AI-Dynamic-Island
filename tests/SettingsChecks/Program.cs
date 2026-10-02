@@ -37,7 +37,7 @@ class Program
         var collapsed=settings.GetType().GetProperty("SettingsNavigationCollapsed")!;
         collapsed.SetValue(settings,true); Call(window,"ApplyNavigationLayout");
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==82,"collapsed width");
-        foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Collapsed,"icon only "+name);
+        foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Hidden,"icon only "+name);
         collapsed.SetValue(settings,false); Call(window,"ApplyNavigationLayout");
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"expanded width");
         var root = (FrameworkElement)window.Content;
@@ -46,6 +46,16 @@ class Program
         var iconSurface = (FrameworkElement)((StackPanel)updateNav.Content).Children[0];
         var iconBounds = iconSurface.TransformToAncestor(updateNav).TransformBounds(new Rect(iconSurface.RenderSize));
         Assert(iconBounds.Top >= 0 && iconBounds.Bottom <= updateNav.ActualHeight, "GitHub icon fully inside row");
+        var brand = (StackPanel)window.FindName("NavigationBrand");
+        var brandIcon = (FrameworkElement)brand.Children[0];
+        var label = (FrameworkElement)((StackPanel)updateNav.Content).Children[1];
+        var brandPosition = brandIcon.TranslatePoint(new Point(),root);
+        var labelPosition = label.TranslatePoint(new Point(),root);
+        collapsed.SetValue(settings,true); Call(window,"ApplyNavigationLayout");
+        root.Measure(new Size(920,720)); root.Arrange(new Rect(0,0,920,720)); root.UpdateLayout();
+        Assert(brandIcon.TranslatePoint(new Point(),root)==brandPosition,"brand icon position fixed");
+        Assert(label.TranslatePoint(new Point(),root)==labelPosition,"label fade position fixed");
+        collapsed.SetValue(settings,false); Call(window,"ApplyNavigationLayout");
         collapsed.SetValue(settings,true); Call(window,"TransitionNavigationLayout",true);
         Assert(window.HasAnimatedProperties,"navigation width transition active");
         collapsed.SetValue(settings,false); Call(window,"TransitionNavigationLayout",true);

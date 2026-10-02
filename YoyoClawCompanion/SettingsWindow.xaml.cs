@@ -784,35 +784,32 @@ public partial class SettingsWindow : Window
         var fromWidth = (double)GetValue(NavigationWidthProperty);
         BeginAnimation(NavigationWidthProperty, null);
         SetValue(NavigationWidthProperty, width);
-        var fromPadding = NavPane.Padding;
         NavPane.BeginAnimation(Border.PaddingProperty, null);
-        NavPane.Padding = new Thickness(collapsed ? 12 : 18, 24, collapsed ? 12 : 18, 24);
+        NavPane.Padding = new Thickness(16, 24, 16, 24);
         if (animate)
         {
             BeginAnimation(NavigationWidthProperty, new DoubleAnimation(fromWidth, width, duration) { EasingFunction = easing });
-            NavPane.BeginAnimation(Border.PaddingProperty, new ThicknessAnimation(
-                fromPadding, NavPane.Padding, duration) { EasingFunction = easing });
         }
-        NavigationBrand.HorizontalAlignment = collapsed ? System.Windows.HorizontalAlignment.Center : System.Windows.HorizontalAlignment.Left;
-        NavigationBrand.Margin = new Thickness(collapsed ? 0 : 4, 0, 0, 26);
+        NavigationBrand.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+        NavigationBrand.Margin = new Thickness(4, 0, 0, 26);
         foreach (var nav in new[] { PositionNav, AppearanceNav, ComponentNav, FeatureNav, NotificationNav, PresetNav, UpdateNav })
         {
             var content = (StackPanel)nav.Content;
             labels.Add((FrameworkElement)content.Children[1]);
-            ((FrameworkElement)content.Children[0]).Margin = new Thickness(0, 0, collapsed ? 0 : 11, 0);
-            nav.Padding = new Thickness(collapsed ? 8 : 10, 6, collapsed ? 8 : 10, 6);
+            ((FrameworkElement)content.Children[0]).Margin = new Thickness(0, 0, 11, 0);
+            nav.Padding = new Thickness(10, 6, 10, 6);
         }
         foreach (var label in labels)
         {
             var fromOpacity = label.Visibility == Visibility.Visible ? label.Opacity : 0;
             label.BeginAnimation(OpacityProperty, null);
-            label.Visibility = animate || !collapsed ? Visibility.Visible : Visibility.Collapsed;
+            label.Visibility = animate || !collapsed ? Visibility.Visible : Visibility.Hidden;
             label.Opacity = collapsed ? 0 : 1;
             if (!animate) continue;
             var fade = new DoubleAnimation(fromOpacity, label.Opacity, duration) { EasingFunction = easing };
             fade.Completed += (_, _) =>
             {
-                if (version == _navigationAnimationVersion && collapsed) label.Visibility = Visibility.Collapsed;
+                if (version == _navigationAnimationVersion && collapsed) label.Visibility = Visibility.Hidden;
             };
             label.BeginAnimation(OpacityProperty, fade);
         }
