@@ -41,7 +41,20 @@ class Program
         collapsed.SetValue(settings,false); Call(window,"ApplyNavigationLayout");
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"expanded width");
         var root = (FrameworkElement)window.Content;
+        var progress = (System.Windows.Controls.ProgressBar)window.FindName("UpdateProgress");
+        progress.Visibility = Visibility.Visible;
+        progress.Value = 50;
         root.Measure(new Size(920,720)); root.Arrange(new Rect(0,0,920,720)); root.UpdateLayout();
+        progress.ApplyTemplate();
+        var track = (FrameworkElement)progress.Template.FindName("PART_Track",progress);
+        var indicator = (Border)progress.Template.FindName("PART_Indicator",progress);
+        Assert(indicator.CornerRadius.TopLeft==8 && progress.Height==16,"rounded progress matches slider track");
+        Assert(Math.Abs(indicator.ActualWidth-track.ActualWidth/2)<1,"download progress fill reflects percentage");
+        Assert(indicator.Child is null,"download progress has no thumb");
+        Call(window,"TransitionUpdateProgress",75d,true);
+        Assert(progress.HasAnimatedProperties,"download progress animates");
+        Call(window,"TransitionUpdateProgress",75d,false);
+        Call(window,"TransitionUpdateProgress",80d,true);
         var updateNav = (RadioButton)window.FindName("UpdateNav");
         var iconSurface = (FrameworkElement)((StackPanel)updateNav.Content).Children[0];
         var iconBounds = iconSurface.TransformToAncestor(updateNav).TransformBounds(new Rect(iconSurface.RenderSize));
@@ -64,6 +77,7 @@ class Program
         timer.Tick += (_,_) => { timer.Stop(); frame.Continue=false; }; timer.Start();
         System.Windows.Threading.Dispatcher.PushFrame(frame);
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"rapid toggle settles expanded");
+        Assert(progress.Visibility==Visibility.Visible && Math.Abs(progress.Value-80)<.01 && progress.Opacity==1,"rapid progress hide/show settles visible");
         foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Visible,"rapid toggle label visible "+name);
         window.Close(); main.Close(); app.Shutdown();
     }

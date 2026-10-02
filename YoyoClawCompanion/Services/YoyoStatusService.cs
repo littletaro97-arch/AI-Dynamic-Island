@@ -16,8 +16,7 @@ internal sealed record YoyoStatus(
 
 internal sealed class YoyoStatusService
 {
-    private static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-    private readonly string _quotaPath = Path.Combine(AppData, "hclaw", "billing", "quota.json");
+    private readonly YoyoQuotaService _quota = new();
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private MagicoreSnapshot? _cachedSnapshot;
     private DateTimeOffset _cachedAt = DateTimeOffset.MinValue;
@@ -31,7 +30,7 @@ internal sealed class YoyoStatusService
     public async Task<YoyoStatus> ReadAsync()
     {
         var running = ApplicationLocator.IsProcessRunning("HnMagicClawUI");
-        var points = ReadPoints();
+        var points = _quota.Read();
         var snapshot = await ReadMagicoreAsync();
         var updatedAt = ParseDate(snapshot?.UpdatedAt);
         var recentFailure = snapshot?.LastTaskFailed == true
@@ -46,20 +45,6 @@ internal sealed class YoyoStatusService
             snapshot?.Ok == true ? Normalize(snapshot.RecentResult) : "任务状态不可用",
             recentFailure,
             updatedAt);
-    }
-
-    private (double? Remaining, double? Total) ReadPoints()
-    {
-        try
-        {
-            using var stream = new FileStream(_quotaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var json = JsonDocument.Parse(stream);
-            double? remaining = json.RootElement.TryGetProperty("model_remaining_points", out var value) && value.TryGetDouble(out var points) ? points : null;
-            double? total = json.RootElement.TryGetProperty("model_total_points", out var totalValue) && totalValue.TryGetDouble(out var totalPoints) ? totalPoints : null;
-            return (remaining, total);
-        }
-        catch { }
-        return (null, null);
     }
 
     private async Task<MagicoreSnapshot?> ReadMagicoreAsync()

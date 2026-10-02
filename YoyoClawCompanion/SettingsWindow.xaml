@@ -83,6 +83,16 @@
                 </ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <Style x:Key="DownloadProgressStyle" TargetType="ProgressBar">
+            <Setter Property="Background" Value="{DynamicResource SettingsTrackBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SettingsAccent}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar">
+                <Grid x:Name="PART_Track">
+                    <Border Background="{TemplateBinding Background}" CornerRadius="8"/>
+                    <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="8"/>
+                </Grid>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style TargetType="Slider">
             <Setter Property="Margin" Value="0,4,0,11"/><Setter Property="MinHeight" Value="28"/>
             <Setter Property="IsMoveToPointEnabled" Value="True"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -391,7 +401,7 @@
                         <TextBlock Text="应用更新" FontSize="18" FontWeight="SemiBold"/>
                         <TextBlock x:Name="UpdateVersionText" Foreground="#727C90" FontSize="12" Margin="0,4,0,10"/>
                         <CheckBox x:Name="AutoUpdateCheck" Tag="{StaticResource IconGitHub}" Content="启动时自动检查" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
-                        <ProgressBar x:Name="UpdateProgress" Height="6" Margin="0,10,0,8" Minimum="0" Maximum="100" Visibility="Collapsed"/>
+                        <ProgressBar x:Name="UpdateProgress" Style="{StaticResource DownloadProgressStyle}" Height="16" Margin="0,10,0,8" Minimum="0" Maximum="100" Visibility="Collapsed"/>
                         <TextBlock x:Name="UpdateStatusText" Text="尚未检查更新" TextWrapping="Wrap" Margin="0,0,0,10"/>
                         <StackPanel Orientation="Horizontal"><Button x:Name="CheckUpdateButton" Height="38" Margin="2,8,2,0" Style="{StaticResource ActionButton}" Content="检查更新" Click="CheckUpdate_Click"/><Button x:Name="InstallUpdateButton" Height="38" Style="{StaticResource ActionButton}" Content="下载并安装" Margin="8,8,2,0" Click="InstallUpdate_Click" IsEnabled="False"/></StackPanel>
                     </StackPanel></Border>

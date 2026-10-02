@@ -14,6 +14,7 @@ using Microsoft.Win32;
 using YoyoClawCompanion.Services;
 using Brush = System.Windows.Media.Brush;
 using ButtonBase = System.Windows.Controls.Primitives.ButtonBase;
+using ProgressBar = System.Windows.Controls.ProgressBar;
 using DataObject = System.Windows.DataObject;
 using DragEventArgs = System.Windows.DragEventArgs;
 using DragDropEffects = System.Windows.DragDropEffects;
@@ -35,6 +36,8 @@ public partial class SettingsWindow : Window
         "NavigationWidth", typeof(double), typeof(SettingsWindow),
         new PropertyMetadata(200d, (owner, args) => ((SettingsWindow)owner).NavigationColumn.Width = new GridLength((double)args.NewValue)));
     private int _navigationAnimationVersion;
+    private int _updateProgressAnimationVersion;
+    private bool _updateProgressVisible;
 
     private readonly MainWindow _island;
     private bool _loading = true;
@@ -232,10 +235,32 @@ public partial class SettingsWindow : Window
         var state = _island.UpdateService.Snapshot;
         UpdateVersionText.Text = state.LatestVersion is null ? $"当前版本 {state.CurrentVersion}" : $"当前 {state.CurrentVersion} · 最新 {state.LatestVersion}";
         UpdateStatusText.Text = state.Status;
-        UpdateProgress.Value = state.Progress;
-        UpdateProgress.Visibility = state.IsBusy && state.Progress > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TransitionUpdateProgress(state.Progress, state.IsBusy && state.Progress > 0);
         CheckUpdateButton.IsEnabled = !state.IsBusy;
         InstallUpdateButton.IsEnabled = !state.IsBusy && state.UpdateAvailable;
+    }
+
+    private void TransitionUpdateProgress(double value, bool visible)
+    {
+        var previous = UpdateProgress.Value;
+        UpdateProgress.BeginAnimation(ProgressBar.ValueProperty, null);
+        UpdateProgress.Value = Math.Clamp(value, 0, 100);
+        if (visible)
+            UpdateProgress.BeginAnimation(ProgressBar.ValueProperty,
+                new DoubleAnimation(previous, UpdateProgress.Value, TimeSpan.FromMilliseconds(180))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        if (_updateProgressVisible == visible) return;
+        _updateProgressVisible = visible;
+        var version = ++_updateProgressAnimationVersion;
+        var from = UpdateProgress.Visibility == Visibility.Visible ? UpdateProgress.Opacity : 0;
+        UpdateProgress.Visibility = Visibility.Visible;
+        var fade = new DoubleAnimation(from, visible ? 1 : 0, TimeSpan.FromMilliseconds(180));
+        fade.Completed += (_, _) =>
+        {
+            if (version != _updateProgressAnimationVersion) return;
+            if (!visible) UpdateProgress.Visibility = Visibility.Collapsed;
+        };
+        UpdateProgress.BeginAnimation(OpacityProperty, fade);
     }
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e) => await _island.UpdateService.CheckAsync();

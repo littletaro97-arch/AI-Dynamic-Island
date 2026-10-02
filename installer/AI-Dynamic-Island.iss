@@ -7,7 +7,13 @@ AppName=AI Dynamic Island
 AppVersion={#AppVersion}
 AppPublisher=LittleTaro
 AppPublisherURL=https://github.com/littletaro97-arch/AI-Dynamic-Island
-DefaultDirName={localappdata}\Programs\AI Dynamic Island
+DefaultDirName={code:GetDefaultInstallDir}
+UsePreviousAppDir=yes
+; ShouldSkipPage skips the directory page only when the requested path matches.
+DisableDirPage=no
+AppendDefaultDirName=no
+AlwaysShowDirOnReadyPage=yes
+SetupLogging=yes
 SetupIconFile=..\YoyoClawCompanion\Assets\App.ico
 DefaultGroupName=AI Dynamic Island
 PrivilegesRequired=lowest
@@ -74,6 +80,34 @@ Name: "{autodesktop}\AI Dynamic Island"; Filename: "{app}\YoyoClawCompanion.exe"
 [Run]
 Filename: "{app}\YoyoClawCompanion.exe"; Description: "启动 AI Dynamic Island"; Flags: nowait postinstall skipifsilent
 [Code]
+function PreviousInstallDir: String;
+var AppPath: String;
+begin
+  Result := '';
+  { Read both registry views for upgrades from older installer configurations. }
+  if not RegQueryStringValue(HKCU64, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{907C6427-5D86-489B-B8F9-C65351AE2611}_is1', 'Inno Setup: App Path', AppPath) then
+    RegQueryStringValue(HKCU32, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{907C6427-5D86-489B-B8F9-C65351AE2611}_is1', 'Inno Setup: App Path', AppPath);
+  if (AppPath <> '') and FileExists(AddBackslash(AppPath) + 'unins000.exe') then
+    Result := RemoveBackslashUnlessRoot(AppPath);
+end;
+
+function GetDefaultInstallDir(Param: String): String;
+begin
+  Result := PreviousInstallDir;
+  if Result = '' then
+    Result := ExpandConstant('{localappdata}\Programs\AI Dynamic Island');
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+var Previous: String;
+begin
+  Previous := PreviousInstallDir;
+  { Skip destination confirmation only for an existing registered installation
+    at the exact same path. A changed /DIR still follows the normal wizard. }
+  Result := (PageID = wpSelectDir) and (Previous <> '') and
+    (CompareText(RemoveBackslashUnlessRoot(WizardDirValue), Previous) = 0);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var StartupCommand: String;
 begin
