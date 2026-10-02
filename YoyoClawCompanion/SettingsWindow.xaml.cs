@@ -198,10 +198,9 @@ public partial class SettingsWindow : Window
 
     private void UpdateDependencyStates()
     {
-        SetDependentState(HoverDelayPanel, HoverExpansionCheck.IsChecked == true);
+        HoverDelayPanel.IsEnabled = HoverExpansionCheck.IsChecked == true;
         UnchangedAutoHidePanel.IsEnabled = UnchangedAutoHideCheck.IsChecked == true;
-        SetDependentState(CompletionDisplayPanel,
-            CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
+        CompletionDisplayPanel.IsEnabled = CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true;
         CodexResetReminderPanel.IsEnabled = CodexResetReminderCheck.IsChecked == true;
         SetDependentState(YoyoLaunchForCheckinCheck, YoyoAutoCheckinCheck.IsChecked == true);
         var installations = _island.GetProviderInstallations().ToDictionary(item => item.Key, StringComparer.OrdinalIgnoreCase);
@@ -215,6 +214,8 @@ public partial class SettingsWindow : Window
         CodexResetReminderPanel.IsEnabled = codexInstalled && CodexResetReminderCheck.IsChecked == true;
         if (!CodexResetReminderCheck.IsEnabled || CodexResetReminderCheck.IsChecked != true) CodexResetReminderCard.SetExpanded(false);
         if (UnchangedAutoHideCheck.IsChecked != true) UnchangedAutoHideCard.SetExpanded(false);
+        if (HoverExpansionCheck.IsChecked != true) HoverExpansionCard.SetExpanded(false);
+        if (CompletionNotificationsCheck.IsChecked != true) CompletionNotificationsCard.SetExpanded(false);
     }
 
     private void Island_ProviderAvailabilityChanged(object? sender, EventArgs e)
@@ -781,6 +782,7 @@ public partial class SettingsWindow : Window
         Resources["SettingsPopupBackground"] = Brush(light ? "#FFFFFF" : "#1B2230");
         Resources["SettingsTrackBackground"] = Brush(light ? "#E9EBEF" : "#354052");
         Resources["SettingsHoverBackground"] = Brush(light ? "#EEF1F3" : "#2A3444");
+        Resources["SettingsHintForeground"] = primary;
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
         PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; UpdateCard.Background = card; PositionCard.Background = card;

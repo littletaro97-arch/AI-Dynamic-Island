@@ -17,3 +17,11 @@ Computer Use 初始化及重置重试均失败，提示“failed to write kernel
 临时预览目录：`.build-check/settings-cards-preview`，运行 `YoyoClawCompanion.exe --preview`。预览模式保留现有用户配置，不注册此临时目录到开机启动。验收前备份 settings.json 和 presets.json；正常安装版位于 `E:\D-diskExpansionCabin\AI Dynamic Island\Installed\YoyoClawCompanion.exe`。
 
 恢复安装版：退出临时预览后启动上述安装路径。Git 回滚通过 `git revert` 本轮提交。
+
+## 第二轮复用与提示修复
+
+“悬停展开 / 悬停延时”和“任务完成提醒 / 完成提醒时长”也合并为同一展开卡片，复用既有边框、动画、固定槽位与编辑限制。时长范围和原功能逻辑不变；完成提醒时长仍供完成提醒和待确认提醒共用。
+
+移除整片 SettingsSwitchPanel 的系统提示，改为各开关独立的提示控制器：悬停 450 ms 后显示，离开开关立即开始 140 ms 渐隐，不需额外点击；鼠标按下、进入编辑、控件卸载均关闭提示，支持快速返回时旧回调失效。合并卡片仅开关区域触发提示，滑条区域不会保持提示。提示使用当前明暗主题颜色。
+
+SettingsCardChecks 新增两组卡片关闭/展开/边框归属/编辑限制检查，原 SettingsChecks 通过。第二轮预览目录 `.build-check/settings-cards-preview-2`；真实鼠标移开提示和拖动滑条仍待用户验收。

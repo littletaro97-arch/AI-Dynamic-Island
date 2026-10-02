@@ -9,6 +9,7 @@ namespace YoyoClawCompanion;
 public partial class SettingsWindow
 {
     private SettingsSwitchPanel[] _settingPanels = [];
+    private readonly List<SettingCardHint> _settingHints = [];
     private bool _editingSettingCards;
     private int _editBarVersion;
 
@@ -26,7 +27,8 @@ public partial class SettingsWindow
                 current.SettingCardOrders[panel.Name] = panel.Order.ToArray();
                 AppSettings.Save(current);
             };
-            panel.ToolTip = "长按开关卡片可调整当前板块的组件位置";
+            foreach (FrameworkElement item in panel.Children)
+                _settingHints.Add(new SettingCardHint(item is ExpandableSettingCard card ? card.Header : item));
         }
         PreviewKeyDown += (_,e) =>
         {
@@ -47,6 +49,7 @@ public partial class SettingsWindow
     {
         if (_editingSettingCards == editing) return;
         _editingSettingCards = editing;
+        foreach (var hint in _settingHints) hint.SetEnabled(!editing);
         foreach (var panel in _settingPanels) panel.SetEditing(editing);
         var version = ++_editBarVersion;
         var from = SettingEditBar.Visibility == Visibility.Visible ? SettingEditBar.Opacity : 0;

@@ -48,6 +48,20 @@ internal static class Program
         Assert(!card.IsExpanded && card.Height==62,"editing collapses detail");
         card.SetExpanded(true);Assert(!card.IsExpanded,"editing blocks hover expansion");
         panel.SetEditing(false);Settle();
+        foreach (var name in new[]{"HoverExpansionCard","CompletionNotificationsCard"})
+        {
+            var combined=(ExpandableSettingCard)window.FindName(name);
+            combined.Header.IsChecked=false;combined.SetExpanded(true);Settle();
+            Assert(!combined.IsExpanded,name+" off stays collapsed");
+            combined.Header.IsChecked=true;combined.Header.IsEnabled=true;combined.SetExpanded(true);Settle();Layout(root);
+            Assert(combined.IsExpanded && combined.Detail.ActualHeight>0 && combined.Detail.Opacity==1,name+" merges slider into card");
+            Assert(combined.Detail.IsDescendantOf(combined),name+" slider remains within outer border");
+            ((SettingsSwitchPanel)combined.Parent).SetEditing(true);combined.SetExpanded(true);Settle();
+            Assert(!combined.IsExpanded,name+" editing blocks expansion");
+            ((SettingsSwitchPanel)combined.Parent).SetEditing(false);
+        }
+        foreach(var name in new[]{"CodexActivityCheckSettingsPanel","CompletionNotificationsCheckSettingsPanel"})
+            Assert(((FrameworkElement)window.FindName(name)).ToolTip is null,"no sticky panel-wide hint "+name);
         // Standalone panel tests avoid saving the user's real settings.
         var sortable=new SettingsSwitchPanel();
         var one=new CheckBox{Name="One"};var two=new CheckBox{Name="Two"};var three=new CheckBox{Name="Three"};
