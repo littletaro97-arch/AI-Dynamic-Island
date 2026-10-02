@@ -15,3 +15,5 @@ preview 模式直接打开设置，不写开机启动注册。使用现有用户
 仅本地编译及提交；不创建安装/便携发布包，不推送、不修改 GitHub Release 或公开更新清单。真实桌面视觉与交互等待用户验收。
 
 恢复安装版：从临时程序托盘退出，运行 E:\D-diskExpansionCabin\AI Dynamic Island\Installed\YoyoClawCompanion.exe。
+
+启动实测：当前安装版经窗口正常关闭退出；已启动上述临时目录中的 0.7.1.0 程序，进程路径校验通过，开机启动注册在切换前后保持一致。
