@@ -31,6 +31,10 @@ public partial class SettingsWindow : Window
     private static readonly DependencyProperty AnimatedScrollOffsetProperty = DependencyProperty.Register(
         nameof(AnimatedScrollOffset), typeof(double), typeof(SettingsWindow),
         new PropertyMetadata(0d, OnAnimatedScrollOffsetChanged));
+    private static readonly DependencyProperty NavigationWidthProperty = DependencyProperty.Register(
+        "NavigationWidth", typeof(double), typeof(SettingsWindow),
+        new PropertyMetadata(200d, (owner, args) => ((SettingsWindow)owner).NavigationColumn.Width = new GridLength((double)args.NewValue)));
+    private int _navigationAnimationVersion;
 
     private readonly MainWindow _island;
     private bool _loading = true;
@@ -763,25 +767,62 @@ public partial class SettingsWindow : Window
         var current = _island.CurrentSettings;
         current.SettingsNavigationCollapsed = !current.SettingsNavigationCollapsed;
         AppSettings.Save(current);
-        ApplyNavigationLayout();
+        TransitionNavigationLayout(true);
     }
 
     private void ApplyNavigationLayout()
+        => TransitionNavigationLayout(false);
+
+    private void TransitionNavigationLayout(bool animate)
     {
         var collapsed = _island.CurrentSettings.SettingsNavigationCollapsed;
-        NavigationColumn.Width = new GridLength(collapsed ? 82 : 200);
+        var version = ++_navigationAnimationVersion;
+        var duration = TimeSpan.FromMilliseconds(280);
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var labels = new List<FrameworkElement> { (FrameworkElement)NavTitle.Parent };
+        var width = collapsed ? 82d : 200d;
+        var fromWidth = (double)GetValue(NavigationWidthProperty);
+        BeginAnimation(NavigationWidthProperty, null);
+        SetValue(NavigationWidthProperty, width);
+        var fromPadding = NavPane.Padding;
+        NavPane.BeginAnimation(Border.PaddingProperty, null);
         NavPane.Padding = new Thickness(collapsed ? 12 : 18, 24, collapsed ? 12 : 18, 24);
-        ((FrameworkElement)NavTitle.Parent).Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        if (animate)
+        {
+            BeginAnimation(NavigationWidthProperty, new DoubleAnimation(fromWidth, width, duration) { EasingFunction = easing });
+            NavPane.BeginAnimation(Border.PaddingProperty, new ThicknessAnimation(
+                fromPadding, NavPane.Padding, duration) { EasingFunction = easing });
+        }
         NavigationBrand.HorizontalAlignment = collapsed ? System.Windows.HorizontalAlignment.Center : System.Windows.HorizontalAlignment.Left;
         NavigationBrand.Margin = new Thickness(collapsed ? 0 : 4, 0, 0, 26);
         foreach (var nav in new[] { PositionNav, AppearanceNav, ComponentNav, FeatureNav, NotificationNav, PresetNav, UpdateNav })
         {
             var content = (StackPanel)nav.Content;
-            ((FrameworkElement)content.Children[1]).Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+            labels.Add((FrameworkElement)content.Children[1]);
             ((FrameworkElement)content.Children[0]).Margin = new Thickness(0, 0, collapsed ? 0 : 11, 0);
-            nav.Padding = new Thickness(collapsed ? 8 : 10, 8, collapsed ? 8 : 10, 8);
+            nav.Padding = new Thickness(collapsed ? 8 : 10, 6, collapsed ? 8 : 10, 6);
         }
-        NavigationToggleIcon.RenderTransform = new RotateTransform(collapsed ? 180 : 0);
+        foreach (var label in labels)
+        {
+            var fromOpacity = label.Visibility == Visibility.Visible ? label.Opacity : 0;
+            label.BeginAnimation(OpacityProperty, null);
+            label.Visibility = animate || !collapsed ? Visibility.Visible : Visibility.Collapsed;
+            label.Opacity = collapsed ? 0 : 1;
+            if (!animate) continue;
+            var fade = new DoubleAnimation(fromOpacity, label.Opacity, duration) { EasingFunction = easing };
+            fade.Completed += (_, _) =>
+            {
+                if (version == _navigationAnimationVersion && collapsed) label.Visibility = Visibility.Collapsed;
+            };
+            label.BeginAnimation(OpacityProperty, fade);
+        }
+        var rotation = NavigationToggleIcon.RenderTransform as RotateTransform ?? new RotateTransform();
+        var fromAngle = rotation.Angle;
+        rotation.BeginAnimation(RotateTransform.AngleProperty, null);
+        rotation.Angle = collapsed ? 180 : 0;
+        NavigationToggleIcon.RenderTransform = rotation;
+        if (animate) rotation.BeginAnimation(RotateTransform.AngleProperty,
+            new DoubleAnimation(fromAngle, rotation.Angle, duration) { EasingFunction = easing });
         NavigationToggle.ToolTip = collapsed ? "展开目录" : "收起目录";
         System.Windows.Automation.AutomationProperties.SetName(NavigationToggle, (string)NavigationToggle.ToolTip);
     }

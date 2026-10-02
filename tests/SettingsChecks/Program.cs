@@ -40,6 +40,21 @@ class Program
         foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Collapsed,"icon only "+name);
         collapsed.SetValue(settings,false); Call(window,"ApplyNavigationLayout");
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"expanded width");
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(920,720)); root.Arrange(new Rect(0,0,920,720)); root.UpdateLayout();
+        var updateNav = (RadioButton)window.FindName("UpdateNav");
+        var iconSurface = (FrameworkElement)((StackPanel)updateNav.Content).Children[0];
+        var iconBounds = iconSurface.TransformToAncestor(updateNav).TransformBounds(new Rect(iconSurface.RenderSize));
+        Assert(iconBounds.Top >= 0 && iconBounds.Bottom <= updateNav.ActualHeight, "GitHub icon fully inside row");
+        collapsed.SetValue(settings,true); Call(window,"TransitionNavigationLayout",true);
+        Assert(window.HasAnimatedProperties,"navigation width transition active");
+        collapsed.SetValue(settings,false); Call(window,"TransitionNavigationLayout",true);
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval=TimeSpan.FromMilliseconds(400) };
+        timer.Tick += (_,_) => { timer.Stop(); frame.Continue=false; }; timer.Start();
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"rapid toggle settles expanded");
+        foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Visible,"rapid toggle label visible "+name);
         window.Close(); main.Close(); app.Shutdown();
     }
 }
