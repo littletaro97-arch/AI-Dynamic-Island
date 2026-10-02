@@ -47,8 +47,9 @@ internal class Program
             var live = new GitHubUpdateService();
             await live.CheckAsync();
             Console.WriteLine("LIVE " + live.Snapshot.Status);
-            Assert(live.Snapshot.LatestVersion == "0.7.0", "anonymous GitHub release access");
-            Assert(live.Snapshot.UpdateAvailable == (Version.Parse(GitHubUpdateService.CurrentVersion) < new Version(0, 7, 0)), "live version comparison");
+            var expectedVersion = Environment.GetEnvironmentVariable("ISLAND_EXPECTED_VERSION") ?? "0.7.1";
+            Assert(live.Snapshot.LatestVersion == expectedVersion, "anonymous GitHub release access");
+            Assert(live.Snapshot.UpdateAvailable == (Version.Parse(GitHubUpdateService.CurrentVersion) < Version.Parse(expectedVersion)), "live version comparison");
         }
     }
     static void Assert(bool value, string label) { if (!value) throw new Exception(label); Console.WriteLine("PASS " + label); }

@@ -1,4 +1,4 @@
-# AI Dynamic Island v0.7.0
+# AI Dynamic Island v0.7.1
 
 Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOYO Claw 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
 
@@ -8,8 +8,8 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOY
 
 | 下载包 | 使用方式 | 卸载方式 |
 | --- | --- | --- |
-| `AI-Dynamic-Island-v0.7.0-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
-| `AI-Dynamic-Island-v0.7.0-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
+| `AI-Dynamic-Island-v0.7.1-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
+| `AI-Dynamic-Island-v0.7.1-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
 
 适用于 Windows 10/11 x64。两种包均内含 .NET 8 Desktop Runtime。YOYO 任务桥接需要另行安装 [Node.js](https://nodejs.org/)，对应功能还需要本机安装并登录相应 AI 应用。缺少某个来源时不影响其他来源。
 
@@ -31,7 +31,7 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOY
 
 更新来源为本仓库最新正式 Release，预发布和草稿不参与更新。GitHub API 限流时改用仓库中的公开版本清单 `docs/update.json`；发布维护者需在两个资产上传并校验后同步清单。安装版下载对应安装 EXE 并打开向导；便携版下载 ZIP，等待旧进程退出后替换文件并重新启动。
 
-v0.6.0 的更新代码使用固定 ZIP 名称，与实际 Release 文件不一致。因此已有 v0.6.0 用户首次升级到 v0.7.0 需要从 Releases 手动下载。v0.7.0 开始使用一致的版本化文件名。更新失败时查看设置中的提示及 `%LOCALAPPDATA%\YoyoClawCompanion\update.log`。
+v0.6.0 的更新代码使用固定 ZIP 名称，与实际 Release 文件不一致。因此已有 v0.6.0 用户首次升级到 v0.7.1 需要从 Releases 手动下载。v0.7.1 开始使用一致的版本化文件名。更新失败时查看设置中的提示及 `%LOCALAPPDATA%\YoyoClawCompanion\update.log`。
 
 ## 项目结构
 
@@ -63,7 +63,7 @@ dotnet build '.\AI Dynamic Island.sln' -c Release
 .\Build-Release.ps1 -PortableOnly
 ```
 
-输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.0`。版本号以 `YoyoClawCompanion.csproj` 为准。
+输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.1`。版本号以 `YoyoClawCompanion.csproj` 为准。
 
 Magicore 的 `@magicore/*` 是从本机 YOYO 安装包取得的 vendor 运行组件，不属于普通 npm 可还原依赖。不要在桥接目录运行 `npm ci`；缺少 SDK 时打包会明确失败。第三方运行组件的再分发应遵循其授权。
 
