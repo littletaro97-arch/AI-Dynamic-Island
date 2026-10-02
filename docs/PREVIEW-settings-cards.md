@@ -25,3 +25,11 @@ Computer Use 初始化及重置重试均失败，提示“failed to write kernel
 移除整片 SettingsSwitchPanel 的系统提示，改为各开关独立的提示控制器：悬停 450 ms 后显示，离开开关立即开始 140 ms 渐隐，不需额外点击；鼠标按下、进入编辑、控件卸载均关闭提示，支持快速返回时旧回调失效。合并卡片仅开关区域触发提示，滑条区域不会保持提示。提示使用当前明暗主题颜色。
 
 SettingsCardChecks 新增两组卡片关闭/展开/边框归属/编辑限制检查，原 SettingsChecks 通过。第二轮预览目录 `.build-check/settings-cards-preview-2`；真实鼠标移开提示和拖动滑条仍待用户验收。
+
+## 第三轮：完整组件隐藏与组合卡片提示
+
+“滚动速度”的标题和值原来在 DockPanel，滑条是其后的独立 Slider。展开悬停设置时只渐隐了前者，导致整行滑条残留。现将标题、数值、滑条放入同一个 QuotaScrollSpeedPanel，作为完整的下方组件统一下沉、渐隐及恢复；不改变其原宽度和数值范围。
+
+所有 ExpandableSettingCard（开关＋滑条）不再注册长按提示，关闭和展开状态都不显示提示；长按排序能力保持。普通开关仍显示移开后渐隐的提示。
+
+SettingsCardChecks 新增整行组件宽于组合卡片、标题和滑条属于同一容器、整体渐隐和恢复、组合卡片未注册提示的检查。第三轮预览目录 `.build-check/settings-cards-preview-3`。

@@ -56,9 +56,27 @@ internal static class Program
             combined.Header.IsChecked=true;combined.Header.IsEnabled=true;combined.SetExpanded(true);Settle();Layout(root);
             Assert(combined.IsExpanded && combined.Detail.ActualHeight>0 && combined.Detail.Opacity==1,name+" merges slider into card");
             Assert(combined.Detail.IsDescendantOf(combined),name+" slider remains within outer border");
+            if(name=="HoverExpansionCard")
+            {
+                var fullWidth=(FrameworkElement)window.FindName("QuotaScrollSpeedPanel");
+                var scrollSlider=(FrameworkElement)window.FindName("QuotaScrollSpeedSlider");
+                Assert(fullWidth.ActualWidth>combined.ActualWidth && scrollSlider.IsDescendantOf(fullWidth),"wide following setting is one complete container");
+                Assert(fullWidth.Opacity==0 && !fullWidth.IsHitTestVisible,"wide following label and slider fade together");
+            }
             ((SettingsSwitchPanel)combined.Parent).SetEditing(true);combined.SetExpanded(true);Settle();
             Assert(!combined.IsExpanded,name+" editing blocks expansion");
             ((SettingsSwitchPanel)combined.Parent).SetEditing(false);
+            if(name=="HoverExpansionCard")
+            {
+                Settle();
+                Assert(((FrameworkElement)window.FindName("QuotaScrollSpeedPanel")).Opacity==1,"wide following setting restores after collapse");
+            }
+        }
+        var hints=(System.Collections.IEnumerable)typeof(SettingsWindow).GetField("_settingHints",Flags)!.GetValue(window)!;
+        foreach(var hint in hints)
+        {
+            var owner=(FrameworkElement)hint.GetType().GetField("_owner",Flags)!.GetValue(hint)!;
+            Assert(owner.Parent is not Grid grid || grid.Parent is not ExpandableSettingCard,"combined cards have no long-press hint");
         }
         foreach(var name in new[]{"CodexActivityCheckSettingsPanel","CompletionNotificationsCheckSettingsPanel"})
             Assert(((FrameworkElement)window.FindName(name)).ToolTip is null,"no sticky panel-wide hint "+name);

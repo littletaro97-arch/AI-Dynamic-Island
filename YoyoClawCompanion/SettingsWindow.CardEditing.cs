@@ -28,7 +28,7 @@ public partial class SettingsWindow
                 AppSettings.Save(current);
             };
             foreach (FrameworkElement item in panel.Children)
-                _settingHints.Add(new SettingCardHint(item is ExpandableSettingCard card ? card.Header : item));
+                if (item is not ExpandableSettingCard) _settingHints.Add(new SettingCardHint(item));
         }
         PreviewKeyDown += (_,e) =>
         {
