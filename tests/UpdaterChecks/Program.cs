@@ -50,6 +50,15 @@ internal class Program
             var expectedVersion = Environment.GetEnvironmentVariable("ISLAND_EXPECTED_VERSION") ?? "0.7.1";
             Assert(live.Snapshot.LatestVersion == expectedVersion, "anonymous GitHub release access");
             Assert(live.Snapshot.UpdateAvailable == (Version.Parse(GitHubUpdateService.CurrentVersion) < Version.Parse(expectedVersion)), "live version comparison");
+            try
+            {
+                File.WriteAllText(marker, "installed distribution marker");
+                var installedLive = new GitHubUpdateService();
+                await installedLive.CheckAsync();
+                Assert(installedLive.Snapshot.LatestVersion == expectedVersion && installedLive.Snapshot.UpdateAvailable == live.Snapshot.UpdateAvailable,
+                    "installed live release and verified setup asset selection");
+            }
+            finally { File.Delete(marker); }
         }
     }
     static void Assert(bool value, string label) { if (!value) throw new Exception(label); Console.WriteLine("PASS " + label); }
