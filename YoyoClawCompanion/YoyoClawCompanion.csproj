@@ -17,6 +17,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\harness-bridge\*.mjs"><Link>harness-bridge\%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></Content>
     <Resource Include="Assets\App.ico" />
     <Content Include="..\THIRD_PARTY_NOTICES\YOYOClawCheckin-LICENSE.txt">
       <Link>THIRD_PARTY_NOTICES\YOYOClawCheckin-LICENSE.txt</Link>

@@ -117,9 +117,9 @@
                 <Grid.RowDefinitions><RowDefinition x:Name="HeaderRow" Height="46"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <Grid x:Name="CollapsedTextPanel" Margin="4,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" UseLayoutRounding="True">
+                    <Grid x:Name="CollapsedTextPanel" Margin="4,0,8,0" VerticalAlignment="Center" UseLayoutRounding="True">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBlock x:Name="HeadlineText" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Text="正在读取状态…" Foreground="#F2F5FF" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <Grid x:Name="SummaryViewport" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Height="15" ClipToBounds="True">
                         <Canvas x:Name="SummaryMarqueeCanvas" ClipToBounds="True">
@@ -131,17 +131,19 @@
                             </TextBlock>
                         </Canvas>
                     </Grid>
+                    <Button x:Name="DismissOfflineButton" Grid.Column="2" Width="18" Height="18" Margin="5,0,0,0" Visibility="Collapsed" Opacity="0" Style="{StaticResource IndicatorButton}" Click="DismissOffline_Click" AutomationProperties.Name="暂时隐藏未运行的助手"><Path Data="M4,4 L12,12 M12,4 L4,12" Width="9" Height="9" Stretch="Uniform" Stroke="#727C90" StrokeThickness="1.8"/></Button>
                     </Grid>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
                         <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
                         <Button x:Name="WorkBuddyIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenWorkBuddy_Click"><Ellipse x:Name="WorkBuddyMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                        <Button x:Name="DeepSeekIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenDeepSeek_Click"><Ellipse x:Name="DeepSeekMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
                     </StackPanel>
                     </StackPanel>
                 </Grid>
                 <Grid x:Name="ExpandedPanel" Grid.Row="1" Opacity="0" Visibility="Collapsed" Margin="1,4,1,12" IsHitTestVisible="True">
-                    <Grid.RowDefinitions><RowDefinition x:Name="ExpandedRow0" Height="24"/><RowDefinition x:Name="ExpandedRow1" Height="24"/><RowDefinition x:Name="ExpandedRow2" Height="24"/><RowDefinition x:Name="ExpandedRow3" Height="*"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition x:Name="ExpandedRow0" Height="24"/><RowDefinition x:Name="ExpandedRow1" Height="24"/><RowDefinition x:Name="ExpandedRow2" Height="24"/><RowDefinition x:Name="ExpandedRow3" Height="24"/><RowDefinition x:Name="ExpandedRow4" Height="*"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="YoyoLabel" Grid.Column="1" Text="YOYO Claw" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
@@ -153,7 +155,11 @@
                     <Ellipse x:Name="WorkBuddyDot" Grid.Row="2" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="WorkBuddyLabel" Grid.Row="2" Grid.Column="1" Text="WorkBuddy" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="WorkBuddyStateText" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <Border x:Name="RecentBorder" Grid.Row="3" Grid.ColumnSpan="4" Background="#B8182033" CornerRadius="12" Padding="10,5" Margin="0,6,0,0">
+                    <Ellipse x:Name="DeepSeekDot" Grid.Row="3" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="DeepSeekLabel" Grid.Row="3" Grid.Column="1" Text="DeepSeek Harness" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="DeepSeekStateText" Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    <RadioButton x:Name="DeepSeekRowButton" Grid.Row="3" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenDeepSeek_Click"/>
+                    <Border x:Name="RecentBorder" Grid.Row="4" Grid.ColumnSpan="4" Background="#B8182033" CornerRadius="12" Padding="10,5" Margin="0,6,0,0">
                         <TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="10.5" FontWeight="SemiBold"
                                    TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="15" VerticalAlignment="Top"/>
                     </Border>

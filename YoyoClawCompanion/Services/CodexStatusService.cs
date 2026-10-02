@@ -23,7 +23,8 @@ internal sealed record CodexStatus(
     int SessionsScanned,
     int ActiveSessions,
     DateTimeOffset? LatestLifecycleAt,
-    bool HasStaleStarted);
+    bool HasStaleStarted,
+    IReadOnlyList<TaskCompletionEvent>? Completions = null);
 
 internal sealed class CodexStatusService
 {
@@ -49,6 +50,8 @@ internal sealed class CodexStatusService
     private string? _lastLimitError;
     private readonly Dictionary<string, LifecycleCacheEntry> _lifecycleCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CompletionCacheEntry> _completionCache = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<TaskCompletionEvent> _recentCompletions = [];
+    private FileInfo[]? _candidateFiles;
     internal string? LastError { get; private set; }
     internal event EventHandler? LimitsUpdated;
 
@@ -76,10 +79,11 @@ internal sealed class CodexStatusService
 
     private CodexStatus ReadStatus(bool detectActivity, bool readLimits)
     {
+        _candidateFiles = null;
         var watch = Stopwatch.StartNew();
         var running = IsCodexRunning();
         var activity = running && detectActivity ? ReadActivityState() : default;
-        var completion = ReadRecentCompletion();
+        var completion = running ? ReadRecentCompletion() : default;
         RateLimitsSnapshot? limits;
         long? limitReadMilliseconds;
         bool limitsLoading;
@@ -111,7 +115,8 @@ internal sealed class CodexStatusService
             activity.SessionsScanned,
             activity.ActiveSessions,
             activity.LatestLifecycleAt,
-            activity.HasStaleStarted);
+            activity.HasStaleStarted,
+            running ? _recentCompletions : []);
     }
 
     private void EnsureLimitRefreshStarted()
@@ -156,10 +161,12 @@ internal sealed class CodexStatusService
             string? latestResponse = null, latestId = null;
             DateTimeOffset? latestTimestamp = null;
             var candidates = EnumerateCandidateFiles(CompletionCandidateLimit).ToList();
+            var completions = new List<TaskCompletionEvent>();
             PruneCache(_completionCache, candidates.Select(file => file.FullName));
             foreach (var file in candidates)
             {
                 var completion = ReadCompletion(file);
+                completions.AddRange(completion.Events ?? []);
                 if (completion.Response is not null && completion.Timestamp is not null && (latestTimestamp is null || completion.Timestamp > latestTimestamp))
                 {
                     latestResponse = completion.Response;
@@ -167,6 +174,7 @@ internal sealed class CodexStatusService
                     latestTimestamp = completion.Timestamp;
                 }
             }
+            _recentCompletions = completions;
             return (latestResponse, latestId, latestTimestamp);
         }
         catch { }
@@ -183,7 +191,8 @@ internal sealed class CodexStatusService
 
         string? response = null, id = null;
         DateTimeOffset? timestamp = null;
-        foreach (var line in JsonLineTailReader.Read(file.FullName, LifecycleTailBytes))
+        var events = new List<TaskCompletionEvent>();
+        foreach (var line in JsonLineTailReader.Read(file.FullName, LifecycleTailBytes, ["final_answer"]))
         {
             if (!line.Contains("\"phase\":\"final_answer\"", StringComparison.Ordinal) || !line.Contains("\"role\":\"assistant\"", StringComparison.Ordinal)) continue;
             try
@@ -197,13 +206,14 @@ internal sealed class CodexStatusService
                 timestamp = DateTimeOffset.TryParse(Text(root, "timestamp"), out var parsed) ? parsed : file.LastWriteTimeUtc;
                 id = Text(payload, "id");
                 if (string.IsNullOrWhiteSpace(id)) id = $"{file.FullName}|{timestamp:O}";
+                events.Add(new(id, response, timestamp.Value));
             }
             catch (JsonException) { }
         }
 
         var snapshot = response is null && cached is not null && file.Length >= cached.Length
             ? cached.Snapshot
-            : new CompletionSnapshot(response, id, timestamp);
+            : new CompletionSnapshot(response, id, timestamp, events.TakeLast(32).ToArray());
         _completionCache[file.FullName] = new CompletionCacheEntry(file.Length, file.LastWriteTimeUtc, snapshot);
         return snapshot;
     }
@@ -244,9 +254,7 @@ internal sealed class CodexStatusService
     }
 
     private IEnumerable<FileInfo> EnumerateCandidateFiles(int limit)
-        => new DirectoryInfo(_sessionsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories)
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .Take(limit);
+        => (_candidateFiles ??= RecentSessionFiles.Find(_sessionsRoot, "*.jsonl", ActivityCandidateLimit)).Take(limit);
 
     private static void PruneCache<T>(Dictionary<string, T> cache, IEnumerable<string> retainedPaths)
     {
@@ -278,7 +286,7 @@ internal sealed class CodexStatusService
         string? state = null;
         DateTimeOffset? lifecycleAt = null;
         DateTimeOffset? latestActivityAt = null;
-        foreach (var line in JsonLineTailReader.Read(path, maxBytes))
+        foreach (var line in JsonLineTailReader.Read(path, maxBytes, ["task_started", "task_complete", "turn_aborted"]))
         {
             var timestamp = TryReadTimestamp(line);
             if (timestamp is not null && (latestActivityAt is null || timestamp > latestActivityAt)) latestActivityAt = timestamp;
@@ -289,7 +297,8 @@ internal sealed class CodexStatusService
                 lifecycleAt = timestamp ?? lifecycleAt;
             }
         }
-        return new LifecycleSnapshot(state, lifecycleAt, latestActivityAt);
+        // File write time covers intervening tool/stream records without decoding their large payloads.
+        return new LifecycleSnapshot(state, lifecycleAt, File.GetLastWriteTimeUtc(path));
     }
 
     private static bool TryReadLifecycle(string line, out string? lifecycle)
@@ -456,7 +465,7 @@ internal sealed class CodexStatusService
 
     private sealed record LifecycleSnapshot(string? State, DateTimeOffset? LifecycleAt, DateTimeOffset? LatestActivityAt);
     private sealed record LifecycleCacheEntry(long Length, DateTime LastWriteTimeUtc, LifecycleSnapshot Snapshot);
-    private sealed record CompletionSnapshot(string? Response, string? Id, DateTimeOffset? Timestamp);
+    private sealed record CompletionSnapshot(string? Response, string? Id, DateTimeOffset? Timestamp, IReadOnlyList<TaskCompletionEvent>? Events = null);
     private sealed record CompletionCacheEntry(long Length, DateTime LastWriteTimeUtc, CompletionSnapshot Snapshot);
     private readonly record struct ActivityState(bool IsBusy, int SessionsScanned, int ActiveSessions, DateTimeOffset? LatestLifecycleAt, bool HasStaleStarted);
 }

@@ -15,19 +15,23 @@ internal sealed record WorkBuddyStatus(
     DateTimeOffset? RecentResponseAt = null,
     bool RequiresConfirmation = false,
     string? ConfirmationId = null,
-    string? ConfirmationPrompt = null);
+    string? ConfirmationPrompt = null,
+    IReadOnlyList<TaskCompletionEvent>? Completions = null);
 
 internal sealed partial class WorkBuddyStatusService
 {
     private readonly string _projectsRoot = Path.Combine(ProductPaths.WorkBuddyConfigDirectory, "projects");
+    private readonly Dictionary<string, WorkBuddyStatusService> _sessionReaders = new(StringComparer.OrdinalIgnoreCase);
     private string? _cachedSessionPath;
     private string? _cachedTask;
     private WorkBuddyStatus? _cachedStatus;
     private long _cachedStatusLength;
     private DateTime _cachedStatusWriteUtc;
+    private bool _cachedPendingActions;
 
     internal void ResetCache()
     {
+        _sessionReaders.Clear();
         _cachedSessionPath = null;
         _cachedTask = null;
         _cachedStatus = null;
@@ -40,13 +44,34 @@ internal sealed partial class WorkBuddyStatusService
     private WorkBuddyStatus Read()
     {
         var running = ApplicationLocator.IsProcessRunning("WorkBuddy");
+        if (!running) return new(false, false, false, "未运行");
         try
         {
-            if (!Directory.Exists(_projectsRoot)) return new(running, false, false, running ? "无会话数据" : "未运行");
-            var session = new DirectoryInfo(_projectsRoot).EnumerateFiles("*.jsonl", SearchOption.AllDirectories)
-                .OrderByDescending(item => item.LastWriteTimeUtc).FirstOrDefault();
-            if (session is null) return new(running, false, false, running ? "无会话数据" : "未运行");
+            var sessions = RecentSessionFiles.Find(_projectsRoot, "*.jsonl", 24);
+            var retained = sessions.Select(file => file.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in _sessionReaders.Keys.Where(path => !retained.Contains(path)).ToArray()) _sessionReaders.Remove(path);
+            var states = sessions.Select(file =>
+            {
+                if (!_sessionReaders.TryGetValue(file.FullName, out var reader)) _sessionReaders[file.FullName] = reader = new WorkBuddyStatusService();
+                return reader.ReadSession(file, running);
+            }).ToArray();
+            if (states.Length == 0) return new(running, false, false, "无会话数据");
+            var latest = states.OrderByDescending(state => state.RecentResponseAt).First();
+            var current = states.FirstOrDefault(state => state.RequiresConfirmation) ?? states.FirstOrDefault(state => state.IsBusy) ?? states[0];
+            return current with
+            {
+                IsBusy = states.Any(state => state.IsBusy),
+                RecentResponse = latest.RecentResponse, RecentResponseId = latest.RecentResponseId, RecentResponseAt = latest.RecentResponseAt,
+                Completions = states.SelectMany(state => state.Completions ?? []).ToArray()
+            };
+        }
+        catch { return new(running, false, false, "状态不可用"); }
+    }
 
+    private WorkBuddyStatus ReadSession(FileInfo session, bool running)
+    {
+        try
+        {
             session.Refresh();
             if (_cachedStatus is not null
                 && string.Equals(_cachedSessionPath, session.FullName, StringComparison.OrdinalIgnoreCase)
@@ -54,7 +79,8 @@ internal sealed partial class WorkBuddyStatusService
                 && _cachedStatusWriteUtc == session.LastWriteTimeUtc)
             {
                 var stillFresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromSeconds(30);
-                return _cachedStatus with { IsRunning = running, IsBusy = running && stillFresh && _cachedStatus.IsBusy };
+                var pendingFresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromHours(2);
+                return _cachedStatus with { IsRunning = running, IsBusy = running && (_cachedStatus.RequiresConfirmation || (_cachedPendingActions && pendingFresh) || (stillFresh && _cachedStatus.IsBusy)) };
             }
 
             var lines = JsonLineTailReader.Read(session.FullName, 1024 * 1024);
@@ -67,6 +93,7 @@ internal sealed partial class WorkBuddyStatusService
             string? confirmationPrompt = null;
             var pendingCalls = new HashSet<string>(StringComparer.Ordinal);
             var completed = false;
+            var completions = new List<TaskCompletionEvent>();
 
             foreach (var line in lines)
             {
@@ -77,6 +104,7 @@ internal sealed partial class WorkBuddyStatusService
                     var type = Text(root, "type");
                     if (type == "message" && Text(root, "role") == "user")
                     {
+                        completed = false;
                         var extracted = ExtractUserQuery(root);
                         if (!string.IsNullOrWhiteSpace(extracted)) latestTask = extracted;
                     }
@@ -114,6 +142,7 @@ internal sealed partial class WorkBuddyStatusService
                                 latestResponseAt = ReadTimestamp(root) ?? session.LastWriteTimeUtc;
                                 latestResponseId = Text(root, "id");
                                 if (string.IsNullOrWhiteSpace(latestResponseId)) latestResponseId = $"{session.FullName}|{latestResponseAt:O}";
+                                completions.Add(new(latestResponseId, latestResponse, latestResponseAt.Value));
                             }
                         }
                     }
@@ -136,18 +165,19 @@ internal sealed partial class WorkBuddyStatusService
             var requiresConfirmation = !string.IsNullOrWhiteSpace(confirmationId) && pendingCalls.Contains(confirmationId);
             var hasPendingAction = pendingCalls.Count > 0;
             var fresh = DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromSeconds(30);
-            var busy = running && (hasPendingAction || (fresh && !completed));
+            var busy = running && (requiresConfirmation || (hasPendingAction && DateTime.UtcNow - session.LastWriteTimeUtc < TimeSpan.FromHours(2)) || (fresh && !completed));
             var summary = requiresConfirmation
                 ? confirmationPrompt ?? "等待你的确认"
                 : busy
                 ? latestAction ?? "正在处理任务"
                 : latestTask is not null ? $"最近 · {latestTask}" : session.Directory?.Name ?? "已检测到会话";
             var status = new WorkBuddyStatus(running, true, busy, Normalize(summary), latestResponse, latestResponseId, latestResponseAt,
-                requiresConfirmation, confirmationId, confirmationPrompt);
+                requiresConfirmation, confirmationId, confirmationPrompt, completions.TakeLast(32).ToArray());
             _cachedSessionPath = session.FullName;
             _cachedStatusLength = session.Length;
             _cachedStatusWriteUtc = session.LastWriteTimeUtc;
             _cachedStatus = status;
+            _cachedPendingActions = hasPendingAction;
             return status;
         }
         catch

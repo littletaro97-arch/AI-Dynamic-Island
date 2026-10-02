@@ -12,8 +12,9 @@ internal static class JsonLineTailReader
 {
     private const int MaxStatusRecordBytes = 256 * 1024;
 
-    internal static IEnumerable<string> Read(string path, int maxBytes)
+    internal static IEnumerable<string> Read(string path, int maxBytes, string[]? markers = null)
     {
+        var encodedMarkers = markers?.Select(Encoding.UTF8.GetBytes).ToArray();
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var byteCount = (int)Math.Min(maxBytes, stream.Length);
         if (byteCount <= 0) yield break;
@@ -45,6 +46,11 @@ internal static class JsonLineTailReader
                 if (length > 0 && buffer[lineStart + length - 1] == (byte)'\r') length--;
                 if (length is > 0 and <= MaxStatusRecordBytes)
                 {
+                    if (encodedMarkers is not null && !ContainsMarker(buffer, lineStart, length, encodedMarkers))
+                    {
+                        lineStart = index + 1;
+                        continue;
+                    }
                     var line = Encoding.UTF8.GetString(buffer, lineStart, length);
                     yield return lineStart == 0 ? line.TrimStart('\uFEFF') : line;
                 }
@@ -55,5 +61,12 @@ internal static class JsonLineTailReader
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    private static bool ContainsMarker(byte[] buffer, int start, int length, byte[][] markers)
+    {
+        foreach (var marker in markers)
+            if (buffer.AsSpan(start, length).IndexOf(marker) >= 0) return true;
+        return false;
     }
 }

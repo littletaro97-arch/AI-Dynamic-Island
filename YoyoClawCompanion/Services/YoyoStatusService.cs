@@ -12,7 +12,8 @@ internal sealed record YoyoStatus(
     double? TotalPoints,
     string RecentResult,
     bool LastTaskFailed,
-    DateTimeOffset? RecentUpdatedAt);
+    DateTimeOffset? RecentUpdatedAt,
+    IReadOnlyList<TaskCompletionEvent>? Completions = null);
 
 internal sealed class YoyoStatusService
 {
@@ -31,7 +32,7 @@ internal sealed class YoyoStatusService
     {
         var running = ApplicationLocator.IsProcessRunning("HnMagicClawUI");
         var points = _quota.Read();
-        var snapshot = await ReadMagicoreAsync();
+        var snapshot = running ? await ReadMagicoreAsync() : _cachedSnapshot;
         var updatedAt = ParseDate(snapshot?.UpdatedAt);
         var recentFailure = snapshot?.LastTaskFailed == true
             && updatedAt is not null
@@ -39,12 +40,13 @@ internal sealed class YoyoStatusService
         return new YoyoStatus(
             running,
             snapshot?.Ok == true,
-            snapshot?.Busy == true,
+            running && snapshot?.Busy == true,
             points.Remaining,
             points.Total,
             snapshot?.Ok == true ? Normalize(snapshot.RecentResult) : "任务状态不可用",
             recentFailure,
-            updatedAt);
+            updatedAt,
+            snapshot?.Completions);
     }
 
     private async Task<MagicoreSnapshot?> ReadMagicoreAsync()
@@ -183,5 +185,5 @@ internal sealed class YoyoStatusService
 
     private static DateTimeOffset? ParseDate(string? value) => DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
 
-    private sealed record MagicoreSnapshot(bool Ok, bool Busy, string? RecentResult, bool LastTaskFailed, string? UpdatedAt);
+    private sealed record MagicoreSnapshot(bool Ok, bool Busy, string? RecentResult, bool LastTaskFailed, string? UpdatedAt, IReadOnlyList<TaskCompletionEvent>? Completions = null);
 }

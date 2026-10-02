@@ -47,13 +47,15 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _fullscreenTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _zOrderTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly DispatcherTimer _readyClockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer _marqueeTimer = new() { Interval = TimeSpan.FromMilliseconds(1000d / 30) };
+    private string? _plainSummaryText;
+    private Brush? _plainSummaryBrush;
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _dragMoved, _refreshing, _expanded, _finishingGesture;
     private bool _manualCollapseUntilPointerExit, _refreshAfterCurrent, _fullResetAfterCurrent;
     private bool _collapseHandlePressed, _suppressCollapseHandleClick;
     private bool _completionBaselineReady, _notificationHoldActive;
-    private string? _yoyoCompletionId, _codexCompletionId, _workBuddyCompletionId;
     private string? _activeCompletionNotice;
     private string? _activeSystemNotice;
     private string? _activeConfirmationNotice, _workBuddyConfirmationId;
@@ -93,6 +95,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeProviderSuppression();
         Icon = App.CreateWindowIcon();
         ConfigureIslandMenu();
         Loaded += OnLoaded;
@@ -106,6 +109,7 @@ public partial class MainWindow : Window
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
         _readyClockTimer.Tick += (_, _) => UpdateReadyClockText();
+        _marqueeTimer.Tick += AdvanceSummaryMarquee;
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
@@ -233,9 +237,11 @@ public partial class MainWindow : Window
         _statusService.ResetCache();
         _codexStatusService.ResetCache();
         _workBuddyStatusService.ResetCache();
+        _deepSeekStatusService.ResetCache();
+        _seenCompletionEvents.Clear();
+        _pendingCompletions.Clear();
         _workBuddyCreditsService.ResetCache();
         _completionBaselineReady = false;
-        _yoyoCompletionId = _codexCompletionId = _workBuddyCompletionId = null;
         _workBuddyConfirmationId = null;
         _activeCompletionNotice = _activeConfirmationNotice = _activeSystemNotice = null;
         _codexFiveHourReminderId = _codexWeeklyReminderId = null;
@@ -391,8 +397,8 @@ public partial class MainWindow : Window
         var showTwoRows = (textSize + 2) * 1.3 + textSize * 1.3 <= CollapsedHeight - 4;
         HeadlineText.FontSize = showTwoRows ? textSize + 2 : textSize + 1;
         SummaryText.FontSize = SummaryTextClone.FontSize = showTwoRows ? textSize : textSize + 1;
-        YoyoLabel.FontSize = CodexLabel.FontSize = WorkBuddyLabel.FontSize = textSize + 1;
-        StateText.FontSize = PointsText.FontSize = CodexStateText.FontSize = WorkBuddyStateText.FontSize = textSize;
+        YoyoLabel.FontSize = CodexLabel.FontSize = WorkBuddyLabel.FontSize = DeepSeekLabel.FontSize = textSize + 1;
+        StateText.FontSize = PointsText.FontSize = CodexStateText.FontSize = WorkBuddyStateText.FontSize = DeepSeekStateText.FontSize = textSize;
         RecentResultText.FontSize = textSize;
 
         var lineHeight = Math.Ceiling(textSize * 1.45);
@@ -409,6 +415,7 @@ public partial class MainWindow : Window
         System.Windows.Controls.Grid.SetColumn(HeadlineText, 0);
         System.Windows.Controls.Grid.SetColumnSpan(HeadlineText, showTwoRows ? 2 : 1);
         System.Windows.Controls.Grid.SetRow(SummaryViewport, showTwoRows ? 1 : 0);
+        System.Windows.Controls.Grid.SetRow(DismissOfflineButton, showTwoRows ? 1 : 0);
         System.Windows.Controls.Grid.SetColumn(SummaryViewport, showTwoRows ? 0 : 1);
         System.Windows.Controls.Grid.SetColumnSpan(SummaryViewport, showTwoRows ? 2 : 1);
         SummaryViewport.Margin = showTwoRows ? new Thickness(0) : new Thickness(10, 0, 0, 0);
@@ -450,14 +457,16 @@ public partial class MainWindow : Window
         "yoyo" => _yoyoInstalled,
         "codex" => _codexInstalled,
         "workbuddy" => _workBuddyInstalled,
+        "deepseek" => _deepSeekInstalled,
         _ => false
     };
 
-    private bool IsProviderVisible(string provider) => IsProviderInstalled(provider) && provider switch
+    private bool IsProviderVisible(string provider) => !_suppressedProviders.Contains(provider) && IsProviderInstalled(provider) && provider switch
     {
         "yoyo" => _settings.ShowYoyo,
         "codex" => _settings.ShowCodex,
         "workbuddy" => _settings.ShowWorkBuddy,
+        "deepseek" => _settings.ShowDeepSeek,
         _ => false
     };
 
@@ -474,7 +483,8 @@ public partial class MainWindow : Window
         {
             ["yoyo"] = YoyoIndicatorButton,
             ["codex"] = CodexIndicatorButton,
-            ["workbuddy"] = WorkBuddyIndicatorButton
+            ["workbuddy"] = WorkBuddyIndicatorButton,
+            ["deepseek"] = DeepSeekIndicatorButton
         };
         foreach (var indicator in indicators.Values) IndicatorPanel.Children.Remove(indicator);
         foreach (var provider in ProviderOrder())
@@ -494,6 +504,8 @@ public partial class MainWindow : Window
         CodexRowButton.Visibility = IsProviderVisible("codex") ? Visibility.Visible : Visibility.Collapsed;
         WorkBuddyRowButton.Visibility = IsProviderVisible("workbuddy") ? Visibility.Visible : Visibility.Collapsed;
         PointsText.Visibility = IsProviderVisible("yoyo") && _settings.ShowYoyoCredits ? Visibility.Visible : Visibility.Collapsed;
+        DeepSeekIndicatorButton.Visibility = IsProviderVisible("deepseek") ? Visibility.Visible : Visibility.Collapsed;
+        DeepSeekRowButton.Visibility = IsProviderVisible("deepseek") ? Visibility.Visible : Visibility.Collapsed;
         ApplyExpandedContentOrder();
         _balanceSummaryKey = null;
     }
@@ -506,16 +518,18 @@ public partial class MainWindow : Window
         ExpandedRow1.Height = new GridLength(0);
         ExpandedRow2.Height = new GridLength(0);
         ExpandedRow3.Height = new GridLength(0);
+        ExpandedRow4.Height = new GridLength(0);
 
         var rows = new Dictionary<string, UIElement[]>
         {
             ["yoyo"] = [StateDot, YoyoLabel, StateText, PointsText, YoyoRowButton],
             ["codex"] = [CodexDot, CodexLabel, CodexStateText, CodexRowButton],
-            ["workbuddy"] = [WorkBuddyDot, WorkBuddyLabel, WorkBuddyStateText, WorkBuddyRowButton]
+            ["workbuddy"] = [WorkBuddyDot, WorkBuddyLabel, WorkBuddyStateText, WorkBuddyRowButton],
+            ["deepseek"] = [DeepSeekDot, DeepSeekLabel, DeepSeekStateText, DeepSeekRowButton]
         };
         var order = VisibleProviderOrder();
         var replyRow = replyFirst ? 0 : order.Length;
-        var definitions = new[] { ExpandedRow0, ExpandedRow1, ExpandedRow2, ExpandedRow3 };
+        var definitions = new[] { ExpandedRow0, ExpandedRow1, ExpandedRow2, ExpandedRow3, ExpandedRow4 };
         definitions[replyRow].Height = new GridLength(1, GridUnitType.Star);
         for (var index = 0; index < order.Length; index++)
         {
@@ -646,6 +660,7 @@ public partial class MainWindow : Window
             var workBuddyCreditsTask = MeasureAsync(_workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits));
             var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits));
             var yoyoTask = MeasureAsync(_statusService.ReadAsync());
+            var deepSeekTask = _deepSeekStatusService.ReadAsync(_settings.DeepSeekExecutablePath);
 
             // Codex activity is intentionally applied first. Slow YOYO bridge or quota reads must not
             // delay the visible busy state or active-only island wake-up.
@@ -659,6 +674,9 @@ public partial class MainWindow : Window
             var status = statusResult.Value;
             var workBuddy = workBuddyResult.Value;
             var workBuddyCredits = workBuddyCreditsResult.Value;
+            _deepSeekStatus = await deepSeekTask;
+            UpdateSuppressedProviders(status.IsYoyoRunning, codex.IsRunning, workBuddy.IsRunning, _deepSeekStatus.IsRunning);
+            ApplyDeepSeekState();
             WorkBuddyMiniDot.Fill = !workBuddy.IsRunning ? OfflineBrush : !workBuddy.DataAvailable ? ErrorBrush : workBuddy.IsBusy ? BusyBrush : OnlineBrush;
             YoyoMiniDot.Fill = !status.IsYoyoRunning ? OfflineBrush : !status.TaskStatusAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : status.LastTaskFailed ? ErrorBrush : OnlineBrush;
             StateDot.Fill = YoyoMiniDot.Fill;
@@ -677,7 +695,8 @@ public partial class MainWindow : Window
             RecentResultText.Text = ActiveNoticeText;
             _anyBusy = (IsProviderVisible("yoyo") && status.IsBusy)
                 || (IsProviderVisible("codex") && codex.IsBusy)
-                || (IsProviderVisible("workbuddy") && workBuddy.IsBusy);
+                || (IsProviderVisible("workbuddy") && workBuddy.IsBusy)
+                || (IsProviderVisible("deepseek") && _deepSeekStatus.IsBusy);
             UpdateInactivityState(status, codex, workBuddy, workBuddyCredits);
             _refreshTimer.Interval = TimeSpan.FromSeconds(_anyBusy ? 2 : 5);
             UpdateHeadline(status, codex, workBuddy, workBuddyCredits);
@@ -742,13 +761,14 @@ public partial class MainWindow : Window
     internal IReadOnlyList<ProviderMenuEntry> GetProviderMenuEntries()
     {
         var entries = new List<ProviderMenuEntry>();
-        foreach (var key in ProviderOrder().Where(IsProviderInstalled))
+        foreach (var key in ProviderOrder().Where(key => IsProviderInstalled(key) && !_suppressedProviders.Contains(key)))
         {
             var (state, color, available) = key switch
             {
                 "yoyo" => (StateText.Text, BrushColor(YoyoMiniDot.Fill), CanLaunchYoyo()),
                 "codex" => (InlineText(CodexStateText), BrushColor(CodexMiniDot.Fill), CanLaunchCodex()),
                 "workbuddy" => (InlineText(WorkBuddyStateText), BrushColor(WorkBuddyMiniDot.Fill), CanLaunchWorkBuddy()),
+                "deepseek" => (DeepSeekStateText.Text, BrushColor(DeepSeekMiniDot.Fill), ApplicationLocator.FindDeepSeekExecutable(_settings.DeepSeekExecutablePath) is not null),
                 _ => ("未知来源", "#727C90", false)
             };
             entries.Add(new ProviderMenuEntry(key, ProviderLabel(key), state, color, _settings.EnableAppLaunch && available));
@@ -783,8 +803,8 @@ public partial class MainWindow : Window
     {
         _readyClockTimer.Stop();
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
-        var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy };
-        var runningByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsYoyoRunning, ["codex"] = codex.IsRunning, ["workbuddy"] = workBuddy.IsRunning };
+        var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy, ["deepseek"] = _deepSeekStatus.IsBusy };
+        var runningByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsYoyoRunning, ["codex"] = codex.IsRunning, ["workbuddy"] = workBuddy.IsRunning, ["deepseek"] = _deepSeekStatus.IsRunning };
         var now = DateTimeOffset.UtcNow;
         foreach (var pair in busyByProvider.Where(pair => pair.Value)) _headlineBusySeenAt[pair.Key] = now;
         var busyProviders = VisibleProviderOrder().Where(provider =>
@@ -792,13 +812,19 @@ public partial class MainWindow : Window
                 || (runningByProvider.TryGetValue(provider, out var running) && running
                     && _headlineBusySeenAt.TryGetValue(provider, out var seenAt) && now - seenAt <= TimeSpan.FromSeconds(4)))
             .ToList();
+        var missing = VisibleProviderOrder().FirstOrDefault(provider => !runningByProvider[provider]);
+        var showDismiss = missing is not null && busyProviders.Count == 0 && !workBuddy.RequiresConfirmation && !_deepSeekStatus.RequiresConfirmation;
+        SetOfflineDismissTarget(showDismiss ? missing : null);
         if (VisibleProviderOrder().Length == 0) { HeadlineText.Text = "未检测到助手"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary("请在设置中指定安装位置"); }
         else if (IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
+        else if (IsProviderVisible("deepseek") && _deepSeekStatus.RequiresConfirmation) { HeadlineText.Text = "DeepSeek 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("请打开 Harness 完成决策", BusyBrush); }
+        else if (busyProviders.Count == 1 && busyProviders[0] == "deepseek") { HeadlineText.Text = "DeepSeek 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("正在处理任务"); }
         else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("  |  ", busyProviders.Select(provider => BusyMetric(provider, yoyo, codex, workBuddyCredits)))); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "yoyo") { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(yoyo.RecentResult, _settings.ShowYoyoCredits ? points : null)); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "codex") { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "workbuddy") { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(workBuddy.Summary, WorkBuddyMetric(workBuddyCredits))); }
-        else if (IsProviderVisible("yoyo") && !yoyo.IsYoyoRunning) { HeadlineText.Text = "YOYO 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(codex.IsRunning || workBuddy.IsRunning ? "其他助手已就绪" : "未检测到运行实例"); }
+        else if (missing is not null) { HeadlineText.Text = $"{ProviderLabel(missing)} 未运行"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary(VisibleProviderOrder().Any(provider => runningByProvider[provider]) ? "其他助手已就绪" : "未检测到运行实例"); }
+        else if (IsProviderVisible("deepseek") && (!_deepSeekStatus.Available || _deepSeekStatus.State is "error" or "unknown")) { HeadlineText.Text = "DeepSeek 状态需检查"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(DeepSeekStateText.Text); }
         else if (IsProviderVisible("yoyo") && !yoyo.TaskStatusAvailable) { HeadlineText.Text = "YOYO 状态不可用"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(points, AccentBrush); }
         else if (IsProviderVisible("yoyo") && yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else
@@ -867,6 +893,8 @@ public partial class MainWindow : Window
             values["workbuddy"] = workBuddy.Available && workBuddy.Remaining is double credits ? $"{credits:0.##} 积分" : "--";
         var key = $"{_settings.ProviderOrder}|{_settings.ShowYoyoCredits}|{_settings.ShowCodexLimits}|{_settings.ShowWorkBuddyCredits}|{string.Join('|', ProviderOrder().Where(values.ContainsKey).Select(provider => values[provider]))}";
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
+        _plainSummaryText = null;
+        _plainSummaryBrush = null;
 
         _isBalanceSummary = values.Count > 0;
         _balanceSummaryKey = key;
@@ -897,6 +925,9 @@ public partial class MainWindow : Window
 
     private void SetPlainSummary(string value, Brush? foreground = null)
     {
+        if (!_isBalanceSummary && _plainSummaryText == value && ReferenceEquals(_plainSummaryBrush, foreground)) return;
+        _plainSummaryText = value;
+        _plainSummaryBrush = foreground;
         _isBalanceSummary = false;
         _balanceSummaryKey = null;
         StopSummaryMarquee();
@@ -918,38 +949,39 @@ public partial class MainWindow : Window
             candidates.Add(new("Codex", codex.RecentResponse!, codexAt));
         if (IsProviderVisible("workbuddy") && workBuddy.RecentResponseAt is DateTimeOffset workBuddyAt && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
             candidates.Add(new("WorkBuddy", workBuddy.RecentResponse!, workBuddyAt));
+        if (IsProviderVisible("deepseek") && _deepSeekStatus.Available)
+            candidates.AddRange((_deepSeekStatus.Completions ?? []).Select(item => new CompletionNotice("DeepSeek Harness",item.Response,item.CompletedAt)));
         var latest = candidates.OrderByDescending(item => item.CompletedAt).FirstOrDefault();
-        return latest is null ? yoyo.RecentResult : $"{latest.Provider} · {latest.Response}";
+        return latest is null ? "尚未检测到任务结果" : $"{latest.Provider} · {latest.Response}";
     }
 
     private CompletionNotice? DetectCompletion(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
     {
-        var yoyoId = IsProviderVisible("yoyo") && !yoyo.IsBusy && yoyo.TaskStatusAvailable && yoyo.RecentUpdatedAt is DateTimeOffset yoyoAt
-            ? $"{yoyoAt:O}|{yoyo.RecentResult}" : null;
-        var codexId = IsProviderVisible("codex") && !codex.IsBusy ? codex.RecentResponseId : null;
-        var workBuddyId = IsProviderVisible("workbuddy") && !workBuddy.IsBusy ? workBuddy.RecentResponseId : null;
-
-        if (!_completionBaselineReady)
+        var events = new List<(string Key, string Provider, TaskCompletionEvent Event)>();
+        void Add(string key, bool running, IEnumerable<TaskCompletionEvent> records)
         {
-            _yoyoCompletionId = yoyoId;
-            _codexCompletionId = codexId;
-            _workBuddyCompletionId = workBuddyId;
-            _completionBaselineReady = true;
-            return null;
+            if (IsProviderVisible(key) && running) events.AddRange(records.Select(record => (key, ProviderLabel(key), record)));
         }
-
-        var notices = new List<CompletionNotice>();
-        if (yoyoId is not null && yoyoId != _yoyoCompletionId && !string.IsNullOrWhiteSpace(yoyo.RecentResult))
-            notices.Add(new("YOYO Claw", yoyo.RecentResult, yoyo.RecentUpdatedAt ?? DateTimeOffset.Now));
-        if (codexId is not null && codexId != _codexCompletionId && !string.IsNullOrWhiteSpace(codex.RecentResponse))
-            notices.Add(new("Codex", codex.RecentResponse!, codex.RecentResponseAt ?? DateTimeOffset.Now));
-        if (workBuddyId is not null && workBuddyId != _workBuddyCompletionId && !string.IsNullOrWhiteSpace(workBuddy.RecentResponse))
-            notices.Add(new("WorkBuddy", workBuddy.RecentResponse!, workBuddy.RecentResponseAt ?? DateTimeOffset.Now));
-
-        if (yoyoId is not null) _yoyoCompletionId = yoyoId;
-        if (codexId is not null) _codexCompletionId = codexId;
-        if (workBuddyId is not null) _workBuddyCompletionId = workBuddyId;
-        return notices.OrderByDescending(item => item.CompletedAt).FirstOrDefault();
+        Add("yoyo", yoyo.IsYoyoRunning && yoyo.TaskStatusAvailable, yoyo.Completions ?? []);
+        Add("codex", codex.IsRunning, codex.Completions ?? (codex.RecentResponseId is not null && codex.RecentResponseAt is DateTimeOffset codexAt && codex.RecentResponse is not null ? [new(codex.RecentResponseId,codex.RecentResponse,codexAt)] : []));
+        Add("workbuddy", workBuddy.IsRunning, workBuddy.Completions ?? (workBuddy.RecentResponseId is not null && workBuddy.RecentResponseAt is DateTimeOffset buddyAt && workBuddy.RecentResponse is not null ? [new(workBuddy.RecentResponseId,workBuddy.RecentResponse,buddyAt)] : []));
+        if (_deepSeekStatus.Available) Add("deepseek", _deepSeekStatus.IsRunning, _deepSeekStatus.Completions ?? []);
+        foreach (var item in events.OrderBy(item => item.Event.CompletedAt))
+        {
+            var id = item.Key + "|" + item.Event.Id;
+            if (!_seenCompletionEvents.Add(id)) continue;
+            if (_completionBaselineReady && _settings.EnableCompletionNotifications && item.Event.CompletedAt >= _monitorStartedAt
+                && item.Event.CompletedAt >= DateTimeOffset.UtcNow.AddMinutes(-30) && item.Event.CompletedAt <= DateTimeOffset.UtcNow.AddMinutes(2))
+            {
+                if (_pendingCompletions.Count >= 64) _pendingCompletions.Dequeue();
+                _pendingCompletions.Enqueue(new(item.Provider, item.Event.Response, item.Event.CompletedAt));
+            }
+        }
+        _completionBaselineReady = true;
+        if (_seenCompletionEvents.Count > 2048) { _seenCompletionEvents.Clear(); foreach (var item in events) _seenCompletionEvents.Add(item.Key + "|" + item.Event.Id); }
+        if (!_settings.EnableCompletionNotifications) _pendingCompletions.Clear();
+        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null || _pendingCompletions.Count == 0) return null;
+        return _pendingCompletions.Dequeue();
     }
 
     private void ShowCompletionNotice(CompletionNotice notice)
@@ -1015,16 +1047,20 @@ public partial class MainWindow : Window
         YoyoRowButton.IsChecked = string.Equals(provider, "YOYO Claw", StringComparison.OrdinalIgnoreCase);
         CodexRowButton.IsChecked = string.Equals(provider, "Codex", StringComparison.OrdinalIgnoreCase);
         WorkBuddyRowButton.IsChecked = string.Equals(provider, "WorkBuddy", StringComparison.OrdinalIgnoreCase);
+        DeepSeekRowButton.IsChecked = string.Equals(provider, "DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ClearProviderHighlight()
     {
         _highlightedProvider = null;
-        YoyoRowButton.IsChecked = CodexRowButton.IsChecked = WorkBuddyRowButton.IsChecked = false;
+        YoyoRowButton.IsChecked = CodexRowButton.IsChecked = WorkBuddyRowButton.IsChecked = DeepSeekRowButton.IsChecked = false;
     }
 
     private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
     {
+        if (!_deepSeekStatus.RequiresConfirmation) _deepSeekConfirmationId = null;
+        if (IsProviderVisible("deepseek") && _deepSeekStatus.RequiresConfirmation && _settings.EnableConfirmationNotifications
+            && !(IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation)) { ShowDeepSeekDecision(); return; }
         if (!IsProviderVisible("workbuddy") || !workBuddy.RequiresConfirmation || !_settings.EnableConfirmationNotifications)
         {
             var wasActive = _activeConfirmationNotice is not null;
@@ -1069,6 +1105,7 @@ public partial class MainWindow : Window
         _activeSystemNotice = null;
         if (_activeConfirmationNotice is null) ClearProviderHighlight();
         RecentResultText.Text = ActiveNoticeText;
+        if (_activeConfirmationNotice is null && _settings.EnableCompletionNotifications && _pendingCompletions.Count > 0) { ShowCompletionNotice(_pendingCompletions.Dequeue()); return; }
         if (_settings.EnableReverseHover && Island.IsMouseOver)
         {
             CollapseIsland(true);
@@ -1143,7 +1180,7 @@ public partial class MainWindow : Window
             yoyo.IsYoyoRunning, yoyo.TaskStatusAvailable, yoyo.IsBusy, yoyo.LastTaskFailed, yoyo.RemainingPoints, yoyo.RecentResult,
             codex.IsRunning, codex.IsBusy, codex.FiveHourRemainingPercent, codex.WeeklyRemainingPercent, codex.RecentResponse,
             workBuddy.IsRunning, workBuddy.DataAvailable, workBuddy.IsBusy, workBuddy.RequiresConfirmation, workBuddy.Summary,
-            workBuddy.RecentResponse, credits.Available, credits.Remaining);
+            workBuddy.RecentResponse, credits.Available, credits.Remaining, _deepSeekStatus.State, _deepSeekStatus.ConfirmationId);
         var now = DateTimeOffset.Now;
         if (!string.Equals(_stateFingerprint, fingerprint, StringComparison.Ordinal))
         {
@@ -1342,7 +1379,7 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left) return;
+        if (e.ChangedButton != MouseButton.Left || DismissOfflineButton.IsMouseOver) return;
         _suppressCollapseHandleClick = false;
         _collapseHandlePressed = _expanded && CollapseHandleButton.IsMouseOver;
         _enterTimer.Stop(); _leaveTimer.Stop();
@@ -1805,6 +1842,7 @@ public partial class MainWindow : Window
             "yoyo" => _settings.YoyoExecutablePath,
             "codex" => _settings.CodexExecutablePath,
             "workbuddy" => _settings.WorkBuddyExecutablePath,
+            "deepseek" => _settings.DeepSeekExecutablePath,
             _ => null
         })).ToArray();
 
@@ -1817,6 +1855,7 @@ public partial class MainWindow : Window
             case "yoyo": _settings.YoyoExecutablePath = fullPath; break;
             case "codex": _settings.CodexExecutablePath = fullPath; break;
             case "workbuddy": _settings.WorkBuddyExecutablePath = fullPath; break;
+            case "deepseek": _settings.DeepSeekExecutablePath = fullPath; break;
             default: return false;
         }
         AppSettings.Save(_settings);
@@ -1837,22 +1876,26 @@ public partial class MainWindow : Window
         var yoyo = ApplicationLocator.FindYoyoExecutable(_settings.YoyoExecutablePath);
         var codex = ApplicationLocator.FindCodexDesktopExecutable(_settings.CodexExecutablePath, IsCodexProcess);
         var workBuddy = ApplicationLocator.FindWorkBuddyExecutable(_settings.WorkBuddyExecutablePath);
+        var deepSeek = ApplicationLocator.FindDeepSeekExecutable(_settings.DeepSeekExecutablePath);
         var changed = false;
         if (yoyo is not null && !string.Equals(_settings.YoyoExecutablePath, yoyo, StringComparison.OrdinalIgnoreCase)) { _settings.YoyoExecutablePath = yoyo; changed = true; }
         if (codex is not null && !string.Equals(_settings.CodexExecutablePath, codex, StringComparison.OrdinalIgnoreCase)) { _settings.CodexExecutablePath = codex; changed = true; }
         if (workBuddy is not null && !string.Equals(_settings.WorkBuddyExecutablePath, workBuddy, StringComparison.OrdinalIgnoreCase)) { _settings.WorkBuddyExecutablePath = workBuddy; changed = true; }
+        if (deepSeek is not null && !string.Equals(_settings.DeepSeekExecutablePath, deepSeek, StringComparison.OrdinalIgnoreCase)) { _settings.DeepSeekExecutablePath = deepSeek; changed = true; }
+        var deepSeekInstalled = deepSeek is not null;
         var yoyoInstalled = yoyo is not null;
         var codexInstalled = codex is not null || ApplicationLocator.IsCodexDesktopInstalled(_settings.CodexExecutablePath, IsCodexProcess);
         var workBuddyInstalled = workBuddy is not null;
-        var availabilityChanged = yoyoInstalled != _yoyoInstalled || codexInstalled != _codexInstalled || workBuddyInstalled != _workBuddyInstalled;
+        var availabilityChanged = yoyoInstalled != _yoyoInstalled || codexInstalled != _codexInstalled || workBuddyInstalled != _workBuddyInstalled || deepSeekInstalled != _deepSeekInstalled;
         _yoyoInstalled = yoyoInstalled;
         _codexInstalled = codexInstalled;
         _workBuddyInstalled = workBuddyInstalled;
+        _deepSeekInstalled = deepSeekInstalled;
         if (changed) AppSettings.Save(_settings);
         if (availabilityChanged)
         {
             ApplyProviderVisibility();
-            if (_expanded) Island.Height = GetExpandedHeight();
+            if (_expanded) Island.BeginAnimation(System.Windows.Controls.Border.HeightProperty, new DoubleAnimation(GetExpandedHeight(),TimeSpan.FromMilliseconds(220)));
         }
         if (availabilityChanged || forceNotification) ProviderAvailabilityChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1929,7 +1972,7 @@ public partial class MainWindow : Window
         _lastMarqueeTick = Stopwatch.GetTimestamp();
         if (!_marqueeRenderingSubscribed)
         {
-            CompositionTarget.Rendering += AdvanceSummaryMarquee;
+            _marqueeTimer.Start();
             _marqueeRenderingSubscribed = true;
         }
     }
@@ -1954,7 +1997,7 @@ public partial class MainWindow : Window
     {
         if (_marqueeRenderingSubscribed)
         {
-            CompositionTarget.Rendering -= AdvanceSummaryMarquee;
+            _marqueeTimer.Stop();
             _marqueeRenderingSubscribed = false;
         }
         _marqueeOffset = 0;
@@ -1974,6 +2017,7 @@ public partial class MainWindow : Window
         YoyoRowButton.Cursor = cursor;
         CodexRowButton.Cursor = cursor;
         WorkBuddyRowButton.Cursor = cursor;
+        DeepSeekRowButton.Cursor = cursor;
     }
 
     private void SystemThemeChanged(object sender, UserPreferenceChangedEventArgs e)
@@ -1999,6 +2043,7 @@ public partial class MainWindow : Window
         YoyoLabel.Foreground = primary;
         CodexLabel.Foreground = primary;
         WorkBuddyLabel.Foreground = primary;
+        DeepSeekLabel.Foreground = primary;
         RecentResultText.Foreground = Brush(light ? "#59657A" : "#B9C2D4");
         RecentBorder.Background = Brush(light ? "#CCEAF0F7" : "#B8182033");
         _islandMenu.Background = Brush(light ? "#F7FFFFFF" : "#F00E131D");
@@ -2020,7 +2065,7 @@ public partial class MainWindow : Window
         catch { return true; }
     }
 
-    private static void WriteStatusSnapshot(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits, RefreshTimings timings)
+    private void WriteStatusSnapshot(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits credits, RefreshTimings timings)
     {
         try
         {
@@ -2028,6 +2073,7 @@ public partial class MainWindow : Window
             var json = JsonSerializer.Serialize(new
             {
                 updatedAt = DateTimeOffset.Now,
+                deepSeek = new { _deepSeekStatus.IsRunning, _deepSeekStatus.Available, _deepSeekStatus.State, _deepSeekStatus.Error },
                 yoyo = new { running = yoyo.IsYoyoRunning, available = yoyo.TaskStatusAvailable, busy = yoyo.IsBusy, points = yoyo.RemainingPoints, totalPoints = yoyo.TotalPoints, result = yoyo.RecentResult, recentResponseAt = yoyo.RecentUpdatedAt, readMilliseconds = timings.YoyoReadMilliseconds },
                 codex = new
                 {
@@ -2085,6 +2131,7 @@ public partial class MainWindow : Window
             case "yoyo": OpenProviderAndAcknowledge("YOYO Claw", OpenYoyo); break;
             case "codex": OpenProviderAndAcknowledge("Codex", OpenCodex); break;
             case "workbuddy": OpenProviderAndAcknowledge("WorkBuddy", OpenWorkBuddy); break;
+            case "deepseek": OpenProviderAndAcknowledge("DeepSeek Harness", OpenDeepSeek); break;
         }
     }
 

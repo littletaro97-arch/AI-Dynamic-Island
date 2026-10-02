@@ -35,6 +35,7 @@ try {
   });
 
   const active = conversations.filter(item => Boolean(item.active_execution_id));
+  const completions = [];
   let busy = false;
   for (const item of active) {
     const thread = await sdk.conversation.threadView({ conversation_id: item.conversation_id });
@@ -46,6 +47,22 @@ try {
   }
 
   const latest = conversations[0];
+  // Read verified completions independently of other conversations still running.
+  for (const conversation of conversations.slice(0, 8)) {
+    try {
+      const history = await sdk.conversation.historyPage({ conversation_id: conversation.conversation_id, anchor: 'tail', direction: 'backward', limit: 24 });
+      const reply = (history.items || []).filter(item => item.entry_kind === 'agent_message' && item.execution_id && !item.incomplete)
+        .sort((a, b) => {
+          const delta = BigInt(String(b.seq ?? 0)) - BigInt(String(a.seq ?? 0));
+          return delta > 0n ? 1 : delta < 0n ? -1 : 0;
+        })[0];
+      if (!reply) continue;
+      const execution = await sdk.execution.getView({ execution_id: reply.execution_id });
+      if (execution.execution_view?.status !== 'completed') continue;
+      const response = (reply.parts || []).filter(part => part.type === 'text').map(part => part.text || '').join(' ').replace(/\s+/g, ' ').slice(0, 600);
+      if (response && reply.created_at) completions.push({ id: `${conversation.conversation_id}|${reply.entry_id || reply.seq}`, response, completedAt: reply.created_at });
+    } catch { /* Older builds without a verified signal do not generate a completion. */ }
+  }
   let latestReply = '';
   if (latest?.conversation_id) {
     try {
@@ -77,6 +94,7 @@ try {
     ok: true,
     source: 'magicore',
     busy,
+    completions,
     recentResult: preview,
     lastTaskFailed: failed,
     updatedAt: latest?.last_entry_at || latest?.updated_at || null,

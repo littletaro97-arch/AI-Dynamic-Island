@@ -93,6 +93,7 @@ public partial class SettingsWindow : Window
         YoyoCheck.IsChecked = value.ShowYoyo;
         CodexCheck.IsChecked = value.ShowCodex;
         WorkBuddyCheck.IsChecked = value.ShowWorkBuddy;
+        DeepSeekCheck.IsChecked = value.ShowDeepSeek;
         TrayIconCheck.IsChecked = value.ShowTrayIcon;
         StartupCheck.IsChecked = value.StartWithWindows;
         AutoUpdateCheck.IsChecked = value.AutoCheckForUpdates;
@@ -155,6 +156,7 @@ public partial class SettingsWindow : Window
         current.ShowYoyo = YoyoCheck.IsChecked == true;
         current.ShowCodex = CodexCheck.IsChecked == true;
         current.ShowWorkBuddy = WorkBuddyCheck.IsChecked == true;
+        current.ShowDeepSeek = DeepSeekCheck.IsChecked == true;
         current.ShowTrayIcon = TrayIconCheck.IsChecked == true;
         current.StartWithWindows = StartupCheck.IsChecked == true;
         current.AutoCheckForUpdates = AutoUpdateCheck.IsChecked == true;
@@ -211,6 +213,8 @@ public partial class SettingsWindow : Window
         SetDependentState(YoyoLaunchForCheckinCheck, yoyoInstalled && YoyoAutoCheckinCheck.IsChecked == true);
         foreach (var control in new UIElement[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) SetDependentState(control, codexInstalled);
         foreach (var control in new UIElement[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) SetDependentState(control, workBuddyInstalled);
+        SetDependentState(DeepSeekCheck, installations.TryGetValue("deepseek", out var deepSeek) && deepSeek.IsInstalled);
+        SetDependentState(ConfirmationNotificationsCheck, workBuddyInstalled || (deepSeek?.IsInstalled ?? false));
         CodexResetReminderPanel.IsEnabled = codexInstalled && CodexResetReminderCheck.IsChecked == true;
         if (!CodexResetReminderCheck.IsEnabled || CodexResetReminderCheck.IsChecked != true) CodexResetReminderCard.SetExpanded(false);
         if (UnchangedAutoHideCheck.IsChecked != true) UnchangedAutoHideCard.SetExpanded(false);
@@ -225,7 +229,7 @@ public partial class SettingsWindow : Window
     {
         foreach (var state in _island.GetProviderInstallations())
         {
-            var target = state.Key switch { "yoyo" => YoyoInstallStatus, "codex" => CodexInstallStatus, _ => WorkBuddyInstallStatus };
+            var target = state.Key switch { "yoyo" => YoyoInstallStatus, "codex" => CodexInstallStatus, "deepseek" => DeepSeekInstallStatus, _ => WorkBuddyInstallStatus };
             target.Text = state.IsInstalled ? state.ExecutablePath ?? "已安装（系统应用）" : "未安装 · 可手动指定";
             target.ToolTip = state.ExecutablePath;
         }
@@ -591,7 +595,7 @@ public partial class SettingsWindow : Window
     {
         var checkBoxes = new[]
         {
-            ShadowCheck, TopmostCheck, ReadyClockCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, TrayIconCheck, StartupCheck,
+            ShadowCheck, TopmostCheck, ReadyClockCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, DeepSeekCheck, TrayIconCheck, StartupCheck,
             CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
             HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
             CodexResetReminderCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
@@ -606,6 +610,8 @@ public partial class SettingsWindow : Window
         var yoyo = ProviderIconService.Load("yoyo", _island.CurrentSettings);
         var codex = ProviderIconService.Load("codex", _island.CurrentSettings);
         var workBuddy = ProviderIconService.Load("workbuddy", _island.CurrentSettings);
+        var deepSeek = ProviderIconService.Load("deepseek", _island.CurrentSettings);
+        if (deepSeek is not null) DeepSeekCheck.Tag = deepSeek;
         if (yoyo is not null)
             foreach (var checkBox in new[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck }) checkBox.Tag = yoyo;
         if (codex is not null)

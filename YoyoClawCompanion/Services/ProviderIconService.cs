@@ -15,6 +15,7 @@ internal static class ProviderIconService
             "yoyo" => ApplicationLocator.FindYoyoExecutable(settings.YoyoExecutablePath),
             "codex" => ApplicationLocator.FindCodexDesktopExecutable(settings.CodexExecutablePath, IsCodexProcess),
             "workbuddy" => ApplicationLocator.FindWorkBuddyExecutable(settings.WorkBuddyExecutablePath),
+            "deepseek" => ApplicationLocator.FindDeepSeekExecutable(settings.DeepSeekExecutablePath),
             _ => null
         };
         if (string.IsNullOrWhiteSpace(executable)) return null;

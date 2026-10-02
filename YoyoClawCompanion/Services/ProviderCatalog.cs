@@ -3,7 +3,7 @@ namespace YoyoClawCompanion.Services;
 internal static class ProviderCatalog
 {
     internal const int MaximumOrderItems = 8;
-    internal static readonly string[] KnownKeys = ["yoyo", "codex", "workbuddy"];
+    internal static readonly string[] KnownKeys = ["yoyo", "codex", "workbuddy", "deepseek"];
 
     internal static string NormalizeOrder(string? value)
     {
@@ -43,6 +43,7 @@ internal static class ProviderCatalog
         "yoyo" => "YOYO Claw",
         "codex" => "Codex",
         "workbuddy" => "WorkBuddy",
+        "deepseek" => "DeepSeek Harness",
         _ => key
     };
 

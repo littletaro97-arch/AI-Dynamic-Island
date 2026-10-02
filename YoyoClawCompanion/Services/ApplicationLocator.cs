@@ -83,8 +83,15 @@ internal static class ApplicationLocator
             "yoyo" => IsExpectedExecutable(path, "HnMagicClawUI.exe"),
             "codex" => IsExpectedExecutable(path, "ChatGPT.exe"),
             "workbuddy" => IsExpectedExecutable(path, "WorkBuddy.exe"),
+            "deepseek" => IsExpectedExecutable(path, "DeepSeek Harness.exe"),
             _ => false
         };
+
+    public static string? FindDeepSeekExecutable(string? rememberedPath)
+        => FindRunningExecutable("DeepSeek Harness")
+            ?? (IsExpectedExecutable(rememberedPath, "DeepSeek Harness.exe") ? Path.GetFullPath(rememberedPath!) : null)
+            ?? FindAppPath("DeepSeek Harness.exe")
+            ?? FindUninstallExecutable("DeepSeek Harness.exe", "DeepSeek Harness");
 
     public static string? FindCodexCliExecutable()
     {

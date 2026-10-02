@@ -16,6 +16,8 @@ internal sealed class IslandSettings
     public bool ShowYoyo { get; set; } = true;
     public bool ShowCodex { get; set; } = true;
     public bool ShowWorkBuddy { get; set; } = true;
+    public bool ShowDeepSeek { get; set; } = true;
+    public string[] SuppressedOfflineProviders { get; set; } = [];
     public bool ShowShadow { get; set; } = true;
     public bool ShowClockWhenReady { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
@@ -54,6 +56,7 @@ internal sealed class IslandSettings
     public string? YoyoExecutablePath { get; set; }
     public string? CodexExecutablePath { get; set; }
     public string? WorkBuddyExecutablePath { get; set; }
+    public string? DeepSeekExecutablePath { get; set; }
 
     internal void NormalizeInteraction()
     {
@@ -154,6 +157,8 @@ internal static class SettingsPresetStore
         applied.YoyoExecutablePath = current.YoyoExecutablePath;
         applied.CodexExecutablePath = current.CodexExecutablePath;
         applied.WorkBuddyExecutablePath = current.WorkBuddyExecutablePath;
+        applied.DeepSeekExecutablePath = current.DeepSeekExecutablePath;
+        applied.SuppressedOfflineProviders = current.SuppressedOfflineProviders;
         applied.SettingsNavigationCollapsed = current.SettingsNavigationCollapsed;
         applied.SettingCardOrders = current.SettingCardOrders;
         applied.NormalizeInteraction();
@@ -166,6 +171,8 @@ internal static class SettingsPresetStore
         snapshot.YoyoExecutablePath = null;
         snapshot.CodexExecutablePath = null;
         snapshot.WorkBuddyExecutablePath = null;
+        snapshot.DeepSeekExecutablePath = null;
+        snapshot.SuppressedOfflineProviders = [];
         return snapshot;
     }
 
