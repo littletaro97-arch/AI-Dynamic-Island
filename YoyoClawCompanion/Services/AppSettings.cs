@@ -22,6 +22,7 @@ internal sealed class IslandSettings
     public bool StartWithWindows { get; set; }
     public bool AutoCheckForUpdates { get; set; } = true;
     public bool SettingsNavigationCollapsed { get; set; }
+    public Dictionary<string, string[]> SettingCardOrders { get; set; } = new();
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowYoyoCredits { get; set; } = true;
@@ -150,6 +151,7 @@ internal static class SettingsPresetStore
         applied.CodexExecutablePath = current.CodexExecutablePath;
         applied.WorkBuddyExecutablePath = current.WorkBuddyExecutablePath;
         applied.SettingsNavigationCollapsed = current.SettingsNavigationCollapsed;
+        applied.SettingCardOrders = current.SettingCardOrders;
         applied.NormalizeInteraction();
         return applied;
     }

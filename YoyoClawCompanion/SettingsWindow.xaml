@@ -1,6 +1,7 @@
 <Window x:Class="YoyoClawCompanion.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:settings="clr-namespace:YoyoClawCompanion.Controls"
         Title="" Width="920" Height="720" MinWidth="780" MinHeight="620"
         WindowStartupLocation="CenterScreen" Background="#F3F5F9" Foreground="#182033">
     <Window.Resources>
@@ -83,6 +84,58 @@
                 </ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <Style x:Key="EmbeddedSwitchStyle" TargetType="CheckBox">
+            <Setter Property="Margin" Value="0"/><Setter Property="FontSize" Value="13.5"/><Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+                <Border x:Name="SwitchCard" Height="59" Padding="10" CornerRadius="16" BorderThickness="0">
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CheckStates">
+                            <VisualStateGroup.Transitions>
+                                <VisualTransition GeneratedDuration="0:0:0.18">
+                                    <VisualTransition.GeneratedEasingFunction><CubicEase EasingMode="EaseOut"/></VisualTransition.GeneratedEasingFunction>
+                                </VisualTransition>
+                            </VisualStateGroup.Transitions>
+                            <VisualState x:Name="Unchecked">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="ToggleKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="IconTile" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#737C90" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="ToggleTrack" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#AAB2C0" Duration="0"/>
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Checked">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="ToggleKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="20" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="IconTile" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#43A878" Duration="0"/>
+                                    <ColorAnimation Storyboard.TargetName="ToggleTrack" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#43A878" Duration="0"/>
+                                </Storyboard>
+                            </VisualState>
+                            <VisualState x:Name="Indeterminate"/>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <Border.Background><SolidColorBrush Color="Transparent"/></Border.Background>
+                    <Border.BorderBrush><SolidColorBrush Color="#303ED598"/></Border.BorderBrush>
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
+                        <Border x:Name="IconTile" Width="38" Height="38" CornerRadius="12">
+                            <Border.Background><SolidColorBrush Color="#737C90"/></Border.Background>
+                            <Image Source="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" Width="24" Height="24" Stretch="Uniform"/>
+                        </Border>
+                        <TextBlock Grid.Column="1" Text="{TemplateBinding Content}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="10,0"/>
+                        <Border x:Name="ToggleTrack" Grid.Column="2" Width="44" Height="24" CornerRadius="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Border.Background><SolidColorBrush Color="#AAB2C0"/></Border.Background>
+                            <Ellipse x:Name="ToggleKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="3,0">
+                                <Ellipse.RenderTransform><TranslateTransform/></Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Border>
+                    </Grid>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SwitchCard" Property="Opacity" Value=".96"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchCard" Property="Opacity" Value=".45"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock"><Setter Property="FontSize" Value="18"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
         <Style x:Key="DownloadProgressStyle" TargetType="ProgressBar">
             <Setter Property="Background" Value="{DynamicResource SettingsTrackBackground}"/>
             <Setter Property="Foreground" Value="{DynamicResource SettingsAccent}"/>
@@ -259,8 +312,9 @@
                     <TextBlock x:Name="TitleText" Text="设置" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,22"/>
                     <TextBlock x:Name="SubtitleText" Text="" Visibility="Collapsed"/>
 
+
                     <Border x:Name="PositionCard" Style="{StaticResource Card}"><StackPanel>
-                        <TextBlock Text="位置" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="位置" Style="{StaticResource SectionTitle}"/>
                         <Viewbox Height="270" Stretch="Uniform" Margin="0,14,0,12">
                             <Border x:Name="PositionPreviewSurface" Width="560" Height="315" CornerRadius="24" Background="#EEF1F7" BorderBrush="#263A4557" BorderThickness="2" Padding="16">
                                 <Grid>
@@ -287,11 +341,11 @@
                                 <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource NudgeButton}" Tag="0,4" Click="NudgePosition_Click" ToolTip="向下微调" AutomationProperties.Name="向下微调"><Path Data="M3,3 L12,12 L21,3" Stroke="#657087" StrokeThickness="2.2" Width="18" Height="12" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Button>
                             </Grid>
                         </Grid>
-                        <UniformGrid Columns="2"><CheckBox x:Name="ReplyFirstWhenExpandedUpCheck" Tag="{StaticResource IconPosition}" Content="向上展开时回复置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AllowExpandedBeyondScreenCheck" Tag="{StaticResource IconScreen}" Content="允许展开越过屏幕边界" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                        <settings:SettingsSwitchPanel x:Name="ReplyFirstWhenExpandedUpCheckSettingsPanel"><CheckBox x:Name="ReplyFirstWhenExpandedUpCheck" Tag="{StaticResource IconPosition}" Content="向上展开时回复置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AllowExpandedBeyondScreenCheck" Tag="{StaticResource IconScreen}" Content="允许展开越过屏幕边界" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></settings:SettingsSwitchPanel>
                     </StackPanel></Border>
 
                     <Border x:Name="AppearanceCard" Style="{StaticResource Card}"><StackPanel>
-                        <TextBlock Text="外观" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="外观" Style="{StaticResource SectionTitle}"/>
                         <Border x:Name="PreviewSurface" Height="94" CornerRadius="15" Background="#EEF1F7" Margin="0,14,0,18">
                             <Border x:Name="PreviewIsland" Width="280" Height="52" CornerRadius="24" Background="#F4FFFFFF" BorderBrush="#24182033" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Grid Margin="16,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="全部就绪" Foreground="#3ED598" FontWeight="SemiBold" VerticalAlignment="Center"/><Rectangle Grid.Column="1" Height="4" RadiusX="2" RadiusY="2" Fill="#8FA0FF" Opacity=".55" Margin="14,0" VerticalAlignment="Center"/><StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"><Ellipse Width="7" Height="7" Fill="#3ED598"/><Ellipse Width="7" Height="7" Fill="#3ED598" Margin="8,0"/><Ellipse Width="7" Height="7" Fill="#3ED598"/></StackPanel></Grid>
@@ -304,10 +358,10 @@
                         <DockPanel><TextBlock Text="展开宽度"/><TextBlock x:Name="ExpandedWidthValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="ExpandedWidthSlider" Minimum="190" Maximum="500" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="高度"/><TextBlock x:Name="HeightValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="HeightSlider" Minimum="32" Maximum="72" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                         <DockPanel><TextBlock Text="文本大小"/><TextBlock x:Name="TextSizeValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="TextSizeSlider" Minimum="9" Maximum="16" TickFrequency="0.5" ValueChanged="Setting_ValueChanged"/>
-                        <UniformGrid Columns="2"><CheckBox x:Name="ShadowCheck" Tag="{StaticResource IconSpark}" Content="阴影" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TopmostCheck" Tag="{StaticResource IconPin}" Content="始终置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReadyClockCheck" Tag="{StaticResource IconClock}" Content="全部就绪时显示时间" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                        <settings:SettingsSwitchPanel x:Name="ShadowCheckSettingsPanel"><CheckBox x:Name="ShadowCheck" Tag="{StaticResource IconSpark}" Content="阴影" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TopmostCheck" Tag="{StaticResource IconPin}" Content="始终置顶" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReadyClockCheck" Tag="{StaticResource IconClock}" Content="全部就绪时显示时间" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></settings:SettingsSwitchPanel>
                     </StackPanel></Border>
 
-                    <Border x:Name="ComponentCard" Style="{StaticResource Card}"><StackPanel><TextBlock Text="组件" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/><UniformGrid Columns="2"><CheckBox x:Name="YoyoCheck" Tag="{StaticResource IconCircle}" Content="YOYO 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexCheck" Tag="{StaticResource IconChart}" Content="Codex 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TrayIconCheck" Tag="{StaticResource IconScreen}" Content="系统托盘图标" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="StartupCheck" Tag="{StaticResource IconLaunch}" Content="开机自动启动" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                    <Border x:Name="ComponentCard" Style="{StaticResource Card}"><StackPanel><TextBlock Text="组件" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/><settings:SettingsSwitchPanel x:Name="YoyoCheckSettingsPanel"><CheckBox x:Name="YoyoCheck" Tag="{StaticResource IconCircle}" Content="YOYO 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexCheck" Tag="{StaticResource IconChart}" Content="Codex 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 状态点" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="TrayIconCheck" Tag="{StaticResource IconScreen}" Content="系统托盘图标" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="StartupCheck" Tag="{StaticResource IconLaunch}" Content="开机自动启动" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></settings:SettingsSwitchPanel>
                         <StackPanel Margin="5,12,5,0">
                             <Grid Height="38" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions><TextBlock Text="YOYO Claw" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="YoyoInstallStatus" Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#727C90"/><Button Grid.Column="2" Height="34" Margin="0" Tag="yoyo" Content="指定" Style="{StaticResource ActionButton}" Click="ChooseProviderPath_Click"/></Grid>
                             <Grid Height="38" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions><TextBlock Text="Codex" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="CodexInstallStatus" Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#727C90"/><Button Grid.Column="2" Height="34" Margin="0" Tag="codex" Content="指定" Style="{StaticResource ActionButton}" Click="ChooseProviderPath_Click"/></Grid>
@@ -317,7 +371,7 @@
                     </StackPanel></Border>
 
                     <Border x:Name="FeatureCard" Style="{StaticResource Card}"><StackPanel>
-                        <TextBlock Text="行为" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                        <TextBlock Text="行为" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
                         <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions><TextBlock Text="显示模式" VerticalAlignment="Center"/><ComboBox x:Name="DisplayModeCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="always" Content="始终显示"/><ComboBoxItem Tag="activeOnly" Content="仅任务活动时显示"/></ComboBox></Grid>
                         <Border Margin="0,0,0,12" Padding="12" Background="#083ED598" BorderBrush="#303ED598" BorderThickness="1" CornerRadius="14">
                             <StackPanel>
@@ -371,24 +425,24 @@
                                 </ListBox>
                             </StackPanel>
                         </Border>
-                        <UniformGrid Columns="2"><CheckBox x:Name="CodexActivityCheck" Tag="{StaticResource IconClock}" Content="Codex 活动检测" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexLimitsCheck" Tag="{StaticResource IconChart}" Content="Codex 限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoCreditsCheck" Tag="{StaticResource IconCircle}" Content="YOYO 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCreditsCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AppLaunchCheck" Tag="{StaticResource IconLaunch}" Content="点击打开应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReverseHoverCheck" Tag="{StaticResource IconEye}" Content="反向选择" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="HoverExpansionCheck" Tag="{StaticResource IconEye}" Content="悬停展开" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="SpringAnimationCheck" Tag="{StaticResource IconSpark}" Content="回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
+                        <settings:SettingsSwitchPanel x:Name="CodexActivityCheckSettingsPanel"><CheckBox x:Name="CodexActivityCheck" Tag="{StaticResource IconClock}" Content="Codex 活动检测" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexLimitsCheck" Tag="{StaticResource IconChart}" Content="Codex 限额" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoCreditsCheck" Tag="{StaticResource IconCircle}" Content="YOYO 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="WorkBuddyCreditsCheck" Tag="{StaticResource IconCoin}" Content="WorkBuddy 积分" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="AppLaunchCheck" Tag="{StaticResource IconLaunch}" Content="点击打开应用" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ReverseHoverCheck" Tag="{StaticResource IconEye}" Content="反向选择" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="HoverExpansionCheck" Tag="{StaticResource IconEye}" Content="悬停展开" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="SpringAnimationCheck" Tag="{StaticResource IconSpark}" Content="回弹动效" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></settings:SettingsSwitchPanel>
                         <StackPanel x:Name="HoverDelayPanel" Margin="0,10,0,0"><DockPanel><TextBlock Text="悬停延时"/><TextBlock x:Name="HoverDelayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="HoverDelaySlider" Minimum="20" Maximum="400" TickFrequency="10" ValueChanged="Setting_ValueChanged"/></StackPanel>
                         <DockPanel><TextBlock Text="滚动速度"/><TextBlock x:Name="QuotaScrollSpeedValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="QuotaScrollSpeedSlider" Minimum="8" Maximum="80" TickFrequency="2" ValueChanged="Setting_ValueChanged"/>
                     </StackPanel></Border>
 
                     <Border x:Name="NotificationCard" Style="{StaticResource Card}"><StackPanel>
-                        <TextBlock Text="提醒与自动隐藏" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <UniformGrid Columns="2"><CheckBox x:Name="CompletionNotificationsCheck" Tag="{StaticResource IconCheck}" Content="任务完成提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ConfirmationNotificationsCheck" Tag="{StaticResource IconClock}" Content="WorkBuddy 待确认" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="CodexResetReminderCheck" Tag="{StaticResource IconClock}" Content="Codex 额度重置提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoAutoCheckinCheck" Tag="{StaticResource IconCheck}" Content="YOYO 开机联网签到" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoLaunchForCheckinCheck" Tag="{StaticResource IconLaunch}" Content="签到时自动启动 YOYO" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="FullscreenActiveOnlyCheck" Tag="{StaticResource IconScreen}" Content="全屏时活动显示" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="UnchangedAutoHideCheck" Tag="{StaticResource IconClock}" Content="状态未变化时隐藏" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></UniformGrid>
-                        <Grid Margin="0,10,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="回复行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></Grid>
+                        <TextBlock Text="提醒与自动隐藏" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
+                        <settings:SettingsSwitchPanel x:Name="CompletionNotificationsCheckSettingsPanel"><CheckBox x:Name="CompletionNotificationsCheck" Tag="{StaticResource IconCheck}" Content="任务完成提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="ConfirmationNotificationsCheck" Tag="{StaticResource IconClock}" Content="WorkBuddy 待确认" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><settings:ExpandableSettingCard x:Name="CodexResetReminderCard"><Grid ClipToBounds="True"><Grid.RowDefinitions><RowDefinition Height="59"/><RowDefinition Height="*"/></Grid.RowDefinitions><CheckBox Style="{StaticResource EmbeddedSwitchStyle}" x:Name="CodexResetReminderCheck" Tag="{StaticResource IconClock}" Content="Codex 额度重置提醒" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><StackPanel Grid.Row="1" x:Name="CodexResetReminderPanel" Margin="12,4,12,0" Opacity="0" IsHitTestVisible="False" TextElement.FontSize="12"><DockPanel><TextBlock Text="额度重置前提醒"/><TextBlock x:Name="CodexResetReminderValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="CodexResetReminderSlider" Minimum="1" Maximum="120" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Setting_ValueChanged"/></StackPanel></Grid></settings:ExpandableSettingCard><CheckBox x:Name="YoyoAutoCheckinCheck" Tag="{StaticResource IconCheck}" Content="YOYO 开机联网签到" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="YoyoLaunchForCheckinCheck" Tag="{StaticResource IconLaunch}" Content="签到时自动启动 YOYO" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><CheckBox x:Name="FullscreenActiveOnlyCheck" Tag="{StaticResource IconScreen}" Content="全屏时活动显示" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><settings:ExpandableSettingCard x:Name="UnchangedAutoHideCard"><Grid ClipToBounds="True"><Grid.RowDefinitions><RowDefinition Height="59"/><RowDefinition Height="*"/></Grid.RowDefinitions><CheckBox Style="{StaticResource EmbeddedSwitchStyle}" x:Name="UnchangedAutoHideCheck" Tag="{StaticResource IconClock}" Content="状态未变化时隐藏" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/><StackPanel Grid.Row="1" x:Name="UnchangedAutoHidePanel" Margin="12,4,12,0" Opacity="0" IsHitTestVisible="False" TextElement.FontSize="12"><DockPanel><TextBlock Text="未变化隐藏"/><TextBlock x:Name="UnchangedAutoHideValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="UnchangedAutoHideSlider" Minimum="1" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Setting_ValueChanged"/></StackPanel></Grid></settings:ExpandableSettingCard></settings:SettingsSwitchPanel>
+                        <Grid MinHeight="64" Margin="0,10,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="回复行数" VerticalAlignment="Center"/><ComboBox x:Name="MaxResponseLinesCombo" Grid.Column="1" SelectionChanged="Setting_ValueChanged"><ComboBoxItem Tag="1" Content="1 行"/><ComboBoxItem Tag="2" Content="2 行"/><ComboBoxItem Tag="3" Content="3 行"/><ComboBoxItem Tag="4" Content="4 行"/><ComboBoxItem Tag="5" Content="5 行"/><ComboBoxItem Tag="6" Content="6 行"/></ComboBox></Grid>
                         <StackPanel x:Name="CompletionDisplayPanel"><DockPanel><TextBlock Text="完成提醒时长"/><TextBlock x:Name="CompletionDisplayValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="CompletionDisplaySlider" Minimum="3" Maximum="30" TickFrequency="1" ValueChanged="Setting_ValueChanged"/></StackPanel>
-                        <StackPanel x:Name="CodexResetReminderPanel"><DockPanel><TextBlock Text="额度重置前提醒"/><TextBlock x:Name="CodexResetReminderValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="CodexResetReminderSlider" Minimum="1" Maximum="120" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Setting_ValueChanged"/></StackPanel>
-                        <StackPanel x:Name="UnchangedAutoHidePanel"><DockPanel><TextBlock Text="未变化隐藏"/><TextBlock x:Name="UnchangedAutoHideValue" DockPanel.Dock="Right"/></DockPanel><Slider x:Name="UnchangedAutoHideSlider" Minimum="1" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Setting_ValueChanged"/></StackPanel>
+
+
                     </StackPanel></Border>
 
                     <Border x:Name="PresetCard" Style="{StaticResource Card}">
                         <Border.Resources><Style TargetType="TextBox"><Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/><Setter Property="CaretBrush" Value="{DynamicResource SettingsAccent}"/></Style></Border.Resources>
                         <StackPanel>
-                        <TextBlock Text="方案" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="方案" Style="{StaticResource SectionTitle}"/>
                         <TextBlock Text="保存当前配置，之后可一键恢复。应用路径和运行状态不会写入方案。" Foreground="#727C90" FontSize="12" Margin="0,4,0,12" TextWrapping="Wrap"/>
                         <UniformGrid Columns="3">
                             <Border Margin="0,0,8,0" Padding="12" CornerRadius="14" Background="{DynamicResource SettingsInputBackground}" BorderBrush="{DynamicResource SettingsInputBorder}" BorderThickness="1"><StackPanel><Grid Height="22"><Grid x:Name="Preset1NameDisplay" Tag="1" ClipToBounds="True" MouseLeftButtonDown="PresetNameDisplay_MouseLeftButtonDown" ToolTip="单击重命名"><Canvas x:Name="Preset1NameCanvas"><TextBlock x:Name="Preset1NameText" FontWeight="SemiBold" Text="方案 1"><TextBlock.RenderTransform><TranslateTransform x:Name="Preset1NameTranslate"/></TextBlock.RenderTransform></TextBlock><TextBlock x:Name="Preset1NameClone" FontWeight="SemiBold" Visibility="Collapsed"><TextBlock.RenderTransform><TranslateTransform x:Name="Preset1NameCloneTranslate"/></TextBlock.RenderTransform></TextBlock></Canvas></Grid><TextBox x:Name="Preset1NameEditor" Tag="1" Visibility="Collapsed" KeyDown="PresetNameEditor_KeyDown" LostKeyboardFocus="PresetNameEditor_LostKeyboardFocus" MaxLength="60" BorderThickness="0" Background="Transparent" FontWeight="SemiBold" Padding="0"/></Grid><TextBlock x:Name="Preset1Status" Text="尚未保存" Foreground="#727C90" FontSize="11" Margin="0,3,0,4"/><UniformGrid Columns="2"><Button Style="{StaticResource ActionButton}" Tag="1" Content="保存当前" Click="SavePreset_Click"/><Button x:Name="ApplyPreset1Button" Style="{StaticResource ActionButton}" Tag="1" Content="应用" Click="ApplyPreset_Click"/></UniformGrid></StackPanel></Border>
@@ -398,9 +452,9 @@
                     </StackPanel></Border>
 
                     <Border x:Name="UpdateCard" Style="{StaticResource Card}"><StackPanel>
-                        <TextBlock Text="应用更新" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="应用更新" Style="{StaticResource SectionTitle}"/>
                         <TextBlock x:Name="UpdateVersionText" Foreground="#727C90" FontSize="12" Margin="0,4,0,10"/>
-                        <CheckBox x:Name="AutoUpdateCheck" Tag="{StaticResource IconGitHub}" Content="启动时自动检查" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/>
+                        <settings:SettingsSwitchPanel x:Name="AutoUpdateCheckSettingsPanel"><CheckBox x:Name="AutoUpdateCheck" Tag="{StaticResource IconGitHub}" Content="启动时自动检查" Checked="Setting_ValueChanged" Unchecked="Setting_ValueChanged"/></settings:SettingsSwitchPanel>
                         <ProgressBar x:Name="UpdateProgress" Style="{StaticResource DownloadProgressStyle}" Height="16" Margin="0,10,0,8" Minimum="0" Maximum="100" Visibility="Collapsed"/>
                         <TextBlock x:Name="UpdateStatusText" Text="尚未检查更新" TextWrapping="Wrap" Margin="0,0,0,10"/>
                         <StackPanel Orientation="Horizontal"><Button x:Name="CheckUpdateButton" Height="38" Margin="2,8,2,0" Style="{StaticResource ActionButton}" Content="检查更新" Click="CheckUpdate_Click"/><Button x:Name="InstallUpdateButton" Height="38" Style="{StaticResource ActionButton}" Content="下载并安装" Margin="8,8,2,0" Click="InstallUpdate_Click" IsEnabled="False"/></StackPanel>
@@ -408,5 +462,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Border>
+        <Border x:Name="SettingEditBar" Visibility="Collapsed" Opacity="0" Background="{DynamicResource SettingsInputBackground}" CornerRadius="12" Padding="12" Grid.Column="1" Panel.ZIndex="100" VerticalAlignment="Top" Margin="30,8,34,0"><DockPanel><Button DockPanel.Dock="Right" Content="完成" Style="{StaticResource ActionButton}" Click="FinishSettingEdit_Click"/><TextBlock Text="组件位置编辑 · 同一板块内拖动排序 · Esc 退出" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"/></DockPanel></Border>
     </Grid>
 </Window>

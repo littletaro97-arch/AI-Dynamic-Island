@@ -12,6 +12,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using YoyoClawCompanion.Services;
+using YoyoClawCompanion.Controls;
 using Brush = System.Windows.Media.Brush;
 using ButtonBase = System.Windows.Controls.Primitives.ButtonBase;
 using ProgressBar = System.Windows.Controls.ProgressBar;
@@ -57,6 +58,7 @@ public partial class SettingsWindow : Window
         _island = island;
         InitializeComponent();
         PrepareSettingIcons();
+        InitializeSettingCardEditing();
         Icon = App.CreateWindowIcon();
         SourceInitialized += (_, _) => ApplyTitleBarTheme();
         _island.PositionChanged += Island_PositionChanged;
@@ -78,6 +80,7 @@ public partial class SettingsWindow : Window
 
     private void LoadValues(IslandSettings value)
     {
+        LoadSettingCardOrders(value);
         CornerSlider.Value = value.CornerRadius;
         OpacitySlider.Value = value.Opacity * 100;
         WidthSlider.Value = value.IslandWidth;
@@ -196,10 +199,10 @@ public partial class SettingsWindow : Window
     private void UpdateDependencyStates()
     {
         SetDependentState(HoverDelayPanel, HoverExpansionCheck.IsChecked == true);
-        SetDependentState(UnchangedAutoHidePanel, UnchangedAutoHideCheck.IsChecked == true);
+        UnchangedAutoHidePanel.IsEnabled = UnchangedAutoHideCheck.IsChecked == true;
         SetDependentState(CompletionDisplayPanel,
             CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true);
-        SetDependentState(CodexResetReminderPanel, CodexResetReminderCheck.IsChecked == true);
+        CodexResetReminderPanel.IsEnabled = CodexResetReminderCheck.IsChecked == true;
         SetDependentState(YoyoLaunchForCheckinCheck, YoyoAutoCheckinCheck.IsChecked == true);
         var installations = _island.GetProviderInstallations().ToDictionary(item => item.Key, StringComparer.OrdinalIgnoreCase);
         var yoyoInstalled = installations.TryGetValue("yoyo", out var yoyo) && yoyo.IsInstalled;
@@ -209,7 +212,9 @@ public partial class SettingsWindow : Window
         SetDependentState(YoyoLaunchForCheckinCheck, yoyoInstalled && YoyoAutoCheckinCheck.IsChecked == true);
         foreach (var control in new UIElement[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) SetDependentState(control, codexInstalled);
         foreach (var control in new UIElement[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) SetDependentState(control, workBuddyInstalled);
-        SetDependentState(CodexResetReminderPanel, codexInstalled && CodexResetReminderCheck.IsChecked == true);
+        CodexResetReminderPanel.IsEnabled = codexInstalled && CodexResetReminderCheck.IsChecked == true;
+        if (!CodexResetReminderCheck.IsEnabled || CodexResetReminderCheck.IsChecked != true) CodexResetReminderCard.SetExpanded(false);
+        if (UnchangedAutoHideCheck.IsChecked != true) UnchangedAutoHideCard.SetExpanded(false);
     }
 
     private void Island_ProviderAvailabilityChanged(object? sender, EventArgs e)
