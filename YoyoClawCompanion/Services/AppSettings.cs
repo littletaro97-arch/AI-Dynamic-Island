@@ -21,6 +21,7 @@ internal sealed class IslandSettings
     public bool ShowTrayIcon { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public bool AutoCheckForUpdates { get; set; } = true;
+    public bool SettingsNavigationCollapsed { get; set; }
     public string ThemeMode { get; set; } = "system";
     public bool EnableCodexActivityDetection { get; set; } = true;
     public bool ShowYoyoCredits { get; set; } = true;
@@ -52,6 +53,11 @@ internal sealed class IslandSettings
     public string? YoyoExecutablePath { get; set; }
     public string? CodexExecutablePath { get; set; }
     public string? WorkBuddyExecutablePath { get; set; }
+
+    internal void NormalizeInteraction()
+    {
+        if (EnableReverseHover) EnableHoverExpansion = false;
+    }
 }
 
 internal static class AppSettings
@@ -62,7 +68,12 @@ internal static class AppSettings
 
     public static IslandSettings Load()
     {
-        try { return JsonSerializer.Deserialize<IslandSettings>(File.ReadAllText(FilePath), JsonOptions) ?? new IslandSettings(); }
+        try
+        {
+            var settings = JsonSerializer.Deserialize<IslandSettings>(File.ReadAllText(FilePath), JsonOptions) ?? new IslandSettings();
+            settings.NormalizeInteraction();
+            return settings;
+        }
         catch { return new IslandSettings(); }
     }
 
@@ -138,6 +149,8 @@ internal static class SettingsPresetStore
         applied.YoyoExecutablePath = current.YoyoExecutablePath;
         applied.CodexExecutablePath = current.CodexExecutablePath;
         applied.WorkBuddyExecutablePath = current.WorkBuddyExecutablePath;
+        applied.SettingsNavigationCollapsed = current.SettingsNavigationCollapsed;
+        applied.NormalizeInteraction();
         return applied;
     }
 

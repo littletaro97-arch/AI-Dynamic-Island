@@ -270,6 +270,7 @@ public partial class MainWindow : Window
 
     internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false, bool preserveMarquee = false)
     {
+        settings.NormalizeInteraction();
         settings.CornerRadius = Math.Clamp(settings.CornerRadius, 0, 24);
         settings.Opacity = Math.Clamp(settings.Opacity, 0.55, 1);
         settings.IslandWidth = Math.Clamp(settings.IslandWidth, 190, 400);
@@ -333,7 +334,7 @@ public partial class MainWindow : Window
         ApplyTheme();
         Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
-        StartupRegistration.SetEnabled(settings.StartWithWindows);
+        if (!App.IsPreviewMode) StartupRegistration.SetEnabled(settings.StartWithWindows);
         if (settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
         else
         {

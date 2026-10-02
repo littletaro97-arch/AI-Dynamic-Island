@@ -64,6 +64,7 @@ public partial class SettingsWindow : Window
         UpdateDependencyStates();
         RefreshProviderInstallations();
         RefreshUpdateState();
+        ApplyNavigationLayout();
         RefreshPresetCards();
         ApplyPanelTheme();
     }
@@ -121,6 +122,15 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         if (_updatingWidthRange) return;
+        _loading = true;
+        try
+        {
+            if (ReferenceEquals(sender, ReverseHoverCheck) && ReverseHoverCheck.IsChecked == true)
+                HoverExpansionCheck.IsChecked = false;
+            else if (ReferenceEquals(sender, HoverExpansionCheck) && HoverExpansionCheck.IsChecked == true)
+                ReverseHoverCheck.IsChecked = false;
+        }
+        finally { _loading = false; }
         UpdateExpandedWidthRange(ExpandedWidthSlider.Value);
         var current = _island.CurrentSettings;
         current.CornerRadius = CornerSlider.Value;
@@ -206,6 +216,7 @@ public partial class SettingsWindow : Window
             target.Text = state.IsInstalled ? state.ExecutablePath ?? "已安装（系统应用）" : "未安装 · 可手动指定";
             target.ToolTip = state.ExecutablePath;
         }
+        LoadProviderOrder(_island.CurrentSettings.ProviderOrder);
     }
 
     private void RescanProviders_Click(object sender, RoutedEventArgs e) => _island.RescanProviderInstallations();
@@ -478,9 +489,10 @@ public partial class SettingsWindow : Window
 
     private void LoadProviderOrder(string? storedOrder)
     {
+        var installed = _island.GetProviderInstallations().Where(item => item.IsInstalled).Select(item => item.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         ProviderOrderItems.Clear();
         foreach (var key in ProviderCatalog.ParseOrder(ProviderCatalog.NormalizeOrder(storedOrder)))
-            ProviderOrderItems.Add(new ProviderOrderItem(key, ProviderCatalog.DisplayName(key), ProviderIcon(key)));
+            if (installed.Contains(key)) ProviderOrderItems.Add(new ProviderOrderItem(key, ProviderCatalog.DisplayName(key), ProviderIcon(key)));
         RefreshProviderOrderState();
     }
 
@@ -570,8 +582,8 @@ public partial class SettingsWindow : Window
         if (!IsLoaded) return;
         var sections = new (System.Windows.Controls.RadioButton Nav, FrameworkElement Section)[]
         {
-            (PresetNav, PresetCard), (AppearanceNav, AppearanceCard), (ComponentNav, ComponentCard),
-            (FeatureNav, FeatureCard), (NotificationNav, NotificationCard), (UpdateNav, UpdateCard), (PositionNav, PositionCard)
+            (PositionNav, PositionCard), (AppearanceNav, AppearanceCard), (ComponentNav, ComponentCard),
+            (FeatureNav, FeatureCard), (NotificationNav, NotificationCard), (PresetNav, PresetCard), (UpdateNav, UpdateCard)
         };
         var active = sections[0].Nav;
         foreach (var item in sections)
@@ -647,7 +659,10 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         var current = _island.CurrentSettings;
-        current.ProviderOrder = string.Join(',', ProviderOrderItems.Select(item => item.Key));
+        var visible = new Queue<string>(ProviderOrderItems.Select(item => item.Key));
+        var visibleKeys = visible.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        current.ProviderOrder = string.Join(',', ProviderCatalog.ParseOrder(ProviderCatalog.NormalizeOrder(current.ProviderOrder))
+            .Select(key => visibleKeys.Contains(key) ? visible.Dequeue() : key));
         _island.ApplySettings(current);
     }
 
@@ -741,6 +756,34 @@ public partial class SettingsWindow : Window
         PositionPreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PositionPreviewSurface.BorderBrush = Brush(light ? "#263A4557" : "#4A596E");
         ApplyTitleBarTheme(light);
+    }
+
+    private void NavigationToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var current = _island.CurrentSettings;
+        current.SettingsNavigationCollapsed = !current.SettingsNavigationCollapsed;
+        AppSettings.Save(current);
+        ApplyNavigationLayout();
+    }
+
+    private void ApplyNavigationLayout()
+    {
+        var collapsed = _island.CurrentSettings.SettingsNavigationCollapsed;
+        NavigationColumn.Width = new GridLength(collapsed ? 82 : 200);
+        NavPane.Padding = new Thickness(collapsed ? 12 : 18, 24, collapsed ? 12 : 18, 24);
+        ((FrameworkElement)NavTitle.Parent).Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        NavigationBrand.HorizontalAlignment = collapsed ? System.Windows.HorizontalAlignment.Center : System.Windows.HorizontalAlignment.Left;
+        NavigationBrand.Margin = new Thickness(collapsed ? 0 : 4, 0, 0, 26);
+        foreach (var nav in new[] { PositionNav, AppearanceNav, ComponentNav, FeatureNav, NotificationNav, PresetNav, UpdateNav })
+        {
+            var content = (StackPanel)nav.Content;
+            ((FrameworkElement)content.Children[1]).Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+            ((FrameworkElement)content.Children[0]).Margin = new Thickness(0, 0, collapsed ? 0 : 11, 0);
+            nav.Padding = new Thickness(collapsed ? 8 : 10, 8, collapsed ? 8 : 10, 8);
+        }
+        NavigationToggleIcon.RenderTransform = new RotateTransform(collapsed ? 180 : 0);
+        NavigationToggle.ToolTip = collapsed ? "展开目录" : "收起目录";
+        System.Windows.Automation.AutomationProperties.SetName(NavigationToggle, (string)NavigationToggle.ToolTip);
     }
 
     private void Nav_Click(object sender, RoutedEventArgs e)

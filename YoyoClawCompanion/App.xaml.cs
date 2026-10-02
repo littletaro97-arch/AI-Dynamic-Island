@@ -23,10 +23,12 @@ public partial class App : Application
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private System.Drawing.Icon? _trayDrawingIcon;
     private static readonly object CrashLogLock = new();
+    internal static bool IsPreviewMode { get; private set; }
 
     protected override void OnStartup(StartupEventArgs e)
     {
         RegisterGlobalExceptionLogging();
+        IsPreviewMode = e.Args.Contains("--preview", StringComparer.OrdinalIgnoreCase);
         if (GitHubUpdateService.TryApplyUpdate(e.Args))
         {
             Shutdown();
@@ -50,6 +52,7 @@ public partial class App : Application
         base.OnStartup(e);
         MainWindow = new YoyoClawCompanion.MainWindow();
         MainWindow.Show();
+        if (IsPreviewMode) Dispatcher.BeginInvoke(() => (MainWindow as YoyoClawCompanion.MainWindow)?.OpenHomeFromExternalRequest());
     }
 
     private void RegisterGlobalExceptionLogging()
@@ -207,7 +210,7 @@ public partial class App : Application
 
     private static System.Drawing.Icon LoadTrayIcon()
     {
-        using var stream = GetResourceStream(new Uri("pack://application:,,,/Assets/App.ico")).Stream;
+        using var stream = GetResourceStream(new Uri("pack://application:,,,/YoyoClawCompanion;component/Assets/App.ico")).Stream;
         using var icon = new System.Drawing.Icon(stream, 64, 64);
         return (System.Drawing.Icon)icon.Clone();
     }
