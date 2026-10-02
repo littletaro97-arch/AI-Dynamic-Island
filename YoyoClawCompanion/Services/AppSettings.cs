@@ -58,7 +58,11 @@ internal sealed class IslandSettings
     internal void NormalizeInteraction()
     {
         if (EnableReverseHover) EnableHoverExpansion = false;
+        HoverDelayMs = NormalizeHoverDelay(HoverDelayMs);
     }
+
+    internal static double NormalizeHoverDelay(double value)
+        => double.IsFinite(value) ? Math.Clamp(Math.Round(value / 5, MidpointRounding.AwayFromZero) * 5, 20, 130) : 70;
 }
 
 internal static class AppSettings

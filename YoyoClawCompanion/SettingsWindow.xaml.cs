@@ -116,7 +116,7 @@ public partial class SettingsWindow : Window
         ReplyFirstWhenExpandedUpCheck.IsChecked = value.PutReplyFirstWhenExpandedUp;
         AllowExpandedBeyondScreenCheck.IsChecked = value.AllowExpandedBeyondScreen;
         UnchangedAutoHideSlider.Value = value.UnchangedAutoHideMinutes;
-        HoverDelaySlider.Value = value.HoverDelayMs;
+        HoverDelaySlider.Value = IslandSettings.NormalizeHoverDelay(value.HoverDelayMs);
         QuotaScrollSpeedSlider.Value = value.QuotaScrollSpeed;
         CompletionDisplaySlider.Value = value.CompletionDisplaySeconds;
         CodexResetReminderSlider.Value = value.CodexResetReminderMinutes;
@@ -177,7 +177,7 @@ public partial class SettingsWindow : Window
         current.PutReplyFirstWhenExpandedUp = ReplyFirstWhenExpandedUpCheck.IsChecked == true;
         current.AllowExpandedBeyondScreen = AllowExpandedBeyondScreenCheck.IsChecked == true;
         current.UnchangedAutoHideMinutes = UnchangedAutoHideSlider.Value;
-        current.HoverDelayMs = HoverDelaySlider.Value;
+        current.HoverDelayMs = IslandSettings.NormalizeHoverDelay(HoverDelaySlider.Value);
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
         current.CodexResetReminderMinutes = CodexResetReminderSlider.Value;
@@ -244,6 +244,48 @@ public partial class SettingsWindow : Window
         TransitionUpdateProgress(state.Progress, state.IsBusy && state.Progress > 0);
         CheckUpdateButton.IsEnabled = !state.IsBusy;
         InstallUpdateButton.IsEnabled = !state.IsBusy && state.UpdateAvailable;
+        RefreshUpdateBadge(state.UpdateAvailable);
+    }
+
+    private bool? _updateBadgeAvailable;
+    private int _updateBadgeVersion;
+
+    private void RefreshUpdateBadge(bool available)
+    {
+        if (_updateBadgeAvailable == available) return;
+        var initial = _updateBadgeAvailable is null;
+        _updateBadgeAvailable = available;
+        var version = ++_updateBadgeVersion;
+        var from = UpdateBadge.Visibility == Visibility.Visible ? UpdateBadge.Opacity : 0;
+        UpdateBadge.BeginAnimation(OpacityProperty, null);
+        UpdateBadge.Visibility = available || !initial ? Visibility.Visible : Visibility.Collapsed;
+        if (initial) { UpdateBadge.Opacity = available ? 1 : 0; return; }
+        var fade = new DoubleAnimation(from, available ? 1 : 0, TimeSpan.FromMilliseconds(180));
+        fade.Completed += (_, _) =>
+        {
+            if (version == _updateBadgeVersion && !available) UpdateBadge.Visibility = Visibility.Collapsed;
+        };
+        UpdateBadge.BeginAnimation(OpacityProperty, fade);
+    }
+
+    private const string ProjectUrl = "https://github.com/littletaro97-arch/AI-Dynamic-Island";
+
+    private void OpenProject_Click(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(ProjectUrl) { UseShellExecute = true }); }
+        catch { ShowProjectActionStatus("无法打开浏览器，请复制项目地址后访问。"); }
+    }
+
+    private void CopyProject_Click(object sender, RoutedEventArgs e)
+    {
+        try { System.Windows.Clipboard.SetText(ProjectUrl); ShowProjectActionStatus("项目地址已复制"); }
+        catch { ShowProjectActionStatus("复制失败，请稍后重试。"); }
+    }
+
+    private void ShowProjectActionStatus(string text)
+    {
+        UpdateStatusText.Text = text;
+        UpdateStatusText.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
     }
 
     private void TransitionUpdateProgress(double value, bool visible)

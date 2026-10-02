@@ -277,7 +277,7 @@ public partial class MainWindow : Window
         settings.ExpandedIslandWidth = Math.Clamp(settings.ExpandedIslandWidth ?? Math.Min(settings.IslandWidth + 100, 500),
             settings.IslandWidth, Math.Min(settings.IslandWidth + 100, 500));
         settings.IslandHeight = Math.Clamp(settings.IslandHeight, 32, 72);
-        settings.HoverDelayMs = Math.Clamp(settings.HoverDelayMs, 20, 400);
+        settings.HoverDelayMs = IslandSettings.NormalizeHoverDelay(settings.HoverDelayMs);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
         settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
         settings.CodexResetReminderMinutes = Math.Clamp(settings.CodexResetReminderMinutes, 1, 120);

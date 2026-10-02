@@ -86,6 +86,18 @@ internal static class Program
         sortable.Children.Add(one);sortable.Children.Add(two);sortable.Children.Add(three);Layout(sortable);
         sortable.SetEditing(true);sortable.MoveItem(one,2);Settle();
         Assert(sortable.Order.SequenceEqual(new[]{"Two","Three","One"}),"same section reorder");
+        var grab = typeof(SettingsSwitchPanel).GetMethod("SetGrabbed",Flags)!;
+        var release = typeof(SettingsSwitchPanel).GetMethod("ReleaseGrabbed",Flags)!;
+        grab.Invoke(sortable,[one]);Settle();
+        var grabbedScale = (ScaleTransform)((TransformGroup)one.RenderTransform).Children[0];
+        Assert(Math.Abs(grabbedScale.ScaleX-.94)<.001 && Math.Abs(grabbedScale.ScaleY-.94)<.001,"selected card shrinks symmetrically when grabbed");
+        sortable.MoveItem(one,0);Settle();
+        Assert(Math.Abs(grabbedScale.ScaleX-.94)<.001,"reorder preserves grabbed scale independently of translation");
+        release.Invoke(sortable,null);grab.Invoke(sortable,[one]);release.Invoke(sortable,null);Settle();
+        Assert(grabbedScale.ScaleX==1 && grabbedScale.ScaleY==1,"rapid grab release restores scale");
+        grab.Invoke(sortable,[one]);sortable.SetEditing(false);Settle();
+        Assert(grabbedScale.ScaleX==1,"leaving edit mode releases grabbed card");
+        sortable.SetEditing(true);sortable.MoveItem(one,2);Settle();
         sortable.MoveItem(new CheckBox{Name="Outside"},0);
         Assert(sortable.Order.SequenceEqual(new[]{"Two","Three","One"}),"cross section move rejected");
         sortable.ApplyOrder(new[]{"One","Removed","One","Two"});

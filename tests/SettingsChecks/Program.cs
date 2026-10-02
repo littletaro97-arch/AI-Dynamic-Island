@@ -34,6 +34,19 @@ class Program
             foreach(var (name,bit) in new[]{("YoyoCheck",0),("YoyoCreditsCheck",0),("YoyoAutoCheckinCheck",0),("CodexCheck",1),("CodexActivityCheck",1),("CodexLimitsCheck",1),("CodexResetReminderCheck",1),("WorkBuddyCheck",2),("WorkBuddyCreditsCheck",2),("ConfirmationNotificationsCheck",2)})
                 if(((UIElement)window.FindName(name)).IsEnabled != ((mask&(1<<bit))!=0)) throw new Exception("enabled state "+name+" mask "+mask);
         }
+        var hoverDelay=settings.GetType().GetProperty("HoverDelayMs")!;
+        foreach(var (input,expected) in new[]{(400d,130d),(0d,20d),(72d,70d),(72.5d,75d),(double.NaN,70d)})
+        {
+            hoverDelay.SetValue(settings,input);Call(settings,"NormalizeInteraction");
+            Assert((double)hoverDelay.GetValue(settings)! == expected,"hover delay normalization "+input);
+        }
+        var hoverSlider=(Slider)window.FindName("HoverDelaySlider");
+        Assert(hoverSlider.Maximum==130 && hoverSlider.TickFrequency==5 && hoverSlider.IsSnapToTickEnabled && hoverSlider.SmallChange==5,"hover slider uses five millisecond steps");
+        var badge=(FrameworkElement)window.FindName("UpdateBadge");
+        typeof(SettingsWindow).GetField("_updateBadgeAvailable",Flags)!.SetValue(window,null);
+        Call(window,"RefreshUpdateBadge",true);
+        Assert(badge.Visibility==Visibility.Visible && badge.Opacity==1,"existing update badge shown directly on opening");
+        Call(window,"RefreshUpdateBadge",false);Call(window,"RefreshUpdateBadge",true);
         var collapsed=settings.GetType().GetProperty("SettingsNavigationCollapsed")!;
         collapsed.SetValue(settings,true); Call(window,"ApplyNavigationLayout");
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==82,"collapsed width");
@@ -59,6 +72,19 @@ class Program
         var iconSurface = (FrameworkElement)((StackPanel)updateNav.Content).Children[0];
         var iconBounds = iconSurface.TransformToAncestor(updateNav).TransformBounds(new Rect(iconSurface.RenderSize));
         Assert(iconBounds.Top >= 0 && iconBounds.Bottom <= updateNav.ActualHeight, "GitHub icon fully inside row");
+        var badgeBounds=badge.TransformToAncestor(iconSurface).TransformBounds(new Rect(badge.RenderSize));
+        Assert(badgeBounds.Right<=iconSurface.ActualWidth && badgeBounds.Top>=0 && badgeBounds.Width==7,"badge fits icon upper right corner");
+        foreach(var width in new[]{780d,920d})
+        {
+            root.Measure(new Size(width,720));root.Arrange(new Rect(0,0,width,720));root.UpdateLayout();
+            var updateCard=(FrameworkElement)window.FindName("UpdateCard");
+            var autoCheck=(FrameworkElement)window.FindName("AutoUpdateCheck");
+            var checkButton=(FrameworkElement)window.FindName("CheckUpdateButton");
+            var installButton=(FrameworkElement)window.FindName("InstallUpdateButton");
+            Rect Bounds(FrameworkElement element)=>element.TransformToAncestor(updateCard).TransformBounds(new Rect(element.RenderSize));
+            Assert(Bounds(autoCheck).Right<=Bounds(checkButton).Left && Bounds(checkButton).Right<=Bounds(installButton).Left,"update buttons do not overlap switch at width "+width);
+            Assert(Bounds(installButton).Right<=updateCard.ActualWidth && Math.Abs((Bounds(autoCheck).Top+Bounds(autoCheck).Bottom)/2-(Bounds(checkButton).Top+Bounds(checkButton).Bottom)/2)<6,"update actions stay on same row within card "+width);
+        }
         var brand = (StackPanel)window.FindName("NavigationBrand");
         var brandIcon = (FrameworkElement)brand.Children[0];
         var label = (FrameworkElement)((StackPanel)updateNav.Content).Children[1];
@@ -77,6 +103,7 @@ class Program
         timer.Tick += (_,_) => { timer.Stop(); frame.Continue=false; }; timer.Start();
         System.Windows.Threading.Dispatcher.PushFrame(frame);
         Assert(((ColumnDefinition)window.FindName("NavigationColumn")).Width.Value==200,"rapid toggle settles expanded");
+        Assert(badge.Visibility==Visibility.Visible && badge.Opacity==1,"rapid update badge reversal remains visible");
         Assert(progress.Visibility==Visibility.Visible && Math.Abs(progress.Value-80)<.01 && progress.Opacity==1,"rapid progress hide/show settles visible");
         foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Visible,"rapid toggle label visible "+name);
         window.Close(); main.Close(); app.Shutdown();

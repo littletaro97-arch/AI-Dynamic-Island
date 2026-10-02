@@ -22,6 +22,7 @@ public sealed class SettingsSwitchPanel : Panel
     private const string DragFormat = "AI.DynamicIsland.SettingCard";
     private readonly DispatcherTimer _hold = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private FrameworkElement? _candidate;
+    private FrameworkElement? _grabbed;
     private Point _down;
     private FrameworkElement? _covered;
     private double _coveredOpacity;
@@ -39,11 +40,13 @@ public sealed class SettingsSwitchPanel : Panel
             _hold.Stop();
             if (_candidate is null || Mouse.LeftButton != MouseButtonState.Pressed) return;
             EditRequested?.Invoke(this,EventArgs.Empty);
+            if (IsEditing) SetGrabbed(_candidate);
         };
         PreviewMouseLeftButtonDown += OnDown;
         PreviewMouseLeftButtonUp += (_,e) =>
         {
             _hold.Stop(); _candidate = null;
+            ReleaseGrabbed();
             if (IsEditing) { e.Handled = true; Mouse.Capture(null); }
         };
         PreviewMouseMove += OnMove;
@@ -86,6 +89,7 @@ public sealed class SettingsSwitchPanel : Panel
     public void SetEditing(bool editing)
     {
         IsEditing = editing;
+        if (!editing) ReleaseGrabbed();
         foreach (FrameworkElement item in InternalChildren)
         {
             if (item is ExpandableSettingCard card) card.SetExpanded(false);
@@ -93,6 +97,43 @@ public sealed class SettingsSwitchPanel : Panel
             var opacity = (double)item.GetAnimationBaseValue(OpacityProperty);
             item.BeginAnimation(OpacityProperty,new DoubleAnimation(editing ? opacity*.8 : opacity,TimeSpan.FromMilliseconds(180)));
         }
+    }
+
+    // Keep scale separate from the translation used by slot-reordering animations.
+    private static TransformGroup CardTransform(FrameworkElement item)
+    {
+        if (item.RenderTransform is TransformGroup group && group.Children.Count == 2
+            && group.Children[0] is ScaleTransform && group.Children[1] is TranslateTransform) return group;
+        var transforms = new TransformGroup();
+        transforms.Children.Add(new ScaleTransform());
+        transforms.Children.Add(item.RenderTransform is TranslateTransform translation ? translation : new TranslateTransform());
+        item.RenderTransformOrigin = new Point(.5, .5);
+        item.RenderTransform = transforms;
+        return transforms;
+    }
+
+    private void SetGrabbed(FrameworkElement? item)
+    {
+        if (item == _grabbed) return;
+        ReleaseGrabbed();
+        _grabbed = item;
+        if (item is null) return;
+        AnimateGrab(item, .94);
+    }
+
+    private void ReleaseGrabbed()
+    {
+        var item = _grabbed;
+        _grabbed = null;
+        if (item is not null) AnimateGrab(item, 1);
+    }
+
+    private static void AnimateGrab(FrameworkElement item, double scale)
+    {
+        var transform = (ScaleTransform)CardTransform(item).Children[0];
+        foreach (var property in new[] { ScaleTransform.ScaleXProperty, ScaleTransform.ScaleYProperty })
+            transform.BeginAnimation(property, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(160))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
 
     public void Expand(ExpandableSettingCard card, bool expanded)
@@ -146,7 +187,7 @@ public sealed class SettingsSwitchPanel : Panel
         if (_candidate is null) return;
         if (_candidate is ExpandableSettingCard card && e.GetPosition(card).Y > 62) { _candidate = null; return; }
         _down = e.GetPosition(this);
-        if (IsEditing) e.Handled = true;
+        if (IsEditing) { SetGrabbed(_candidate); e.Handled = true; }
         else _hold.Start();
     }
 
@@ -164,7 +205,7 @@ public sealed class SettingsSwitchPanel : Panel
         _candidate = null;
         Mouse.Capture(null);
         try { DragDrop.DoDragDrop(item,new DataObject(DragFormat,item),DragDropEffects.Move); }
-        finally { _hold.Stop(); }
+        finally { _hold.Stop(); ReleaseGrabbed(); }
     }
 
     private bool Accept(DragEventArgs e) => IsEditing && e.Data.GetData(DragFormat) is FrameworkElement item && Children.Contains(item);
@@ -190,7 +231,7 @@ public sealed class SettingsSwitchPanel : Panel
         {
             var current = child.TranslatePoint(new Point(),this);
             var delta = old[child]-current;
-            var transform = new TranslateTransform(); child.RenderTransform = transform;
+            var transform = (TranslateTransform)CardTransform(child).Children[1];
             transform.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(delta.X,0,TimeSpan.FromMilliseconds(220)));
             transform.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(delta.Y,0,TimeSpan.FromMilliseconds(220)));
         }
