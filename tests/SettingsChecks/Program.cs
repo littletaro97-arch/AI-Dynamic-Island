@@ -84,6 +84,9 @@ class Program
             Rect Bounds(FrameworkElement element)=>element.TransformToAncestor(updateCard).TransformBounds(new Rect(element.RenderSize));
             Assert(Bounds(autoCheck).Right<=Bounds(checkButton).Left && Bounds(checkButton).Right<=Bounds(installButton).Left,"update buttons do not overlap switch at width "+width);
             Assert(Bounds(installButton).Right<=updateCard.ActualWidth && Math.Abs((Bounds(autoCheck).Top+Bounds(autoCheck).Bottom)/2-(Bounds(checkButton).Top+Bounds(checkButton).Bottom)/2)<6,"update actions stay on same row within card "+width);
+            var openProject=(FrameworkElement)window.FindName("OpenProjectButton");
+            var copyProject=(FrameworkElement)window.FindName("CopyProjectButton");
+            Assert(Math.Abs(Bounds(openProject).Top-Bounds(copyProject).Top)<.01 && Math.Abs(Bounds(openProject).Bottom-Bounds(copyProject).Bottom)<.01,"project actions align horizontally at width "+width);
         }
         var brand = (StackPanel)window.FindName("NavigationBrand");
         var brandIcon = (FrameworkElement)brand.Children[0];

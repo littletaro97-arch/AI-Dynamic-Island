@@ -5,9 +5,6 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using CheckBox = System.Windows.Controls.CheckBox;
-using DataObject = System.Windows.DataObject;
-using DragEventArgs = System.Windows.DragEventArgs;
-using DragDropEffects = System.Windows.DragDropEffects;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Point = System.Windows.Point;
 using Size = System.Windows.Size;
@@ -19,11 +16,12 @@ namespace YoyoClawCompanion.Controls;
 // Stable slots let a hovered card cover just the next slot without reflowing the section.
 public sealed class SettingsSwitchPanel : Panel
 {
-    private const string DragFormat = "AI.DynamicIsland.SettingCard";
     private readonly DispatcherTimer _hold = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private FrameworkElement? _candidate;
     private FrameworkElement? _grabbed;
     private Point _down;
+    private Vector _grabStartTranslation;
+    private bool _dragMoved, _finishingDrag;
     private FrameworkElement? _covered;
     private double _coveredOpacity;
     public bool IsEditing { get; private set; }
@@ -33,27 +31,30 @@ public sealed class SettingsSwitchPanel : Panel
 
     public SettingsSwitchPanel()
     {
-        AllowDrop = true;
+        Background = System.Windows.Media.Brushes.Transparent;
         ClipToBounds = false;
         _hold.Tick += (_, _) =>
         {
             _hold.Stop();
             if (_candidate is null || Mouse.LeftButton != MouseButtonState.Pressed) return;
             EditRequested?.Invoke(this,EventArgs.Empty);
-            if (IsEditing) SetGrabbed(_candidate);
+            if (IsEditing) { SetGrabbed(_candidate); CaptureMouse(); }
         };
         PreviewMouseLeftButtonDown += OnDown;
         PreviewMouseLeftButtonUp += (_,e) =>
         {
-            _hold.Stop(); _candidate = null;
-            ReleaseGrabbed();
-            if (IsEditing) { e.Handled = true; Mouse.Capture(null); }
+            _hold.Stop();
+            if (IsEditing) { FinishPointerDrag(e.GetPosition(this)); e.Handled = true; }
+            else _candidate = null;
         };
         PreviewMouseMove += OnMove;
         MouseLeave += (_,_) => { if (!IsEditing) { _hold.Stop(); _candidate = null; } };
-        LostMouseCapture += (_,_) => _hold.Stop();
-        PreviewDragOver += OnDragOver;
-        PreviewDrop += OnDrop;
+        LostMouseCapture += (_,e) =>
+        {
+            if (!ReferenceEquals(e.OriginalSource, this)) return;
+            _hold.Stop();
+            if (!_finishingDrag) FinishPointerDrag(_down, false);
+        };
         Unloaded += (_,_) => { _hold.Stop(); SetEditing(false); };
     }
 
@@ -89,7 +90,7 @@ public sealed class SettingsSwitchPanel : Panel
     public void SetEditing(bool editing)
     {
         IsEditing = editing;
-        if (!editing) ReleaseGrabbed();
+        if (!editing) FinishPointerDrag(_down, false);
         foreach (FrameworkElement item in InternalChildren)
         {
             if (item is ExpandableSettingCard card) card.SetExpanded(false);
@@ -118,6 +119,14 @@ public sealed class SettingsSwitchPanel : Panel
         ReleaseGrabbed();
         _grabbed = item;
         if (item is null) return;
+        _dragMoved = false;
+        var translation = (TranslateTransform)CardTransform(item).Children[1];
+        _grabStartTranslation = new Vector(translation.X, translation.Y);
+        translation.BeginAnimation(TranslateTransform.XProperty, null);
+        translation.BeginAnimation(TranslateTransform.YProperty, null);
+        translation.X = _grabStartTranslation.X;
+        translation.Y = _grabStartTranslation.Y;
+        SetZIndex(item, 100);
         AnimateGrab(item, .94);
     }
 
@@ -125,7 +134,20 @@ public sealed class SettingsSwitchPanel : Panel
     {
         var item = _grabbed;
         _grabbed = null;
-        if (item is not null) AnimateGrab(item, 1);
+        if (item is not null)
+        {
+            AnimateGrab(item, 1);
+            var translation = (TranslateTransform)CardTransform(item).Children[1];
+            foreach (var property in new[] { TranslateTransform.XProperty, TranslateTransform.YProperty })
+            {
+                var current = (double)translation.GetValue(property);
+                translation.BeginAnimation(property, null);
+                translation.SetValue(property, 0d);
+                translation.BeginAnimation(property, new DoubleAnimation(current, 0, TimeSpan.FromMilliseconds(220))
+                    { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            }
+            SetZIndex(item, 0);
+        }
     }
 
     private static void AnimateGrab(FrameworkElement item, double scale)
@@ -187,7 +209,7 @@ public sealed class SettingsSwitchPanel : Panel
         if (_candidate is null) return;
         if (_candidate is ExpandableSettingCard card && e.GetPosition(card).Y > 62) { _candidate = null; return; }
         _down = e.GetPosition(this);
-        if (IsEditing) { SetGrabbed(_candidate); e.Handled = true; }
+        if (IsEditing) { SetGrabbed(_candidate); CaptureMouse(); e.Handled = true; }
         else _hold.Start();
     }
 
@@ -200,24 +222,40 @@ public sealed class SettingsSwitchPanel : Panel
             if (delta.Length > 6) { _hold.Stop(); _candidate = null; }
             return;
         }
-        if (delta.Length < 6) return;
-        var item = _candidate;
-        _candidate = null;
-        Mouse.Capture(null);
-        try { DragDrop.DoDragDrop(item,new DataObject(DragFormat,item),DragDropEffects.Move); }
-        finally { _hold.Stop(); ReleaseGrabbed(); }
+        UpdateGrabPosition(e.GetPosition(this));
+        e.Handled = true;
     }
 
-    private bool Accept(DragEventArgs e) => IsEditing && e.Data.GetData(DragFormat) is FrameworkElement item && Children.Contains(item);
-    private void OnDragOver(object sender,DragEventArgs e) { e.Effects = Accept(e) ? DragDropEffects.Move : DragDropEffects.None; e.Handled = true; }
-    private void OnDrop(object sender,DragEventArgs e)
+    // Render the picked-up card itself, so it stays attached to the pointer.
+    // Native DoDragDrop only displayed a cursor and left the card in its slot.
+    private void UpdateGrabPosition(Point position)
     {
-        e.Handled = true;
-        if (!Accept(e)) return;
-        var item = (FrameworkElement)e.Data.GetData(DragFormat);
-        var position = e.GetPosition(this);
-        var target = Math.Clamp((int)(position.Y/72)*2+(position.X<ActualWidth/2 ? 0 : 1),0,Children.Count-1);
-        MoveItem(item,target);
+        if (!IsEditing || _grabbed is null) return;
+        var delta = position - _down;
+        _dragMoved |= delta.Length >= 6;
+        var translation = (TranslateTransform)CardTransform(_grabbed).Children[1];
+        translation.X = _grabStartTranslation.X + delta.X;
+        translation.Y = _grabStartTranslation.Y + delta.Y;
+    }
+
+    private void FinishPointerDrag(Point position, bool reorder = true)
+    {
+        if (_finishingDrag) return;
+        _finishingDrag = true;
+        try
+        {
+            _hold.Stop();
+            if (reorder && IsEditing && _dragMoved && _grabbed is { } item
+                && new Rect(RenderSize).Contains(position))
+            {
+                var target = Math.Clamp((int)(position.Y/72)*2+(position.X<ActualWidth/2 ? 0 : 1),0,Children.Count-1);
+                MoveItem(item,target);
+            }
+            _candidate = null;
+            ReleaseGrabbed();
+            if (IsMouseCaptured) ReleaseMouseCapture();
+        }
+        finally { _finishingDrag = false; }
     }
 
     public void MoveItem(FrameworkElement item,int target)
@@ -225,6 +263,13 @@ public sealed class SettingsSwitchPanel : Panel
         var from = Children.IndexOf(item);
         if (!IsEditing || from < 0 || target < 0 || target >= Children.Count || from == target) return;
         var old = Children.Cast<FrameworkElement>().ToDictionary(child => child,child => child.TranslatePoint(new Point(),this));
+        foreach (FrameworkElement child in Children)
+        {
+            var translation = (TranslateTransform)CardTransform(child).Children[1];
+            translation.BeginAnimation(TranslateTransform.XProperty, null);
+            translation.BeginAnimation(TranslateTransform.YProperty, null);
+            translation.X = translation.Y = 0;
+        }
         Children.RemoveAt(from); Children.Insert(target,item);
         UpdateLayout();
         foreach (FrameworkElement child in Children)
@@ -232,8 +277,9 @@ public sealed class SettingsSwitchPanel : Panel
             var current = child.TranslatePoint(new Point(),this);
             var delta = old[child]-current;
             var transform = (TranslateTransform)CardTransform(child).Children[1];
-            transform.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(delta.X,0,TimeSpan.FromMilliseconds(220)));
-            transform.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(delta.Y,0,TimeSpan.FromMilliseconds(220)));
+            var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+            transform.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(delta.X,0,TimeSpan.FromMilliseconds(220)) { EasingFunction = easing });
+            transform.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(delta.Y,0,TimeSpan.FromMilliseconds(220)) { EasingFunction = easing });
         }
         OrderChanged?.Invoke(this,EventArgs.Empty);
     }

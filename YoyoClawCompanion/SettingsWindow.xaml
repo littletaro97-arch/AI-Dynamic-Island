@@ -463,7 +463,7 @@
                         <TextBlock x:Name="UpdateStatusText" Text="尚未检查更新" TextWrapping="Wrap" Margin="0,0,0,10"/>
                         <Grid Margin="2,8,2,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBlock Text="https://github.com/littletaro97-arch/AI-Dynamic-Island" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"/>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Height="38" Style="{StaticResource ActionButton}" Content="跳转" ToolTip="在默认浏览器打开项目" Click="OpenProject_Click"/><Button Height="38" Margin="8,0,0,0" Style="{StaticResource ActionButton}" Content="复制地址" Click="CopyProject_Click"/></StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="OpenProjectButton" Height="38" Margin="0" Style="{StaticResource ActionButton}" Content="跳转" ToolTip="在默认浏览器打开项目" Click="OpenProject_Click"/><Button x:Name="CopyProjectButton" Height="38" Margin="8,0,0,0" Style="{StaticResource ActionButton}" Content="复制地址" Click="CopyProject_Click"/></StackPanel>
                         </Grid>
                     </StackPanel></Border>
                 </StackPanel>

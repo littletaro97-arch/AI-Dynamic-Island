@@ -44,9 +44,10 @@
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="{TemplateBinding Background}"/></ControlTemplate></Setter.Value></Setter>
         </Style>
         <Style x:Key="IndicatorButton" TargetType="Button">
-            <Setter Property="Width" Value="15"/><Setter Property="Height" Value="30"/><Setter Property="Padding" Value="0"/>
+            <Setter Property="Width" Value="15"/><Setter Property="Height" Value="18"/><Setter Property="Padding" Value="0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></ControlTemplate></Setter.Value></Setter>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid></ControlTemplate></Setter.Value></Setter>
         </Style>
         <Style x:Key="RowLaunchButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
@@ -135,16 +136,16 @@
                     </Grid>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
-                        <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
-                        <Button x:Name="WorkBuddyIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenWorkBuddy_Click"><Ellipse x:Name="WorkBuddyMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
-                        <Button x:Name="DeepSeekIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenDeepSeek_Click"><Ellipse x:Name="DeepSeekMiniDot" Width="7" Height="7" Fill="#727C90"/></Button>
+                        <Button x:Name="YoyoIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenYoyo_Click"><Ellipse x:Name="YoyoMiniDot" Width="8" Height="8" VerticalAlignment="Center" Fill="#727C90"/></Button>
+                        <Button x:Name="CodexIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenCodex_Click"><Ellipse x:Name="CodexMiniDot" Width="8" Height="8" VerticalAlignment="Center" Fill="#727C90"/></Button>
+                        <Button x:Name="WorkBuddyIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenWorkBuddy_Click"><Ellipse x:Name="WorkBuddyMiniDot" Width="8" Height="8" VerticalAlignment="Center" Fill="#727C90"/></Button>
+                        <Button x:Name="DeepSeekIndicatorButton" Style="{StaticResource IndicatorButton}" Click="OpenDeepSeek_Click"><Ellipse x:Name="DeepSeekMiniDot" Width="8" Height="8" VerticalAlignment="Center" Fill="#727C90"/></Button>
                     </StackPanel>
                     </StackPanel>
                 </Grid>
                 <Grid x:Name="ExpandedPanel" Grid.Row="1" Opacity="0" Visibility="Collapsed" Margin="1,4,1,12" IsHitTestVisible="True">
                     <Grid.RowDefinitions><RowDefinition x:Name="ExpandedRow0" Height="24"/><RowDefinition x:Name="ExpandedRow1" Height="24"/><RowDefinition x:Name="ExpandedRow2" Height="24"/><RowDefinition x:Name="ExpandedRow3" Height="24"/><RowDefinition x:Name="ExpandedRow4" Height="*"/></Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*" MinWidth="12"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="YoyoLabel" Grid.Column="1" Text="YOYO Claw" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="StateText" Grid.Column="2" Text="读取中" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>

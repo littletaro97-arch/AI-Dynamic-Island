@@ -47,7 +47,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _fullscreenTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _zOrderTimer = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly DispatcherTimer _readyClockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
-    private readonly DispatcherTimer _marqueeTimer = new() { Interval = TimeSpan.FromMilliseconds(1000d / 30) };
     private string? _plainSummaryText;
     private Brush? _plainSummaryBrush;
     private IslandSettings _settings = AppSettings.Load();
@@ -64,9 +63,6 @@ public partial class MainWindow : Window
     private bool _isBalanceSummary, _focusModeHidden, _expandUp;
     private bool _anyBusy;
     private string? _balanceSummaryKey;
-    private double _marqueeOffset, _marqueeCycleWidth;
-    private long _lastMarqueeTick;
-    private bool _marqueeRenderingSubscribed;
     private string? _appliedProviderOrder;
     private bool _reverseHoverHidden;
     private Rect _reverseHoverBoundsPixels;
@@ -109,7 +105,6 @@ public partial class MainWindow : Window
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
         _readyClockTimer.Tick += (_, _) => UpdateReadyClockText();
-        _marqueeTimer.Tick += AdvanceSummaryMarquee;
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
@@ -528,6 +523,12 @@ public partial class MainWindow : Window
             ["deepseek"] = [DeepSeekDot, DeepSeekLabel, DeepSeekStateText, DeepSeekRowButton]
         };
         var order = VisibleProviderOrder();
+        // A zero-height row does not hide its children. Hide the complete provider
+        // before compacting rows, so an old slot cannot overlap a remaining row.
+        foreach (var (provider, elements) in rows)
+            foreach (var element in elements)
+                element.Visibility = IsProviderVisible(provider) && (element != PointsText || _settings.ShowYoyoCredits)
+                    ? Visibility.Visible : Visibility.Collapsed;
         var replyRow = replyFirst ? 0 : order.Length;
         var definitions = new[] { ExpandedRow0, ExpandedRow1, ExpandedRow2, ExpandedRow3, ExpandedRow4 };
         definitions[replyRow].Height = new GridLength(1, GridUnitType.Star);
@@ -902,6 +903,7 @@ public partial class MainWindow : Window
         PopulateBalanceSummary(SummaryTextClone, values);
         SummaryViewport.Visibility = values.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (values.Count > 0) ScheduleSummaryMarquee();
+        else StopSummaryMarquee();
     }
 
     private void PopulateBalanceSummary(TextBlock target, IReadOnlyDictionary<string, string> values)
@@ -1963,49 +1965,27 @@ public partial class MainWindow : Window
         }
         var gap = SummaryText.FontSize * 5;
         SummaryTextClone.Visibility = Visibility.Visible;
-        _marqueeCycleWidth = textWidth + gap;
-        _marqueeOffset = 0;
+        var cycleWidth = textWidth + gap;
         Canvas.SetLeft(SummaryText, 0);
-        Canvas.SetLeft(SummaryTextClone, _marqueeCycleWidth);
-        SummaryPrimaryTranslate.X = 0;
-        SummaryCloneTranslate.X = 0;
-        _lastMarqueeTick = Stopwatch.GetTimestamp();
-        if (!_marqueeRenderingSubscribed)
-        {
-            _marqueeTimer.Start();
-            _marqueeRenderingSubscribed = true;
-        }
-    }
-
-    private void AdvanceSummaryMarquee(object? sender, EventArgs e)
-    {
-        if (!_isBalanceSummary || _expanded || _focusModeHidden || _marqueeCycleWidth <= 0)
-        {
-            StopSummaryMarquee();
-            return;
-        }
-
-        var now = Stopwatch.GetTimestamp();
-        var elapsed = Math.Min(.1, Math.Max(0, (now - _lastMarqueeTick) / (double)Stopwatch.Frequency));
-        _lastMarqueeTick = now;
-        _marqueeOffset = (_marqueeOffset + _settings.QuotaScrollSpeed * elapsed) % _marqueeCycleWidth;
-        SummaryPrimaryTranslate.X = -_marqueeOffset;
-        SummaryCloneTranslate.X = -_marqueeOffset;
+        Canvas.SetLeft(SummaryTextClone, cycleWidth);
+        // One shared animation clock keeps both copies in phase without a UI
+        // timer or managed callback on every frame. WPF schedules rendering.
+        var animation = new DoubleAnimation(0, -cycleWidth, TimeSpan.FromSeconds(cycleWidth / _settings.QuotaScrollSpeed))
+            { RepeatBehavior = RepeatBehavior.Forever };
+        var clock = animation.CreateClock();
+        SummaryPrimaryTranslate.ApplyAnimationClock(TranslateTransform.XProperty, clock);
+        SummaryCloneTranslate.ApplyAnimationClock(TranslateTransform.XProperty, clock);
     }
 
     private void StopSummaryMarquee()
     {
-        if (_marqueeRenderingSubscribed)
-        {
-            _marqueeTimer.Stop();
-            _marqueeRenderingSubscribed = false;
-        }
-        _marqueeOffset = 0;
-        _marqueeCycleWidth = 0;
+        SummaryPrimaryTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+        SummaryCloneTranslate.BeginAnimation(TranslateTransform.XProperty, null);
         Canvas.SetLeft(SummaryText, 0);
         Canvas.SetLeft(SummaryTextClone, 0);
         SummaryPrimaryTranslate.X = 0;
         SummaryCloneTranslate.X = 0;
+        SummaryTextClone.Visibility = Visibility.Collapsed;
     }
 
     private void SetLaunchControls(bool enabled)
