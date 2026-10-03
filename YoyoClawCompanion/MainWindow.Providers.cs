@@ -102,6 +102,7 @@ public partial class MainWindow
 
     private void ShowDeepSeekDecision()
     {
+        PauseSystemToastForDecision();
         _activeConfirmationNotice = "DeepSeek Harness 需要你的决策 · 请打开应用查看审批或问题";
         if (_deepSeekConfirmationId == _deepSeekStatus.ConfirmationId) return;
         _deepSeekConfirmationId = _deepSeekStatus.ConfirmationId;

@@ -38,12 +38,18 @@ internal sealed class IslandSettings
     public bool EnableSpringAnimation { get; set; } = true;
     public bool EnableCompletionNotifications { get; set; } = true;
     public bool EnableConfirmationNotifications { get; set; } = true;
+    public bool EnableCodexConfirmationNotifications { get; set; } = true;
+    public bool EnableSystemNotifications { get; set; }
+    public double SystemNotificationDisplaySeconds { get; set; } = 10;
     public bool EnableReverseHover { get; set; }
     public bool EnableFullscreenActiveOnly { get; set; }
     public bool EnableUnchangedAutoHide { get; set; }
     public bool PutReplyFirstWhenExpandedUp { get; set; }
     public bool AllowExpandedBeyondScreen { get; set; } = true;
     public string PositionPreset { get; set; } = "custom";
+    public string? PreferredDisplayId { get; set; }
+    public DisplayPosition? PrimaryDisplayPosition { get; set; }
+    public Dictionary<string, DisplayPosition> SecondaryDisplayPositions { get; set; } = new();
     public double UnchangedAutoHideMinutes { get; set; } = 5;
     public double HoverDelayMs { get; set; } = 70;
     public double QuotaScrollSpeed { get; set; } = 24;

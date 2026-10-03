@@ -24,7 +24,10 @@ internal sealed record CodexStatus(
     int ActiveSessions,
     DateTimeOffset? LatestLifecycleAt,
     bool HasStaleStarted,
-    IReadOnlyList<TaskCompletionEvent>? Completions = null);
+    IReadOnlyList<TaskCompletionEvent>? Completions = null,
+    bool RequiresConfirmation = false,
+    string? ConfirmationId = null,
+    string? ConfirmationPrompt = null);
 
 internal sealed class CodexStatusService : IDisposable
 {
@@ -51,6 +54,8 @@ internal sealed class CodexStatusService : IDisposable
     private string? _lastLimitError;
     private readonly Dictionary<string, LifecycleCacheEntry> _lifecycleCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CompletionCacheEntry> _completionCache = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record DecisionCacheEntry(long Length, DateTime WriteAt, long Revision, JsonLineCursor Cursor, CodexDecisionReader Reader);
+    private readonly Dictionary<string, DecisionCacheEntry> _decisionCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<TaskCompletionEvent> _recentCompletions = [];
     private FileInfo[]? _candidateFiles;
     internal string? LastError { get; private set; }
@@ -70,6 +75,7 @@ internal sealed class CodexStatusService : IDisposable
         }
         _lifecycleCache.Clear();
         _completionCache.Clear();
+        _decisionCache.Clear();
         LastError = null;
     }
 
@@ -86,6 +92,7 @@ internal sealed class CodexStatusService : IDisposable
         var running = isRunning ?? IsCodexRunning();
         var activity = running && detectActivity ? ReadActivityState() : default;
         var completion = running ? ReadRecentCompletion() : default;
+        var decision = running && detectActivity ? ReadDecisionState() : null;
         RateLimitsSnapshot? limits;
         long? limitReadMilliseconds;
         bool limitsLoading;
@@ -118,7 +125,35 @@ internal sealed class CodexStatusService : IDisposable
             activity.ActiveSessions,
             activity.LatestLifecycleAt,
             activity.HasStaleStarted,
-            running ? _recentCompletions : []);
+            running ? _recentCompletions : [], decision is not null, decision?.Id, decision?.Prompt);
+    }
+
+    private CodexDecision? ReadDecisionState()
+    {
+        var candidates = EnumerateCandidateFiles(ActivityCandidateLimit).ToArray();
+        PruneCache(_decisionCache, candidates.Select(f => f.FullName));
+        var pending = new List<CodexDecision>();
+        foreach (var file in candidates)
+        {
+            try
+            {
+                file.Refresh();
+                var revision = _sessionIndex.RevisionFor(file.FullName);
+                if (!_decisionCache.TryGetValue(file.FullName, out var cached) || cached.Length != file.Length || cached.WriteAt != file.LastWriteTimeUtc || cached.Revision != revision)
+                {
+                    var cursor = cached?.Cursor ?? new JsonLineCursor();
+                    var reader = cached?.Reader ?? new CodexDecisionReader();
+                    var markers = new[] { "request_user_input", "send_user_message_question_reply", "turn_aborted", "answers" }.Concat(reader.PendingCallIds).ToArray();
+                    var lines = cursor.Read(file.FullName, LifecycleTailBytes, markers);
+                    if (cursor.Rebuild) reader.Reset();
+                    reader.Apply(lines, file.FullName);
+                    _decisionCache[file.FullName] = cached = new(file.Length, file.LastWriteTimeUtc, revision, cursor, reader);
+                }
+                if (cached.Reader.Current is { } decision && DateTimeOffset.UtcNow - decision.CreatedAt < StaleStartedAfter) pending.Add(decision);
+            }
+            catch (IOException) { }
+        }
+        return pending.OrderBy(d => d.CreatedAt).FirstOrDefault();
     }
 
     private void EnsureLimitRefreshStarted()

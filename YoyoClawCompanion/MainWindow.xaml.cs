@@ -93,6 +93,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         IslandShadowLayer.Attach(Island, (System.Windows.Media.Effects.Effect)FindResource("IslandShadow"));
         InitializeProviderSuppression();
+        InitializeSystemNotifications();
         Icon = App.CreateWindowIcon();
         ConfigureIslandMenu();
         Loaded += OnLoaded;
@@ -282,6 +283,7 @@ public partial class MainWindow : Window
         settings.HoverDelayMs = IslandSettings.NormalizeHoverDelay(settings.HoverDelayMs);
         settings.QuotaScrollSpeed = Math.Clamp(settings.QuotaScrollSpeed, 8, 80);
         settings.CompletionDisplaySeconds = Math.Clamp(settings.CompletionDisplaySeconds, 3, 30);
+        settings.SystemNotificationDisplaySeconds = double.IsFinite(settings.SystemNotificationDisplaySeconds) ? Math.Clamp(settings.SystemNotificationDisplaySeconds, 3, 60) : 10;
         settings.CodexResetReminderMinutes = Math.Clamp(settings.CodexResetReminderMinutes, 1, 120);
         settings.MaxResponseLines = Math.Clamp(settings.MaxResponseLines, 1, 6);
         settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
@@ -329,7 +331,7 @@ public partial class MainWindow : Window
         ApplyProviderOrder();
         ApplyExpandedContentOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
-        _completionTimer.Interval = TimeSpan.FromSeconds(settings.CompletionDisplaySeconds);
+        _completionTimer.Interval = TimeSpan.FromSeconds(_activeWindowsToast is not null ? settings.SystemNotificationDisplaySeconds : settings.CompletionDisplaySeconds);
         ApplyTypography();
         SetLaunchControls(settings.EnableAppLaunch);
         if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
@@ -345,6 +347,7 @@ public partial class MainWindow : Window
         }
         if (persist) AppSettings.Save(_settings);
         if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
+        if (IsLoaded && _systemNotificationEnabled != settings.EnableSystemNotifications) _ = ConfigureSystemNotificationsAsync();
         if (IsLoaded && _positionInitialized)
         {
             if (!_expanded)
@@ -369,6 +372,12 @@ public partial class MainWindow : Window
         ApplySettings(settings, persist: true, refreshStatus: true);
         StartYoyoCheckinFromSettings();
         if (!IsLoaded || !_positionInitialized) return;
+
+        if (settings.PrimaryDisplayPosition is not null)
+        {
+            RestorePreferredDisplay(true);
+            return;
+        }
 
         if (requestedPreset != "custom")
         {
@@ -558,6 +567,12 @@ public partial class MainWindow : Window
 
     internal void MoveToPositionPreset(string preset)
     {
+        if (_displayPlacementsInitialized)
+        {
+            var displays = ConnectedDisplays;
+            if (displays.Count > 0) MoveToDisplayPreset(preset, DisplayPlacement.Resolve(displays, _settings.PreferredDisplayId));
+            return;
+        }
         preset = NormalizePositionPreset(preset);
         if (preset == "custom") return;
         if (_expanded || _islandAnimationInProgress) CompleteCollapseImmediately();
@@ -630,9 +645,8 @@ public partial class MainWindow : Window
         _collapsedAnchorTop = Top;
         OrientCollapsedIsland();
         _positionInitialized = true;
-        if (NormalizePositionPreset(_settings.PositionPreset) != "custom")
-            MoveToPositionPreset(_settings.PositionPreset);
-        else SavePosition();
+        InitializeDisplayPlacements();
+        if (_settings.EnableSystemNotifications) _ = ConfigureSystemNotificationsAsync();
         await RefreshStatusAsync();
         _refreshTimer.Start();
         if (_settings.AutoCheckForUpdates) _ = _updateService.CheckAsync();
@@ -648,6 +662,7 @@ public partial class MainWindow : Window
             ? _collapsedLeftBeforeExpansion
             : Left + (Width - DefaultHostWidth) / 2;
         _settings.Y = _expandUp ? _collapsedAnchorTop : Top;
+        if (_displayPlacementsInitialized) CaptureDisplayPosition();
         AppSettings.Save(_settings);
     }
 
@@ -691,9 +706,10 @@ public partial class MainWindow : Window
             ApplyCodexVisualState(codex, provisional: false);
             SetWorkBuddyStateText(workBuddy, workBuddyCredits);
             _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
+            _codexDecisionStatus = codex;
             UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
-            if (completion is null && _activeConfirmationNotice is null) UpdateCodexResetReminder(codex);
+            if (completion is null && _activeConfirmationNotice is null && _activeWindowsToast is null) UpdateCodexResetReminder(codex);
             RecentResultText.Text = ActiveNoticeText;
             _anyBusy = (IsProviderVisible("yoyo") && status.IsBusy)
                 || (IsProviderVisible("codex") && codex.IsBusy)
@@ -707,6 +723,7 @@ public partial class MainWindow : Window
                     workBuddyResult.ElapsedMilliseconds, workBuddyCreditsResult.ElapsedMilliseconds));
             if (_activeConfirmationNotice is null && completion is not null && _settings.EnableCompletionNotifications) ShowCompletionNotice(completion);
             else UpdateDisplayMode();
+            TryShowNextSystemToast();
         }
         catch (Exception error)
         {
@@ -740,7 +757,7 @@ public partial class MainWindow : Window
 
     private void ApplyCodexVisualState(CodexStatus codex, bool provisional)
     {
-        CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy ? BusyBrush : OnlineBrush;
+        CodexMiniDot.Fill = !codex.IsRunning ? OfflineBrush : codex.IsBusy || codex.RequiresConfirmation ? BusyBrush : OnlineBrush;
         CodexDot.Fill = CodexMiniDot.Fill;
         SetCodexStateText(codex);
         if (!provisional || !codex.IsBusy || !IsProviderVisible("codex")) return;
@@ -803,6 +820,7 @@ public partial class MainWindow : Window
 
     private void UpdateHeadline(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy, WorkBuddyCredits workBuddyCredits)
     {
+        if (_activeWindowsToast is not null && _activeConfirmationNotice is null) { _readyClockTimer.Stop(); SetSystemToastHeader(); return; }
         _readyClockTimer.Stop();
         var points = yoyo.RemainingPoints is double value ? $"{value:0.##} 积分" : "积分 --";
         var busyByProvider = new Dictionary<string, bool> { ["yoyo"] = yoyo.IsBusy, ["codex"] = codex.IsBusy, ["workbuddy"] = workBuddy.IsBusy, ["deepseek"] = _deepSeekStatus.IsBusy };
@@ -818,6 +836,7 @@ public partial class MainWindow : Window
         var showDismiss = missing is not null && busyProviders.Count == 0 && !workBuddy.RequiresConfirmation && !_deepSeekStatus.RequiresConfirmation;
         SetOfflineDismissTarget(showDismiss ? missing : null);
         if (VisibleProviderOrder().Length == 0) { HeadlineText.Text = "未检测到助手"; HeadlineText.Foreground = OfflineBrush; SetPlainSummary("请在设置中指定安装位置"); }
+        else if (codex.RequiresConfirmation && IsProviderVisible("codex")) { HeadlineText.Text = "Codex 待回答"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("请打开 Codex 回答问题", BusyBrush); }
         else if (IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (IsProviderVisible("deepseek") && _deepSeekStatus.RequiresConfirmation) { HeadlineText.Text = "DeepSeek 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("请打开 Harness 完成决策", BusyBrush); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "deepseek") { HeadlineText.Text = "DeepSeek 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("正在处理任务"); }
@@ -983,7 +1002,7 @@ public partial class MainWindow : Window
         _completionBaselineReady = true;
         if (_seenCompletionEvents.Count > 2048) { _seenCompletionEvents.Clear(); foreach (var item in events) _seenCompletionEvents.Add(item.Key + "|" + item.Event.Id); }
         if (!_settings.EnableCompletionNotifications) _pendingCompletions.Clear();
-        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null || _pendingCompletions.Count == 0) return null;
+        if (_activeCompletionNotice is not null || _activeConfirmationNotice is not null || _activeWindowsToast is not null || _pendingCompletions.Count == 0) return null;
         return _pendingCompletions.Dequeue();
     }
 
@@ -999,7 +1018,7 @@ public partial class MainWindow : Window
         ExpandIsland(true);
     }
 
-    private string ActiveNoticeText => _activeConfirmationNotice ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
+    private string ActiveNoticeText => _activeConfirmationNotice ?? _activeWindowsToast?.Text ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
 
     private void UpdateCodexResetReminder(CodexStatus codex)
     {
@@ -1061,6 +1080,8 @@ public partial class MainWindow : Window
 
     private void UpdateConfirmationNotice(WorkBuddyStatus workBuddy)
     {
+        if (!HasCodexDecision) _codexDecisionNoticeId = null;
+        if (HasCodexDecision) { ShowCodexDecision(); return; }
         if (!_deepSeekStatus.RequiresConfirmation) _deepSeekConfirmationId = null;
         if (IsProviderVisible("deepseek") && _deepSeekStatus.RequiresConfirmation && _settings.EnableConfirmationNotifications
             && !(IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation)) { ShowDeepSeekDecision(); return; }
@@ -1080,6 +1101,7 @@ public partial class MainWindow : Window
         }
 
         _activeConfirmationNotice = $"WorkBuddy 需要你的确认 · {workBuddy.ConfirmationPrompt ?? "请打开 WorkBuddy 查看并选择"}";
+        PauseSystemToastForDecision();
         if (workBuddy.ConfirmationId == _workBuddyConfirmationId) return;
         _workBuddyConfirmationId = workBuddy.ConfirmationId;
         _activeCompletionNotice = null;
@@ -1102,6 +1124,8 @@ public partial class MainWindow : Window
 
     private void EndCompletionNotice()
     {
+        var hadSystemToast = _activeWindowsToast is not null;
+        _activeWindowsToast = null;
         _completionTimer.Stop();
         _notificationHoldActive = false;
         _activeCompletionNotice = null;
@@ -1109,6 +1133,8 @@ public partial class MainWindow : Window
         if (_activeConfirmationNotice is null) ClearProviderHighlight();
         RecentResultText.Text = ActiveNoticeText;
         if (_activeConfirmationNotice is null && _settings.EnableCompletionNotifications && _pendingCompletions.Count > 0) { ShowCompletionNotice(_pendingCompletions.Dequeue()); return; }
+        if (TryShowNextSystemToast()) return;
+        if (hadSystemToast) _ = RefreshStatusAsync();
         if (_settings.EnableReverseHover && Island.IsMouseOver)
         {
             CollapseIsland(true);
@@ -1137,6 +1163,7 @@ public partial class MainWindow : Window
         _notificationHoldActive = false;
         _activeCompletionNotice = null;
         _activeSystemNotice = null;
+        if (_activeWindowsToast is not null) { _activeWindowsToast = null; _ = RefreshStatusAsync(); }
         ClearProviderHighlight();
         RecentResultText.Text = ActiveNoticeText;
         CollapseIsland(true);
@@ -1145,6 +1172,7 @@ public partial class MainWindow : Window
 
     private void UpdateDisplayMode()
     {
+        if (_activeWindowsToast is not null) { ShowIslandForFocusMode(); return; }
         if (_trayWakeActive)
         {
             ShowIslandForFocusMode(animate: _inactivityHidden);
@@ -1440,6 +1468,8 @@ public partial class MainWindow : Window
             OrientCollapsedIsland();
             if (_dragMoved)
             {
+                var display = DisplayAtIsland(ConnectedDisplays);
+                _settings.PreferredDisplayId = display.IsPrimary ? DisplayPlacement.PrimaryId : display.Id;
                 SavePosition();
                 PositionChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -1906,7 +1936,7 @@ public partial class MainWindow : Window
     private string CodexSummary(CodexStatus status)
     {
         if (!status.IsRunning) return "未运行";
-        var state = _settings.EnableCodexActivityDetection ? (status.IsBusy ? "执行中" : "空闲") : "已打开";
+        var state = _settings.EnableCodexActivityDetection ? (status.RequiresConfirmation ? "待回答" : status.IsBusy ? "执行中" : "空闲") : "已打开";
         if (!_settings.ShowCodexLimits) return state;
         if (!status.LimitsAvailable) return $"{state} · {(status.LimitsLoading ? "限额读取中" : "限额不可用")}";
         var pieces = new List<string> { state };
@@ -1917,8 +1947,8 @@ public partial class MainWindow : Window
 
     private void SetCodexStateText(CodexStatus status)
     {
-        var state = !status.IsRunning ? "未运行" : !_settings.EnableCodexActivityDetection ? "已打开" : status.IsBusy ? "执行中" : "空闲";
-        var stateBrush = !status.IsRunning ? OfflineBrush : status.IsBusy ? BusyBrush : OnlineBrush;
+        var state = !status.IsRunning ? "未运行" : !_settings.EnableCodexActivityDetection ? "已打开" : status.RequiresConfirmation ? "待回答" : status.IsBusy ? "执行中" : "空闲";
+        var stateBrush = !status.IsRunning ? OfflineBrush : status.IsBusy || status.RequiresConfirmation ? BusyBrush : OnlineBrush;
         if (!_settings.ShowCodexLimits) { SetStatusInlines(CodexStateText, (state, stateBrush)); return; }
         if (!status.LimitsAvailable)
         {

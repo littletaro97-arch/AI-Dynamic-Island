@@ -6,6 +6,23 @@ namespace YoyoClawCompanion.Services;
 
 internal static class NativeWindow
 {
+    public static IReadOnlyList<DisplayInfo> GetDisplays()
+    {
+        var displays = new List<DisplayInfo>();
+        MonitorEnum callback = (IntPtr monitor, IntPtr dc, ref NativeRect rect, IntPtr data) =>
+        {
+            var info = new MonitorInfoEx { Size = Marshal.SizeOf<MonitorInfoEx>(), Device = "" };
+            if (!GetMonitorInfoEx(monitor, ref info)) return true;
+            var device = new DisplayDevice { Size = Marshal.SizeOf<DisplayDevice>() };
+            var id = EnumDisplayDevices(info.Device, 0, ref device, 1) && !string.IsNullOrEmpty(device.DeviceId)
+                ? device.DeviceId : info.Device;
+            displays.Add(new DisplayInfo(id, info.Device, (info.Flags & 1) != 0,
+                new Rect(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top)));
+            return true;
+        };
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero);
+        return displays.OrderByDescending(d => d.IsPrimary).ThenBy(d => d.DeviceName, StringComparer.Ordinal).ToArray();
+    }
     public static void RestoreAndActivate(IntPtr handle) { ShowWindow(handle, 9); SetForegroundWindow(handle); }
     public static Rect GetMonitorWorkArea(Point screenPoint)
     {
@@ -71,6 +88,24 @@ internal static class NativeWindow
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X; public int Y; public NativePoint(int x, int y) { X = x; Y = y; } }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public int Flags; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct MonitorInfoEx
+    {
+        public int Size; public NativeRect Monitor, Work; public int Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Device;
+    }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct DisplayDevice
+    {
+        public int Size;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+        public int StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceId;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+    }
+    private delegate bool MonitorEnum(IntPtr monitor, IntPtr dc, ref NativeRect rect, IntPtr data);
+    [DllImport("user32.dll")] private static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorEnum callback, IntPtr data);
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfoEx(IntPtr monitor, ref MonitorInfoEx info);
+    [DllImport("user32.dll", EntryPoint = "EnumDisplayDevicesW", CharSet = CharSet.Unicode)] private static extern bool EnumDisplayDevices(string device, uint index, ref DisplayDevice displayDevice, uint flags);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);

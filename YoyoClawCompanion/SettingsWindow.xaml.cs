@@ -76,6 +76,10 @@ public partial class SettingsWindow : Window
         ApplyNavigationLayout();
         RefreshPresetCards();
         ApplyPanelTheme();
+        InitializeDisplayPreview();
+        _island.SystemNotifications.StatusChanged += SystemNotificationStatus_Changed;
+        Closed += (_, _) => _island.SystemNotifications.StatusChanged -= SystemNotificationStatus_Changed;
+        SystemNotificationStatusText.Text = _island.SystemNotifications.Status;
     }
 
     private void LoadValues(IslandSettings value)
@@ -111,6 +115,9 @@ public partial class SettingsWindow : Window
         SpringAnimationCheck.IsChecked = value.EnableSpringAnimation;
         CompletionNotificationsCheck.IsChecked = value.EnableCompletionNotifications;
         ConfirmationNotificationsCheck.IsChecked = value.EnableConfirmationNotifications;
+        CodexConfirmationNotificationsCheck.IsChecked = value.EnableCodexConfirmationNotifications;
+        SystemNotificationsCheck.IsChecked = value.EnableSystemNotifications;
+        SystemNotificationDisplaySlider.Value = value.SystemNotificationDisplaySeconds;
         ReverseHoverCheck.IsChecked = value.EnableReverseHover;
         FullscreenActiveOnlyCheck.IsChecked = value.EnableFullscreenActiveOnly;
         UnchangedAutoHideCheck.IsChecked = value.EnableUnchangedAutoHide;
@@ -173,6 +180,10 @@ public partial class SettingsWindow : Window
         current.EnableSpringAnimation = SpringAnimationCheck.IsChecked == true;
         current.EnableCompletionNotifications = CompletionNotificationsCheck.IsChecked == true;
         current.EnableConfirmationNotifications = ConfirmationNotificationsCheck.IsChecked == true;
+        current.EnableCodexConfirmationNotifications = CodexConfirmationNotificationsCheck.IsChecked == true;
+        var systemNotificationsChanged = current.EnableSystemNotifications != (SystemNotificationsCheck.IsChecked == true);
+        current.EnableSystemNotifications = SystemNotificationsCheck.IsChecked == true;
+        current.SystemNotificationDisplaySeconds = SystemNotificationDisplaySlider.Value;
         current.EnableReverseHover = ReverseHoverCheck.IsChecked == true;
         current.EnableFullscreenActiveOnly = FullscreenActiveOnlyCheck.IsChecked == true;
         current.EnableUnchangedAutoHide = UnchangedAutoHideCheck.IsChecked == true;
@@ -183,6 +194,7 @@ public partial class SettingsWindow : Window
         current.QuotaScrollSpeed = QuotaScrollSpeedSlider.Value;
         current.CompletionDisplaySeconds = CompletionDisplaySlider.Value;
         current.CodexResetReminderMinutes = CodexResetReminderSlider.Value;
+        if (systemNotificationsChanged) _ = _island.ConfigureSystemNotificationsAsync(requestAccess: current.EnableSystemNotifications);
         current.MaxResponseLines = int.TryParse((MaxResponseLinesCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var lines) ? lines : 3;
         current.DisplayMode = (DisplayModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "always";
         var refreshStatus = ReferenceEquals(sender, CodexActivityCheck)
@@ -190,7 +202,7 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, CodexLimitsCheck)
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
             || ReferenceEquals(sender, ConfirmationNotificationsCheck)
-            || ReferenceEquals(sender, ReadyClockCheck);
+            || ReferenceEquals(sender, ReadyClockCheck) || ReferenceEquals(sender, CodexConfirmationNotificationsCheck);
         _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
         if (ReferenceEquals(sender, YoyoAutoCheckinCheck) || ReferenceEquals(sender, YoyoLaunchForCheckinCheck)) _island.StartYoyoCheckinFromSettings();
         UpdateLabels();
@@ -200,6 +212,7 @@ public partial class SettingsWindow : Window
 
     private void UpdateDependencyStates()
     {
+        if (SystemNotificationsCheck.IsChecked != true) SystemNotificationsCard.SetExpanded(false);
         HoverDelayPanel.IsEnabled = HoverExpansionCheck.IsChecked == true;
         UnchangedAutoHidePanel.IsEnabled = UnchangedAutoHideCheck.IsChecked == true;
         CompletionDisplayPanel.IsEnabled = CompletionNotificationsCheck.IsChecked == true || ConfirmationNotificationsCheck.IsChecked == true;
@@ -208,6 +221,7 @@ public partial class SettingsWindow : Window
         var installations = _island.GetProviderInstallations().ToDictionary(item => item.Key, StringComparer.OrdinalIgnoreCase);
         var yoyoInstalled = installations.TryGetValue("yoyo", out var yoyo) && yoyo.IsInstalled;
         var codexInstalled = installations.TryGetValue("codex", out var codex) && codex.IsInstalled;
+        SetDependentState(CodexConfirmationNotificationsCheck, codexInstalled && CodexActivityCheck.IsChecked == true);
         var workBuddyInstalled = installations.TryGetValue("workbuddy", out var workBuddy) && workBuddy.IsInstalled;
         foreach (var control in new UIElement[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck }) SetDependentState(control, yoyoInstalled);
         SetDependentState(YoyoLaunchForCheckinCheck, yoyoInstalled && YoyoAutoCheckinCheck.IsChecked == true);
@@ -505,6 +519,7 @@ public partial class SettingsWindow : Window
         HoverDelayValue.Text = $"{HoverDelaySlider.Value:0} ms";
         QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
         CompletionDisplayValue.Text = $"{CompletionDisplaySlider.Value:0} 秒";
+        SystemNotificationDisplayValue.Text = $"{SystemNotificationDisplaySlider.Value:0} 秒";
         CodexResetReminderValue.Text = $"{CodexResetReminderSlider.Value:0} 分钟";
         UnchangedAutoHideValue.Text = $"{UnchangedAutoHideSlider.Value:0} 分钟";
         PreviewIsland.Width = Math.Min(400, Math.Max(190, WidthSlider.Value));
@@ -533,7 +548,7 @@ public partial class SettingsWindow : Window
     private void PositionPreset_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string preset }) return;
-        _island.MoveToPositionPreset(preset);
+        if (PreviewDisplay is { } display) _island.MoveToDisplayPreset(preset, display);
         UpdatePositionControls(preset);
     }
 
@@ -542,12 +557,12 @@ public partial class SettingsWindow : Window
         if (sender is not FrameworkElement { Tag: string tag }) return;
         var parts = tag.Split(',');
         if (parts.Length != 2 || !double.TryParse(parts[0], out var horizontal) || !double.TryParse(parts[1], out var vertical)) return;
-        _island.NudgePosition(horizontal, vertical);
+        if (PreviewDisplay is { } display) _island.NudgeDisplayPosition(display, horizontal, vertical);
         UpdatePositionControls("custom");
     }
 
     private void Island_PositionChanged(object? sender, EventArgs e)
-        => Dispatcher.BeginInvoke(() => UpdatePositionControls(_island.CurrentSettings.PositionPreset));
+        => Dispatcher.BeginInvoke(() => { if (PreviewDisplay is { } display) UpdatePositionControls(_island.PositionForDisplay(display).Preset); });
 
     private void UpdatePositionControls(string? preset)
     {

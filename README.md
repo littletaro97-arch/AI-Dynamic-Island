@@ -19,6 +19,8 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO 
 
 ## 核心功能
 
+当前本地迭代尚未发布：主屏与副屏独立定位、横竖屏预览、系统通知同步及独立时长、Codex 中途询问提醒。实现与验收边界见 [本地迭代记录](docs/ITERATION-DISPLAYS-NOTIFICATIONS-2026-10-03.md)。GitHub 最新正式发布仍为 v0.7.3。
+
 - Codex：读取本地会话生命周期和最终回复，通过本机 app-server 获取额度与重置时间。
 - WorkBuddy：读取本地会话，识别执行、完成与待确认；通过本机宿主通道获取真实积分。
 - DeepSeek Harness：读取本机会话，识别执行、完成、异常及待决策；需要 Harness 自带的运行时。
