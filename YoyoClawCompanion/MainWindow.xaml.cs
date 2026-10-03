@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     private bool _appliedUnchangedAutoHide;
     private double _appliedUnchangedAutoHideMinutes;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
+    private bool _summaryMarqueeUpdatePending;
+    private (string Text, double Width, double Viewport, double Speed)? _summaryMarqueeKey;
     private string? _codexFiveHourReminderId, _codexWeeklyReminderId;
     private string? _highlightedProvider;
     private bool _yoyoInstalled, _codexInstalled, _workBuddyInstalled;
@@ -94,6 +96,7 @@ public partial class MainWindow : Window
         IslandShadowLayer.Attach(Island, (System.Windows.Media.Effects.Effect)FindResource("IslandShadow"));
         InitializeProviderSuppression();
         InitializeSystemNotifications();
+        SummaryViewport.SizeChanged += (_, _) => ScheduleSummaryMarquee();
         Icon = App.CreateWindowIcon();
         ConfigureIslandMenu();
         Loaded += OnLoaded;
@@ -675,7 +678,7 @@ public partial class MainWindow : Window
             CaptureExecutablePaths();
             var presence = await Task.Run(ApplicationLocator.CaptureProviderPresence);
             var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync(presence.WorkBuddy));
-            var workBuddyCreditsTask = MeasureAsync(_workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits));
+            var workBuddyCreditsTask = MeasureAsync(Task.Run(() => _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits)));
             var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits, presence.Codex));
             var yoyoTask = MeasureAsync(_statusService.ReadAsync(presence.Yoyo));
             var deepSeekTask = Task.Run(() => _deepSeekStatusService.ReadAsync(_settings.DeepSeekExecutablePath, presence.DeepSeek));
@@ -710,7 +713,7 @@ public partial class MainWindow : Window
             UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
             if (completion is null && _activeConfirmationNotice is null && _activeWindowsToast is null) UpdateCodexResetReminder(codex);
-            RecentResultText.Text = ActiveNoticeText;
+            UpdateRecentNotice();
             _anyBusy = (IsProviderVisible("yoyo") && status.IsBusy)
                 || (IsProviderVisible("codex") && codex.IsBusy)
                 || (IsProviderVisible("workbuddy") && workBuddy.IsBusy)
@@ -1011,14 +1014,14 @@ public partial class MainWindow : Window
         _activeCompletionNotice = $"{notice.Provider} 完成了任务 · {notice.Response}";
         _activeSystemNotice = null;
         HighlightProvider(notice.Provider);
-        RecentResultText.Text = ActiveNoticeText;
+        UpdateRecentNotice();
         BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
         ExpandIsland(true);
     }
 
-    private string ActiveNoticeText => _activeConfirmationNotice ?? _activeWindowsToast?.Text ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
+    private string ActiveNoticeText => _activeConfirmationNotice ?? (_activeWindowsToast is null ? null : _activeWindowsToast.Text + (_notificationLaunchFeedback is null ? "" : "\n" + _notificationLaunchFeedback)) ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
 
     private void UpdateCodexResetReminder(CodexStatus codex)
     {
@@ -1056,7 +1059,7 @@ public partial class MainWindow : Window
     {
         _activeSystemNotice = message;
         HighlightProvider(provider);
-        RecentResultText.Text = ActiveNoticeText;
+        UpdateRecentNotice();
         BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
@@ -1107,7 +1110,7 @@ public partial class MainWindow : Window
         _activeCompletionNotice = null;
         _activeSystemNotice = null;
         HighlightProvider("WorkBuddy");
-        RecentResultText.Text = ActiveNoticeText;
+        UpdateRecentNotice();
         BeginNotificationHold();
         RestoreReverseHoverIsland();
         ShowIslandForFocusMode(animate: _inactivityHidden);
@@ -1131,7 +1134,7 @@ public partial class MainWindow : Window
         _activeCompletionNotice = null;
         _activeSystemNotice = null;
         if (_activeConfirmationNotice is null) ClearProviderHighlight();
-        RecentResultText.Text = ActiveNoticeText;
+        UpdateRecentNotice();
         if (_activeConfirmationNotice is null && _settings.EnableCompletionNotifications && _pendingCompletions.Count > 0) { ShowCompletionNotice(_pendingCompletions.Dequeue()); return; }
         if (TryShowNextSystemToast()) return;
         if (hadSystemToast) _ = RefreshStatusAsync();
@@ -1165,7 +1168,7 @@ public partial class MainWindow : Window
         _activeSystemNotice = null;
         if (_activeWindowsToast is not null) { _activeWindowsToast = null; _ = RefreshStatusAsync(); }
         ClearProviderHighlight();
-        RecentResultText.Text = ActiveNoticeText;
+        UpdateRecentNotice();
         CollapseIsland(true);
         e.Handled = true;
     }
@@ -1410,7 +1413,7 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left || DismissOfflineButton.IsMouseOver) return;
+        if (e.ChangedButton != MouseButton.Left || DismissOfflineButton.IsMouseOver || NotificationOpenButton.IsMouseOver) return;
         _suppressCollapseHandleClick = false;
         _collapseHandlePressed = _expanded && CollapseHandleButton.IsMouseOver;
         _enterTimer.Stop(); _leaveTimer.Stop();
@@ -1994,21 +1997,30 @@ public partial class MainWindow : Window
 
     private void ScheduleSummaryMarquee()
     {
-        Dispatcher.BeginInvoke(UpdateSummaryMarquee, DispatcherPriority.Loaded);
+        if (_summaryMarqueeUpdatePending) return;
+        _summaryMarqueeUpdatePending = true;
+        Dispatcher.BeginInvoke(() => { _summaryMarqueeUpdatePending = false; UpdateSummaryMarquee(); }, DispatcherPriority.Loaded);
     }
 
     private void UpdateSummaryMarquee()
     {
-        StopSummaryMarquee();
-        if (!_isBalanceSummary || _expanded || _focusModeHidden || SummaryViewport.ActualWidth <= 0) return;
+        if (!_isBalanceSummary || _expanded || _focusModeHidden || _reverseHoverHidden || SummaryViewport.ActualWidth <= 0)
+        { StopSummaryMarquee(); return; }
         SummaryText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var textWidth = SummaryText.DesiredSize.Width;
+        var key = (InlineText(SummaryText), textWidth, SummaryViewport.ActualWidth, _settings.QuotaScrollSpeed);
+        if (textWidth > SummaryViewport.ActualWidth && _summaryMarqueeKey is { } previous
+            && previous.Text == key.Item1 && previous.Width == textWidth && previous.Speed == _settings.QuotaScrollSpeed
+            && SummaryPrimaryTranslate.HasAnimatedProperties)
+        { _summaryMarqueeKey = key; return; }
+        StopSummaryMarquee();
         if (textWidth <= SummaryViewport.ActualWidth)
         {
             SummaryTextClone.Visibility = Visibility.Collapsed;
             return;
         }
         var gap = SummaryText.FontSize * 5;
+        _summaryMarqueeKey = key;
         SummaryTextClone.Visibility = Visibility.Visible;
         var cycleWidth = textWidth + gap;
         Canvas.SetLeft(SummaryText, 0);
@@ -2024,6 +2036,7 @@ public partial class MainWindow : Window
 
     private void StopSummaryMarquee()
     {
+        _summaryMarqueeKey = null;
         SummaryPrimaryTranslate.BeginAnimation(TranslateTransform.XProperty, null);
         SummaryCloneTranslate.BeginAnimation(TranslateTransform.XProperty, null);
         Canvas.SetLeft(SummaryText, 0);
@@ -2173,7 +2186,7 @@ public partial class MainWindow : Window
             _activeCompletionNotice = null;
             _activeSystemNotice = null;
             ClearProviderHighlight();
-            RecentResultText.Text = ActiveNoticeText;
+            UpdateRecentNotice();
             CollapseIsland(true);
             UpdateDisplayMode();
         }

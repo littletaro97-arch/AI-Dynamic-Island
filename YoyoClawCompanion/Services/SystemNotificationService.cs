@@ -62,25 +62,34 @@ internal sealed class SystemNotificationService : IDisposable
             { Stop(); SetStatus("通知读取权限已撤销 · 原系统通知保留"); return; }
             var notifications = await _listener.GetNotificationsAsync(NotificationKinds.Toast);
             if (!_enabled || generation != _generation) return;
-            var snapshot = new List<SystemToast>();
-            foreach (var notification in notifications.OrderByDescending(n => n.CreationTime).Take(512))
-            {
-                try
-                {
-                    var binding = notification.Notification.Visual.GetBinding(KnownNotificationBindings.ToastGeneric);
-                    var text = binding?.GetTextElements().Select(t => t.Text).ToArray() ?? [];
-                    if (text.Length == 0) continue;
-                    var app = notification.AppInfo;
-                    snapshot.Add(new SystemToast($"{app.AppUserModelId}|{notification.Id}", app.DisplayInfo.DisplayName,
-                        text[0], string.Join("\n", text.Skip(1)), notification.CreationTime));
-                }
-                catch { /* One unavailable app must not prevent reading the rest. */ }
-            }
+            // UserNotification and its listener are agile WinRT objects. Read/convert their
+            // properties off the dispatcher, then publish a bounded snapshot back on the UI thread.
+            var snapshot = await Task.Run(() => ExtractSnapshot(notifications));
+            if (!_enabled || generation != _generation) return;
             LastSnapshotCount = snapshot.Count;
             foreach (var toast in _tracker.Accept(snapshot)) Received?.Invoke(this, toast);
         }
-        catch (Exception error) { SetStatus($"通知检查暂失败（0x{error.HResult:X8}），稍后重试"); }
+        catch (Exception error) { if (_enabled && generation == _generation) SetStatus($"通知检查暂失败（0x{error.HResult:X8}），稍后重试"); }
         finally { _polling = false; }
+    }
+
+    private static List<SystemToast> ExtractSnapshot(IReadOnlyList<UserNotification> notifications)
+    {
+        var snapshot = new List<SystemToast>();
+        foreach (var notification in notifications.OrderByDescending(n => n.CreationTime).Take(512))
+        {
+            try
+            {
+                var binding = notification.Notification.Visual.GetBinding(KnownNotificationBindings.ToastGeneric);
+                var text = binding?.GetTextElements().Select(t => t.Text).ToArray() ?? [];
+                if (text.Length == 0) continue;
+                var app = notification.AppInfo;
+                snapshot.Add(new SystemToast($"{app.AppUserModelId}|{notification.Id}", app.DisplayInfo.DisplayName,
+                    text[0], string.Join("\n", text.Skip(1)), notification.CreationTime, app.AppUserModelId));
+            }
+            catch { /* One unavailable app must not prevent reading the rest. */ }
+        }
+        return snapshot;
     }
 
     private void SetStatus(string text) { Status = text; StatusChanged?.Invoke(this, EventArgs.Empty); }

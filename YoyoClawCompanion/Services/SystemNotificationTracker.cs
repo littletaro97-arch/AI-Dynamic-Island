@@ -1,6 +1,6 @@
 namespace YoyoClawCompanion.Services;
 
-internal sealed record SystemToast(string Id, string Source, string Title, string Body, DateTimeOffset CreatedAt)
+internal sealed record SystemToast(string Id, string Source, string Title, string Body, DateTimeOffset CreatedAt, string AppUserModelId = "")
 {
     public string Text => string.Join("\n", new[] { Title, Body }.Where(s => !string.IsNullOrWhiteSpace(s)));
 }

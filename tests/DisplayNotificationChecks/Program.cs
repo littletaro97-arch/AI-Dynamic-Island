@@ -75,6 +75,10 @@ internal static class Program
         finally { File.Delete(Path.Combine(temp, "session.jsonl")); Directory.Delete(temp); }
 
         var tracker = new SystemNotificationTracker(); tracker.Reset();
+        Assert(NotificationAppLauncher.IsValidAppId("OpenAI.Codex_2p2nqsd0c76g0!App"), "packaged notification app identity accepted");
+        Assert(NotificationAppLauncher.IsValidAppId("com.squirrel.WorkBuddy.WorkBuddy"), "desktop notification app identity accepted");
+        foreach (var invalid in new[] { "", "https://example.com", "..\\app.exe", "id\nother", new string('x', 129) })
+            Assert(!NotificationAppLauncher.IsValidAppId(invalid) && !NotificationAppLauncher.TryOpen(invalid), "invalid app identity cannot become shell target");
         var old = new SystemToast("old", "Mail", "历史消息", "正文", DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert(tracker.Accept([old]).Count == 0, "enabling notifications does not replay Action Center history");
         var fresh = old with { Id = "new", Title = "新消息", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) };
@@ -88,6 +92,12 @@ internal static class Program
         typeof(App).GetMethod("InitializeComponent", Flags)?.Invoke(app, null);
         if (Environment.GetEnvironmentVariable("ISLAND_NATIVE_NOTIFICATION_CHECK") == "1")
         {
+            var launch = NotificationAppLauncher.TryOpenAsync("AI.Dynamic.Island.Nonexistent.Test." + Guid.NewGuid().ToString("N"));
+            var launchFrame = new DispatcherFrame(); var launchDeadline = DateTime.UtcNow.AddSeconds(15);
+            var launchTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+            launchTick.Tick += (_, _) => { if (launch.IsCompleted || DateTime.UtcNow >= launchDeadline) { launchTick.Stop(); launchFrame.Continue = false; } };
+            launchTick.Start(); Dispatcher.PushFrame(launchFrame);
+            Assert(launch.IsCompleted && !launch.GetAwaiter().GetResult(), "unregistered app fails async STA Shell resolution without an error popup");
             using var listener = new SystemNotificationService();
             var count = 0; listener.Received += (_, _) => count++;
             var ready = listener.StartAsync(false);
@@ -101,6 +111,20 @@ internal static class Program
         }
         var main = new MainWindow();
         typeof(MainWindow).GetField("_settings", Flags)!.SetValue(main, new IslandSettings());
+        var notificationButton = (Button)main.FindName("NotificationOpenButton");
+        var noticeText = (TextBlock)main.FindName("RecentResultText");
+        typeof(MainWindow).GetField("_activeWindowsToast", Flags)!.SetValue(main, fresh);
+        Call(main, "UpdateRecentNotice");
+        Assert(notificationButton.Visibility == Visibility.Visible && noticeText.Text == fresh.Text, "system notification content provides app launch hit target");
+        notificationButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert(noticeText.Text.Contains("无法打开来源应用") && typeof(MainWindow).GetField("_activeWindowsToast", Flags)!.GetValue(main) is not null, "launch failure leaves toast visible with feedback");
+        typeof(MainWindow).GetField("_activeConfirmationNotice", Flags)!.SetValue(main, "Codex 等待回答");
+        Call(main, "UpdateRecentNotice");
+        Assert(notificationButton.Visibility == Visibility.Collapsed && noticeText.Text == "Codex 等待回答", "priority confirmation never opens the interrupted toast app");
+        typeof(MainWindow).GetField("_activeConfirmationNotice", Flags)!.SetValue(main, null);
+        typeof(MainWindow).GetField("_activeWindowsToast", Flags)!.SetValue(main, null);
+        Call(main, "UpdateRecentNotice");
+        Assert(notificationButton.Visibility == Visibility.Collapsed, "ordinary result has no notification click overlay");
         var window = (SettingsWindow)Activator.CreateInstance(typeof(SettingsWindow), Flags, null, [main], null)!;
         var root = (FrameworkElement)window.Content;
         foreach (var width in new[] { 780d, 1200d })

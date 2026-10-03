@@ -191,6 +191,22 @@ class Program
         Assert(ReferenceEquals(run, text.Inlines.FirstInline) && displayed.Contains("执行中") && displayed.Contains("72%"), "changed UI updates existing runs correctly");
         var settingsWindow = new SettingsWindow(main);
         Set(settingsWindow, "_loading", true); settingsWindow.Show(); Pump(100);
+        var smoothScroll = (ScrollViewer)settingsWindow.FindName("SettingsScroll");
+        Call(settingsWindow, "AnimateSettingsScroll", 360d, 180d, new System.Windows.Media.Animation.CubicEase());
+        Pump(75);
+        Assert(smoothScroll.VerticalOffset > 0 && smoothScroll.VerticalOffset < 360, "settings scroll advances through intermediate offsets");
+        Call(settingsWindow, "AnimateSettingsScroll", 60d, 180d, new System.Windows.Media.Animation.CubicEase());
+        Pump(220);
+        Assert(Math.Abs(smoothScroll.VerticalOffset - 60) < 1, "reverse scroll ends at latest target");
+        Assert(!settingsWindow.HasAnimatedProperties, "completed scroll releases window animation clock");
+        Pump(300);
+        var cards = new[] { "PositionCard", "AppearanceCard", "ComponentCard", "FeatureCard", "NotificationCard", "UpdateCard" };
+        Assert(cards.All(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is null), "idle settings releases temporary raster caches");
+        smoothScroll.ScrollToVerticalOffset(300); Pump(50);
+        Assert(cards.Any(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is BitmapCache), "visible moving settings cards use bounded raster caches");
+        settingsWindow.WindowState = WindowState.Minimized; Pump(50);
+        Assert(cards.All(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is null), "minimized settings releases all scroll caches");
+        settingsWindow.WindowState = WindowState.Normal; Pump(100);
         for (var slot = 1; slot <= 3; slot++)
         {
             ((TextBlock)settingsWindow.FindName($"Preset{slot}NameText")).Text = new string('测', 80);
@@ -213,6 +229,16 @@ class Program
         Assert(!primary.HasAnimatedProperties && ((UIElement)settingsWindow.FindName("Preset1NameClone")).Visibility == Visibility.Collapsed, "scrolling preset out of viewport stops both copies");
         settingsWindow.Close();
         main.Show(); Pump(100);
+        Set(main, "_isBalanceSummary", true);
+        ((TextBlock)main.FindName("SummaryText")).Text = new string('测', 80);
+        ((TextBlock)main.FindName("SummaryTextClone")).Text = new string('测', 80);
+        Call(main, "ScheduleSummaryMarquee"); Pump(140);
+        var marquee = (TranslateTransform)main.FindName("SummaryPrimaryTranslate");
+        var previousOffset = marquee.X;
+        Call(main, "ScheduleSummaryMarquee"); Call(main, "ScheduleSummaryMarquee"); Pump(80);
+        Assert(previousOffset < 0 && marquee.X < previousOffset, "unchanged and coalesced refresh preserves marquee phase");
+        Call(main, "StopSummaryMarquee");
+        Assert(!marquee.HasAnimatedProperties, "stopped marquee releases its clock");
         var island = (Border)main.FindName("Island");
         var shadow = (YoyoClawCompanion.Controls.CachedIslandShadow)main.FindName("IslandShadowLayer");
         shadow.SetEnabled(true, false); Pump(100);
@@ -257,11 +283,11 @@ class Program
         main.Left = 20; main.Top = 40; main.ShowInTaskbar = false; main.Show();
         Call(main, "SetPlainSummary", "受控性能测试", null);
         Window? window = null;
-        if (scenario is "settings" or "settings-short" or "presets")
+        if (scenario is "settings" or "settings-short" or "presets" or "settings-scroll")
         {
             window = (Window)Activator.CreateInstance(typeof(SettingsWindow), Flags, null, new object[] { main }, null)!;
             Set(window, "_loading", true); window.ShowInTaskbar = false; window.Show();
-            for (var slot = 1; slot <= 3 && scenario != "settings-short"; slot++)
+            for (var slot = 1; slot <= 3 && scenario is not ("settings-short" or "settings-scroll"); slot++)
             {
                 var label = new string('测', 80);
                 ((TextBlock)window.FindName($"Preset{slot}NameText")).Text = label;
@@ -312,11 +338,30 @@ class Program
             ((FrameworkElement)main.FindName("ExpandedPanel")).Opacity = 1;
             ((FrameworkElement)main.FindName("Island")).Height = 300;
         }
+        DispatcherTimer? scrollTimer = null;
+        var scrollWatch = Stopwatch.StartNew();
+        if (scenario == "settings-scroll")
+        {
+            var scroll = (ScrollViewer)window!.FindName("SettingsScroll");
+            scrollTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
+            scrollTimer.Tick += (_, _) => scroll.ScrollToVerticalOffset((Math.Sin(scrollWatch.Elapsed.TotalSeconds * 1.4) + 1) * scroll.ScrollableHeight / 2);
+            scrollTimer.Start();
+        }
         Pump(3500);
         Assert(main.IsVisible && (window is null || window.IsVisible), "benchmark host stays visible and isolated");
         using var process = Process.GetCurrentProcess(); process.Refresh();
         var cpu = process.TotalProcessorTime; var watch = Stopwatch.StartNew();
         var samples = new List<object>(); var previousCpu = cpu; var previousTime = 0d;
+        var frameGaps = new List<double>(); TimeSpan? lastRender = null; var layoutCount = 0;
+        EventHandler renderHandler = (_, e) =>
+        {
+            var time = ((RenderingEventArgs)e).RenderingTime;
+            if (lastRender is TimeSpan previous && time > previous) frameGaps.Add((time - previous).TotalMilliseconds);
+            lastRender = time;
+        };
+        EventHandler layoutHandler = (_, _) => layoutCount++;
+        CompositionTarget.Rendering += renderHandler;
+        if (window is not null) window.LayoutUpdated += layoutHandler;
         for (var i = 0; i < 15; i++)
         {
             Pump(1000); process.Refresh(); var now = watch.Elapsed.TotalSeconds; var currentCpu = process.TotalProcessorTime;
@@ -325,11 +370,15 @@ class Program
                 heapMiB = GC.GetTotalMemory(false) / 1048576d, gcCommittedMiB = GC.GetGCMemoryInfo().TotalCommittedBytes / 1048576d });
             previousCpu = currentCpu; previousTime = now;
         }
-        watch.Stop();
+        watch.Stop(); scrollTimer?.Stop();
+        CompositionTarget.Rendering -= renderHandler;
+        if (window is not null) window.LayoutUpdated -= layoutHandler;
         var cpuAverage = (process.TotalProcessorTime - cpu).TotalSeconds / watch.Elapsed.TotalSeconds / Environment.ProcessorCount * 100;
         var result = new { scenario, configuration = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration,
             logicalProcessors = Environment.ProcessorCount, renderTier = RenderCapability.Tier >> 16, dpi = VisualTreeHelper.GetDpi(main).PixelsPerInchX,
             elapsedSeconds = watch.Elapsed.TotalSeconds, cpuAverage, samples,
+            layoutCount, renderIntervals = frameGaps.Count, renderGapP95Ms = frameGaps.Count == 0 ? 0 : frameGaps.Order().ElementAt((int)((frameGaps.Count - 1) * .95)),
+            renderGapsOver25Ms = frameGaps.Count(value => value > 25),
             regions = captureNative ? NativeMemoryProbe.Capture(process) : null,
             presetAnimation = window is null ? null : Enumerable.Range(1, 3).Select(slot => new
             {

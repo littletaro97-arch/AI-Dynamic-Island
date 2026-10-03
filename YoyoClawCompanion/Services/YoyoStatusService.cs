@@ -31,7 +31,8 @@ internal sealed class YoyoStatusService
     public async Task<YoyoStatus> ReadAsync(bool? isRunning = null)
     {
         var running = isRunning ?? ApplicationLocator.IsProcessRunning("HnMagicClawUI");
-        var points = _quota.Read();
+        // Local files and the bounded billing-log regex must not block WPF's animation thread.
+        var points = await Task.Run(_quota.Read);
         var snapshot = running ? await ReadMagicoreAsync() : _cachedSnapshot;
         var updatedAt = ParseDate(snapshot?.UpdatedAt);
         var recentFailure = snapshot?.LastTaskFailed == true

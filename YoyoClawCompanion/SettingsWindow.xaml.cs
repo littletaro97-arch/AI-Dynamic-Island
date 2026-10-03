@@ -48,6 +48,10 @@ public partial class SettingsWindow : Window
     private IReadOnlyList<SettingsPresetSlot> _presets = [];
     private readonly (string Text, double Width, double Viewport, double Speed)?[] _presetMarqueeKeys = new (string, double, double, double)?[4];
     private bool _presetMarqueeUpdatePending;
+    private double? _wheelScrollTarget;
+    private int _scrollAnimationVersion;
+    private readonly HashSet<FrameworkElement> _cachedScrollCards = [];
+    private readonly DispatcherTimer _scrollCacheRelease = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(240) };
 
     public ObservableCollection<ProviderOrderItem> ProviderOrderItems { get; } = [];
 
@@ -55,6 +59,10 @@ public partial class SettingsWindow : Window
     {
         _island = island;
         InitializeComponent();
+        _scrollCacheRelease.Tick += (_, _) => ReleaseScrollCardCaches();
+        Closed += (_, _) => { BeginAnimation(AnimatedScrollOffsetProperty, null); ReleaseScrollCardCaches(); };
+        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) ReleaseScrollCardCaches(); };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) ReleaseScrollCardCaches(); };
         PrepareSettingIcons();
         InitializeSettingCardEditing();
         Icon = App.CreateWindowIcon();
@@ -674,7 +682,12 @@ public partial class SettingsWindow : Window
 
     private void SettingsScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        SettingsScroll.ScrollToVerticalOffset(SettingsScroll.VerticalOffset - e.Delta * .5);
+        var current = SettingsScroll.VerticalOffset;
+        var target = _wheelScrollTarget ?? current;
+        // A reverse gesture takes effect immediately, instead of paying off the old target.
+        if (Math.Sign(target - current) == Math.Sign(e.Delta)) target = current;
+        _wheelScrollTarget = Math.Clamp(target - e.Delta * .5, 0, SettingsScroll.ScrollableHeight);
+        AnimateSettingsScroll(_wheelScrollTarget.Value, 180, new CubicEase { EasingMode = EasingMode.EaseOut });
         e.Handled = true;
     }
 
@@ -682,6 +695,38 @@ public partial class SettingsWindow : Window
     {
         UpdateActiveNavigation();
         SchedulePresetMarquees();
+        if (e.VerticalChange != 0)
+        {
+            _scrollCacheRelease.Stop(); _scrollCacheRelease.Start();
+            UpdateScrollCardCaches();
+        }
+    }
+
+    private void UpdateScrollCardCaches()
+    {
+        if (!IsLoaded) return;
+        // Temporary, slightly reduced sampling at high DPI; idle controls always render natively.
+        // The pixel budget bounds current cache textures, not the driver's retained texture pool.
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var scale = dpi.DpiScaleX >= 1.5 ? .65 : 1;
+        var pixelsRemaining = 2_000_000d;
+        foreach (var card in new FrameworkElement[] { PositionCard, AppearanceCard, ComponentCard, FeatureCard, NotificationCard, UpdateCard })
+        {
+            var bounds = card.TransformToAncestor(SettingsScroll).TransformBounds(new Rect(card.RenderSize));
+            var pixels = card.ActualWidth * card.ActualHeight * dpi.DpiScaleX * dpi.DpiScaleY * scale * scale;
+            var visible = IsVisible && WindowState != WindowState.Minimized && pixels <= pixelsRemaining
+                && bounds.IntersectsWith(new Rect(0, 0, SettingsScroll.ViewportWidth, SettingsScroll.ViewportHeight));
+            if (visible) pixelsRemaining -= pixels;
+            if (visible && _cachedScrollCards.Add(card)) card.CacheMode = new BitmapCache { EnableClearType = true, RenderAtScale = scale };
+            else if (!visible && _cachedScrollCards.Remove(card)) card.CacheMode = null;
+        }
+    }
+
+    private void ReleaseScrollCardCaches()
+    {
+        _scrollCacheRelease.Stop();
+        foreach (var card in _cachedScrollCards) card.CacheMode = null;
+        _cachedScrollCards.Clear();
     }
 
     private void UpdateActiveNavigation()
@@ -933,15 +978,10 @@ public partial class SettingsWindow : Window
         if (sender is not FrameworkElement { Tag: string target } || FindName(target) is not FrameworkElement section)
             return;
 
-        BeginAnimation(AnimatedScrollOffsetProperty, null);
-        AnimatedScrollOffset = SettingsScroll.VerticalOffset;
+        _wheelScrollTarget = null;
         var position = section.TransformToAncestor(SettingsScroll).Transform(new System.Windows.Point(0, 0));
         var destination = Math.Clamp(SettingsScroll.VerticalOffset + position.Y - 18, 0, SettingsScroll.ScrollableHeight);
-        var scrollAnimation = new DoubleAnimation(SettingsScroll.VerticalOffset, destination, TimeSpan.FromMilliseconds(360))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
-        };
-        BeginAnimation(AnimatedScrollOffsetProperty, scrollAnimation, HandoffBehavior.SnapshotAndReplace);
+        AnimateSettingsScroll(destination, 360, new CubicEase { EasingMode = EasingMode.EaseInOut });
 
         section.BeginAnimation(OpacityProperty, new DoubleAnimation(.72, 1, TimeSpan.FromMilliseconds(420))
         {
@@ -953,6 +993,22 @@ public partial class SettingsWindow : Window
     {
         get => (double)GetValue(AnimatedScrollOffsetProperty);
         set => SetValue(AnimatedScrollOffsetProperty, value);
+    }
+
+    private void AnimateSettingsScroll(double destination, double milliseconds, IEasingFunction easing)
+    {
+        var version = ++_scrollAnimationVersion;
+        var current = SettingsScroll.VerticalOffset;
+        BeginAnimation(AnimatedScrollOffsetProperty, null);
+        AnimatedScrollOffset = destination;
+        var animation = new DoubleAnimation(current, destination, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = easing };
+        animation.Completed += (_, _) =>
+        {
+            if (version != _scrollAnimationVersion) return;
+            BeginAnimation(AnimatedScrollOffsetProperty, null);
+            _wheelScrollTarget = null;
+        };
+        BeginAnimation(AnimatedScrollOffsetProperty, animation, HandoffBehavior.SnapshotAndReplace);
     }
 
     private static void OnAnimatedScrollOffsetChanged(DependencyObject source, DependencyPropertyChangedEventArgs args)
