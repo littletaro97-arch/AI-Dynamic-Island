@@ -1,6 +1,6 @@
-# AI Dynamic Island v0.7.2
+# AI Dynamic Island v0.7.3
 
-Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOYO Claw 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
+Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO Claw 和 DeepSeek Harness 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
 
 ## 下载与安装
 
@@ -8,8 +8,8 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOY
 
 | 下载包 | 使用方式 | 卸载方式 |
 | --- | --- | --- |
-| `AI-Dynamic-Island-v0.7.2-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
-| `AI-Dynamic-Island-v0.7.2-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
+| `AI-Dynamic-Island-v0.7.3-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
+| `AI-Dynamic-Island-v0.7.3-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
 
 适用于 Windows 10/11 x64。两种包均内含 .NET 8 Desktop Runtime。YOYO 任务桥接需要另行安装 [Node.js](https://nodejs.org/)，对应功能还需要本机安装并登录相应 AI 应用。缺少某个来源时不影响其他来源。
 
@@ -21,6 +21,7 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy 和 YOY
 
 - Codex：读取本地会话生命周期和最终回复，通过本机 app-server 获取额度与重置时间。
 - WorkBuddy：读取本地会话，识别执行、完成与待确认；通过本机宿主通道获取真实积分。
+- DeepSeek Harness：读取本机会话，识别执行、完成、异常及待决策；需要 Harness 自带的运行时。
 - YOYO Claw：读取有效积分批次及较新的官方账单记录、Magicore 任务状态，可选启用联网签到。
 - 可调字号、折叠与展开宽度、圆角、透明度、滚动速度和程序顺序。
 - 完成提醒、待确认提醒、额度重置提醒、状态长时间不变自动隐藏。
@@ -63,7 +64,7 @@ dotnet build '.\AI Dynamic Island.sln' -c Release
 .\Build-Release.ps1 -PortableOnly
 ```
 
-输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.2`。版本号以 `YoyoClawCompanion.csproj` 为准。
+输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.3`。版本号以 `YoyoClawCompanion.csproj` 为准。
 
 Magicore 的 `@magicore/*` 是从本机 YOYO 安装包取得的 vendor 运行组件，不属于普通 npm 可还原依赖。不要在桥接目录运行 `npm ci`；缺少 SDK 时打包会明确失败。第三方运行组件的再分发应遵循其授权。
 
