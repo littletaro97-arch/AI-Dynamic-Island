@@ -147,7 +147,7 @@ class Program
         Assert(((WorkBuddyStatus)Call(buddy, "ReadSession", new FileInfo(buddyPath), true)!).IsBusy, "pending tool established");
         File.AppendAllText(buddyPath, "{\"type\":\"reasoning\"}\n");
         Assert(((WorkBuddyStatus)Call(buddy, "ReadSession", new FileInfo(buddyPath), true)!).IsBusy, "pending tool retained across incremental reads");
-        File.AppendAllText(buddyPath, "{\"type\":\"function_call_result\",\"callId\":\"p\"}\n{\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"id\":\"b1\",\"content\":[{\"type\":\"output_text\",\"text\":\"完成\"}]}\n");
+        File.AppendAllText(buddyPath, "{\"type\":\"function_call_result\",\"callId\":\"p\"}\n{\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"id\":\"b1\",\"providerData\":{\"usage\":{\"outputTokens\":12}},\"content\":[{\"type\":\"output_text\",\"text\":\"完成\"}]}\n");
         var finished = (WorkBuddyStatus)Call(buddy, "ReadSession", new FileInfo(buddyPath), true)!;
         Assert(!finished.IsBusy && finished.Completions?.Count == 1, "incremental result closes pending tool and emits completion");
         File.AppendAllText(buddyPath, "{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"新任务\"}]}\n");

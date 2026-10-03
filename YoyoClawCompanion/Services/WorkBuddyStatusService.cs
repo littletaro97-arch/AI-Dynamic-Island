@@ -148,7 +148,11 @@ internal sealed partial class WorkBuddyStatusService : IDisposable
                     }
                     if (type == "message" && Text(root, "role") == "assistant")
                     {
-                        completed = Text(root, "status") == "completed";
+                        // WorkBuddy also marks streamed commentary as "completed".
+                        // Its final response carries turn usage metadata; message status
+                        // alone only says that this individual message finished streaming.
+                        completed = Text(root, "status") == "completed" && HasFinalResponseMetadata(root)
+                            && pendingCalls.Count == 0 && string.IsNullOrWhiteSpace(confirmationId);
                         if (completed)
                         {
                             var extracted = ExtractAssistantResponse(root);
@@ -246,6 +250,20 @@ internal sealed partial class WorkBuddyStatusService : IDisposable
         if (!root.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return null;
         return string.Join(" ", content.EnumerateArray().Where(item => Text(item, "type") == "output_text").Select(item => Text(item, "text")).Where(value => !string.IsNullOrWhiteSpace(value)));
     }
+
+    private static bool HasFinalResponseMetadata(JsonElement root)
+    {
+        // Observed in Space-Bunny, GLM, DeepSeek and Kimi local session records.
+        // Accept either WorkBuddy's normalized statistics or the raw provider copy.
+        return root.TryGetProperty("providerData", out var provider) &&
+                (HasTokenCount(provider, "usage", "outputTokens") || HasTokenCount(provider, "rawUsage", "completion_tokens"))
+            || root.TryGetProperty("message", out var message) && HasTokenCount(message, "usage", "output_tokens");
+    }
+
+    private static bool HasTokenCount(JsonElement parent, string name, string counter)
+        => parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var usage)
+            && usage.ValueKind == JsonValueKind.Object && usage.TryGetProperty(counter, out var value)
+            && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var tokens) && tokens >= 0;
 
     private static string? ExtractConfirmationPrompt(JsonElement root)
     {
