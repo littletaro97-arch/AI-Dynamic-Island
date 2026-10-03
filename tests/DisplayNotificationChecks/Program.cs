@@ -17,6 +17,8 @@ internal static class Program
         protected override void OnStartup(StartupEventArgs e) { }
     }
     const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr window);
     static void Assert(bool ok, string name) { if (!ok) throw new Exception(name); Console.WriteLine("PASS " + name); }
     static void Call(object target, string name, params object[] args) => target.GetType().GetMethod(name, Flags)!.Invoke(target, args);
     static string Row(object payload) => JsonSerializer.Serialize(new { timestamp = DateTimeOffset.UtcNow, type = "response_item", payload });
@@ -92,6 +94,7 @@ internal static class Program
         Assert(NotificationAppLauncher.SelectWindow([trayMain, visibleSession]) == visibleSession, "visible session preferred to hidden session");
         var exactSession = Candidate(10, 800, 600, 20, exact: true);
         Assert(NotificationAppLauncher.SelectWindow([trayMain, exactSession]) == exactSession, "window app identity preferred to executable fallback");
+        Assert(NotificationAppLauncher.SelectWindow([trayMain with { Enabled = false }, newerLogin with { Hung = true }]) is null, "disabled or hung windows never activated");
         var old = new SystemToast("old", "Mail", "历史消息", "正文", DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert(tracker.Accept([old]).Count == 0, "enabling notifications does not replay Action Center history");
         var fresh = old with { Id = "new", Title = "新消息", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) };
@@ -103,6 +106,12 @@ internal static class Program
 
         var app = new TestApp { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         typeof(App).GetMethod("InitializeComponent", Flags)?.Invoke(app, null);
+        var hiddenApp = new Window { Title = "Hidden framework fixture", Width = 800, Height = 600 };
+        var hiddenHandle = new System.Windows.Interop.WindowInteropHelper(hiddenApp).EnsureHandle();
+        Assert(!IsWindowVisible(hiddenHandle), "hidden framework fixture starts hidden");
+        Assert(NotificationAppLauncher.ActivateExistingWindow(hiddenHandle) == NotificationOpenResult.RunningButUnavailable
+            && !IsWindowVisible(hiddenHandle), "activation never forcibly exposes hidden framework window");
+        hiddenApp.Close();
         if (Environment.GetEnvironmentVariable("ISLAND_NATIVE_NOTIFICATION_CHECK") == "1")
         {
             foreach (var identity in new[] { "QQ", @"E:\D-diskExpansionCabin\Weixin\Weixin.exe" })
@@ -155,6 +164,44 @@ internal static class Program
         typeof(MainWindow).GetField("_activeWindowsToast", Flags)!.SetValue(main, null);
         Call(main, "UpdateRecentNotice");
         Assert(notificationButton.Visibility == Visibility.Collapsed, "ordinary result has no notification click overlay");
+        void SetMain(string field, object? value) => typeof(MainWindow).GetField(field, Flags)!.SetValue(main, value);
+        bool ReverseHidden() => (bool)typeof(MainWindow).GetField("_reverseHoverHidden", Flags)!.GetValue(main)!;
+        main.CurrentSettings.EnableReverseHover = true;
+        main.CurrentSettings.EnableHoverExpansion = false;
+        // Connect the real visual tree off screen, without starting live providers,
+        // saved-setting writes or update checks from the application's Loaded hook.
+        main.Loaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), main,
+            typeof(MainWindow).GetMethod("OnLoaded", Flags | BindingFlags.DeclaredOnly)!);
+        main.ShowActivated = false; main.ShowInTaskbar = false; main.Topmost = false;
+        main.Left = -10000; main.Top = -10000; main.Show();
+        var island = (Border)main.FindName("Island");
+        var mainRoot = (FrameworkElement)main.Content;
+        mainRoot.Measure(new Size(550, 500)); mainRoot.Arrange(new Rect(0, 0, 550, 500)); mainRoot.UpdateLayout();
+        foreach (var provider in new[] { "Codex", "WorkBuddy", "YOYO Claw" })
+        {
+            SetMain("_expanded", true); SetMain("_notificationHoldActive", false);
+            SetMain("_activeCompletionNotice", provider + " 完成了任务");
+            Call(main, "HideIslandForReverseHover");
+            Assert(!ReverseHidden(), "expired expanded completion never reverse hides " + provider);
+            Call(main, "CollapseHandle_Click", main, new RoutedEventArgs(Button.ClickEvent));
+            Call(main, "HideIslandForReverseHover");
+            Assert(!ReverseHidden(), "manual collapse animation never hides whole island " + provider);
+            Call(main, "CompleteCollapseImmediately"); Call(main, "HideIslandForReverseHover");
+            Assert(!ReverseHidden(), "manual collapse stays visible until pointer exits " + provider);
+            Call(main, "Island_MouseLeave", main, new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0));
+        }
+        Call(main, "HideIslandForReverseHover");
+        Assert(ReverseHidden(), "settled collapsed island retains reverse hover pass through");
+        Call(main, "ExpandIsland", true);
+        Assert(!ReverseHidden() && island.Visibility == Visibility.Visible, "forced expansion cancels in flight reverse fade");
+        // Pump past the obsolete fade; it must not hide the expanded notification.
+        var reverseFrame = new DispatcherFrame(); var reverseTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(380) };
+        reverseTick.Tick += (_, _) => { reverseTick.Stop(); reverseFrame.Continue = false; }; reverseTick.Start(); Dispatcher.PushFrame(reverseFrame);
+        Assert(island.Visibility == Visibility.Visible && !ReverseHidden(), "obsolete reverse fade cannot hide later expansion");
+        SetMain("_notificationHoldActive", false);
+        main.ApplySettings(main.CurrentSettings, persist: false);
+        Assert((bool)typeof(MainWindow).GetField("_expanded", Flags)!.GetValue(main)!, "reapplying reverse settings preserves an expanded notice");
+        Call(main, "CompleteCollapseImmediately"); main.CurrentSettings.EnableReverseHover = false;
         var window = (SettingsWindow)Activator.CreateInstance(typeof(SettingsWindow), Flags, null, [main], null)!;
         var root = (FrameworkElement)window.Content;
         foreach (var width in new[] { 780d, 1200d })

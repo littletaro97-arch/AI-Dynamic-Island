@@ -79,21 +79,13 @@ internal static class NotificationAppLauncher
             windows.Add(new(handle, (int)pid, exact, IsWindowVisible(handle),
                 GetWindow(handle, 4) != IntPtr.Zero, (GetWindowLong(handle, -20) & 0x80) != 0,
                 rect.Right - rect.Left, rect.Bottom - rect.Top, title.Length > 0, kind.ToString(),
-                started.GetValueOrDefault((int)pid, long.MaxValue)));
+                started.GetValueOrDefault((int)pid, long.MaxValue), IsWindowEnabled(handle), IsHungAppWindow(handle)));
             return true;
         }, IntPtr.Zero);
         var selected = SelectWindow(windows);
         if (selected is not null)
         {
-            // Hidden tray windows are real windows too; MainWindowHandle misses them.
-            ShowWindowAsync(selected.Handle, IsIconic(selected.Handle) ? 9 : 5);
-            SetForegroundWindow(selected.Handle);
-            for (var attempt = 0; attempt < 5; attempt++)
-            {
-                if (GetForegroundWindow() == selected.Handle) return NotificationOpenResult.Opened;
-                Thread.Sleep(30); // bounded wait on this click's worker only
-            }
-            return NotificationOpenResult.RunningButUnavailable;
+            return ActivateExistingWindow(selected.Handle);
         }
         if (running.Count > 0 || inaccessibleCandidate) return NotificationOpenResult.RunningButUnavailable;
         if (SHParseDisplayName("shell:AppsFolder\\" + id, IntPtr.Zero, out var item, 0, out _) < 0 || item == IntPtr.Zero)
@@ -108,14 +100,34 @@ internal static class NotificationAppLauncher
     }
 
     internal sealed record AppWindow(IntPtr Handle, int ProcessId, bool ExactIdentity, bool Visible,
-        bool Owned, bool Tool, int Width, int Height, bool HasTitle, string ClassName, long Started);
+        bool Owned, bool Tool, int Width, int Height, bool HasTitle, string ClassName, long Started, bool Enabled = true, bool Hung = false);
 
     internal static AppWindow? SelectWindow(IEnumerable<AppWindow> windows) => windows
-        .Where(w => !w.Owned && !w.Tool && w.HasTitle && w.Width >= 120 && w.Height >= 80
+        .Where(w => w.Enabled && !w.Hung && !w.Owned && !w.Tool && w.HasTitle && w.Width >= 120 && w.Height >= 80
             && !w.ClassName.Contains("NotifyIcon", StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(w => w.ExactIdentity).ThenByDescending(w => w.Visible)
         // Prefer the existing session over a newer accidentally launched login process.
         .ThenBy(w => w.Started).ThenByDescending(w => (long)w.Width * w.Height).FirstOrDefault();
+
+    internal static NotificationOpenResult ActivateExistingWindow(IntPtr window)
+    {
+        // A tray app may have hidden its framework widget / renderer as well as
+        // its HWND. Showing only the HWND can leave a visible but inert shell.
+        // Foreground success cannot verify framework interactivity. Never force
+        // hidden windows visible or launch another instance as a fallback.
+        if (!IsWindow(window) || !IsWindowEnabled(window) || IsHungAppWindow(window))
+            return NotificationOpenResult.RunningButUnavailable;
+        var minimized = IsIconic(window);
+        if (!IsWindowVisible(window) && !minimized) return NotificationOpenResult.RunningButUnavailable;
+        if (minimized) ShowWindowAsync(window, 9);
+        SetForegroundWindow(window);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (GetForegroundWindow() == window && IsWindowVisible(window) && !IsIconic(window)) return NotificationOpenResult.Opened;
+            Thread.Sleep(30); // bounded wait on this click's worker only
+        }
+        return NotificationOpenResult.RunningButUnavailable;
+    }
 
     internal static bool TryResolveRegisteredTarget(string id, out string? target)
     {
@@ -180,6 +192,9 @@ internal static class NotificationAppLauncher
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsHungAppWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);

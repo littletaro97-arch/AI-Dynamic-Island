@@ -307,9 +307,8 @@ public partial class MainWindow : Window
             if (wasHiddenByInactivity && IsLoaded) ShowIslandForFocusMode(animate: true);
         }
         if (!settings.EnableReverseHover) RestoreReverseHoverIsland();
-        else if (!_notificationHoldActive)
+        else if (!_expanded && !_islandAnimationInProgress && !_notificationHoldActive)
         {
-            if (_expanded) CollapseIsland(true);
             if (IsLoaded && Island.IsMouseOver) Dispatcher.BeginInvoke(HideIslandForReverseHover, DispatcherPriority.Input);
         }
         Island.CornerRadius = new CornerRadius(settings.CornerRadius);
@@ -337,7 +336,7 @@ public partial class MainWindow : Window
         _completionTimer.Interval = TimeSpan.FromSeconds(_activeWindowsToast is not null ? settings.SystemNotificationDisplaySeconds : settings.CompletionDisplaySeconds);
         ApplyTypography();
         SetLaunchControls(settings.EnableAppLaunch);
-        if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
+        if (!settings.EnableHoverExpansion && !settings.EnableReverseHover && _expanded) CollapseIsland(true);
         ApplyTheme();
         IslandShadowLayer.SetEnabled(settings.ShowShadow, IsLoaded);
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
@@ -1138,12 +1137,6 @@ public partial class MainWindow : Window
         if (_activeConfirmationNotice is null && _settings.EnableCompletionNotifications && _pendingCompletions.Count > 0) { ShowCompletionNotice(_pendingCompletions.Dequeue()); return; }
         if (TryShowNextSystemToast()) return;
         if (hadSystemToast) _ = RefreshStatusAsync();
-        if (_settings.EnableReverseHover && Island.IsMouseOver)
-        {
-            CollapseIsland(true);
-            HideIslandForReverseHover();
-            return;
-        }
         if (_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy))
         {
             CollapseIsland(true);
@@ -1353,7 +1346,11 @@ public partial class MainWindow : Window
 
     private void HideIslandForReverseHover()
     {
-        if (!_settings.EnableReverseHover || _reverseHoverHidden || _notificationHoldActive) return;
+        // Reverse hover belongs to the settled, collapsed island only. In
+        // particular, MouseUp runs before the collapse button's Click handler;
+        // it must not start hiding an expanded notice after its hold expires.
+        if (!_settings.EnableReverseHover || _reverseHoverHidden || _notificationHoldActive
+            || _expanded || _islandAnimationInProgress || _manualCollapseUntilPointerExit || _dragging || _holdArmed) return;
         _enterTimer.Stop();
         _leaveTimer.Stop();
         StopSummaryMarquee();
@@ -1571,6 +1568,7 @@ public partial class MainWindow : Window
             if (!force) return;
             CompleteCollapseImmediately();
         }
+        RestoreReverseHoverIsland();
         StopSummaryMarquee();
         SummaryTextClone.Visibility = Visibility.Collapsed;
         if (!_expandUp) _collapsedAnchorTop = Top;
