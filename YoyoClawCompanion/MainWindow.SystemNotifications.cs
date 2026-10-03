@@ -92,18 +92,20 @@ public partial class MainWindow
         _notificationLaunchFeedback = "正在打开来源应用…";
         UpdateRecentNotice();
         RecentBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(.65, 1, TimeSpan.FromMilliseconds(160)));
-        var success = await NotificationAppLauncher.TryOpenAsync(toast.AppUserModelId);
+        var result = await NotificationAppLauncher.OpenAsync(toast.AppUserModelId);
         _notificationOpening = false;
         NotificationOpenButton.IsEnabled = true;
         if (!ReferenceEquals(_activeWindowsToast, toast)) return;
-        if (success)
+        if (result == NotificationOpenResult.Opened)
         {
             _notificationLaunchFeedback = null;
             EndCompletionNotice();
         }
         else
         {
-            _notificationLaunchFeedback = "无法打开来源应用，请使用原系统通知或手动打开应用。";
+            _notificationLaunchFeedback = result == NotificationOpenResult.RunningButUnavailable
+                ? "来源应用已运行，但无法唤起窗口，请从系统托盘打开。"
+                : "无法打开来源应用，请使用原系统通知或手动打开应用。";
             UpdateRecentNotice();
             RecentBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(.65, 1, TimeSpan.FromMilliseconds(160)));
         }

@@ -77,8 +77,21 @@ internal static class Program
         var tracker = new SystemNotificationTracker(); tracker.Reset();
         Assert(NotificationAppLauncher.IsValidAppId("OpenAI.Codex_2p2nqsd0c76g0!App"), "packaged notification app identity accepted");
         Assert(NotificationAppLauncher.IsValidAppId("com.squirrel.WorkBuddy.WorkBuddy"), "desktop notification app identity accepted");
-        foreach (var invalid in new[] { "", "https://example.com", "..\\app.exe", "id\nother", new string('x', 129) })
+        Assert(NotificationAppLauncher.IsValidAppId(@"E:\Apps\Weixin\Weixin.exe"), "registered path style desktop identity can be resolved");
+        foreach (var invalid in new[] { "", "https://example.com", "..\\app.exe", "id\nother", new string('x', 129), @"C:\Apps\..\app.exe", @"C:\Apps\app.exe:evil", @"C:\Apps\app.exe --login" })
             Assert(!NotificationAppLauncher.IsValidAppId(invalid) && !NotificationAppLauncher.TryOpen(invalid), "invalid app identity cannot become shell target");
+        NotificationAppLauncher.AppWindow Candidate(int handle, int width, int height, long started = 10,
+            bool visible = false, bool owned = false, bool tool = false, string kind = "Chrome_WidgetWin_1", bool title = true, bool exact = false)
+            => new(new IntPtr(handle), handle, exact, visible, owned, tool, width, height, title, kind, started);
+        var trayMain = Candidate(1, 1549, 925);
+        var newerLogin = Candidate(2, 800, 600, 20);
+        Assert(NotificationAppLauncher.SelectWindow([newerLogin, trayMain]) == trayMain, "hidden existing session beats newer login process");
+        Assert(NotificationAppLauncher.SelectWindow([Candidate(3, 720, 640), trayMain]) == trayMain, "main window beats smaller auxiliary window in same session");
+        Assert(NotificationAppLauncher.SelectWindow([Candidate(4, 800, 600, kind: "Electron_NotifyIconHostWindow"), Candidate(5, 32, 36), Candidate(6, 800, 600, tool: true), Candidate(7, 800, 600, owned: true), Candidate(8, 800, 600, title: false)]) is null, "tray host helper owned and tiny windows never activated");
+        var visibleSession = Candidate(9, 800, 600, 20, visible: true);
+        Assert(NotificationAppLauncher.SelectWindow([trayMain, visibleSession]) == visibleSession, "visible session preferred to hidden session");
+        var exactSession = Candidate(10, 800, 600, 20, exact: true);
+        Assert(NotificationAppLauncher.SelectWindow([trayMain, exactSession]) == exactSession, "window app identity preferred to executable fallback");
         var old = new SystemToast("old", "Mail", "历史消息", "正文", DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert(tracker.Accept([old]).Count == 0, "enabling notifications does not replay Action Center history");
         var fresh = old with { Id = "new", Title = "新消息", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) };
@@ -92,6 +105,23 @@ internal static class Program
         typeof(App).GetMethod("InitializeComponent", Flags)?.Invoke(app, null);
         if (Environment.GetEnvironmentVariable("ISLAND_NATIVE_NOTIFICATION_CHECK") == "1")
         {
+            foreach (var identity in new[] { "QQ", @"E:\D-diskExpansionCabin\Weixin\Weixin.exe" })
+                Assert(NotificationAppLauncher.TryResolveRegisteredTarget(identity, out var target) && File.Exists(target), "real registered desktop identity resolves without launching " + identity);
+            Assert(!NotificationAppLauncher.TryResolveRegisteredTarget(@"C:\NotRegistered\arbitrary.exe", out _), "arbitrary absolute exe is rejected by registration check");
+            if (Environment.GetEnvironmentVariable("ISLAND_ACTIVATION_SMOKE") == "1")
+            {
+                foreach (var (identity, processName) in new[] { ("QQ", "QQ"), (@"E:\D-diskExpansionCabin\Weixin\Weixin.exe", "Weixin") })
+                {
+                    int[] Pids() => System.Diagnostics.Process.GetProcessesByName(processName).Select(p => { using (p) return p.Id; }).Order().ToArray();
+                    var before = Pids();
+                    Assert(before.Length > 0, "live activation requires existing app " + processName);
+                    var activation = NotificationAppLauncher.OpenAsync(identity).GetAwaiter().GetResult();
+                    Assert(activation != NotificationOpenResult.Failed, "registered running app activation handled " + processName);
+                    System.Threading.Thread.Sleep(750);
+                    Assert(!Pids().Except(before).Any(), "activation creates no additional process " + processName);
+                    Console.WriteLine("ACTIVATION " + processName + " " + activation);
+                }
+            }
             var launch = NotificationAppLauncher.TryOpenAsync("AI.Dynamic.Island.Nonexistent.Test." + Guid.NewGuid().ToString("N"));
             var launchFrame = new DispatcherFrame(); var launchDeadline = DateTime.UtcNow.AddSeconds(15);
             var launchTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
