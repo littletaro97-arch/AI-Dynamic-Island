@@ -12,6 +12,6 @@
 
 两种下载包均包含 .NET 8 Desktop Runtime，沿用用户设置和现有安装升级路径。YOYO 桥接仍需本机 Node.js；Harness 检测需要 Harness 自带运行时。未安装某个助手不影响其它来源。
 
-受控长文字滚动场景平均 CPU 约 2.75% → 1.56%，私有提交约 275.5 → 250.1 MiB；这不是完整应用的日常平均占用保证。阴影分层使半透明背景略亮，已纳入本地验收。详见 [性能验证](PERFORMANCE-2026-10-03.md) 和 [WorkBuddy 修复验证](WORKBUDDY-COMPLETION-2026-10-03.md)。
+受控长文字滚动场景平均 CPU 约 2.75% → 1.56%，私有提交约 275.5 → 250.1 MiB；这不是完整应用的日常平均占用保证。阴影分层使半透明背景略亮，已纳入本地验收。详见 [性能验证](https://github.com/littletaro97-arch/AI-Dynamic-Island/blob/v0.7.3/docs/PERFORMANCE-2026-10-03.md) 和 [WorkBuddy 修复验证](https://github.com/littletaro97-arch/AI-Dynamic-Island/blob/v0.7.3/docs/WORKBUDDY-COMPLETION-2026-10-03.md)。
 
 设置界面下一阶段的单分类展示及常用/高级分层、Bilibili-monitor 联动仍处于规划阶段，本版本没有重构设置导航或实现联动板块。
