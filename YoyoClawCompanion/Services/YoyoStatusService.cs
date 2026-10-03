@@ -28,9 +28,9 @@ internal sealed class YoyoStatusService
         _cachedAt = DateTimeOffset.MinValue;
     }
 
-    public async Task<YoyoStatus> ReadAsync()
+    public async Task<YoyoStatus> ReadAsync(bool? isRunning = null)
     {
-        var running = ApplicationLocator.IsProcessRunning("HnMagicClawUI");
+        var running = isRunning ?? ApplicationLocator.IsProcessRunning("HnMagicClawUI");
         var points = _quota.Read();
         var snapshot = running ? await ReadMagicoreAsync() : _cachedSnapshot;
         var updatedAt = ParseDate(snapshot?.UpdatedAt);

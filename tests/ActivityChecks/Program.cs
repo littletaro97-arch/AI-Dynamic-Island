@@ -11,6 +11,11 @@ using YoyoClawCompanion.Services;
 
 class Program
 {
+    sealed class ControlTestApp : App
+    {
+        public ControlTestApp() => typeof(App).GetProperty("IsPreviewMode", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, true);
+        protected override void OnStartup(StartupEventArgs e) { }
+    }
     const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     static object? Call(object target,string name,params object?[] args)=>target.GetType().GetMethod(name,Flags)!.Invoke(target,args);
     static void Set(object target,string name,object? value)=>target.GetType().GetField(name,Flags)!.SetValue(target,value);
@@ -25,7 +30,7 @@ class Program
     }
     [STAThread] static void Main()
     {
-        var app=new App();var main=new MainWindow();
+        var app=new ControlTestApp();var main=new MainWindow();
         ((HashSet<string>)typeof(MainWindow).GetField("_suppressedProviders",Flags)!.GetValue(main)!).Clear();
         foreach(var field in new[]{"_yoyoInstalled","_codexInstalled","_workBuddyInstalled","_deepSeekInstalled"})Set(main,field,true);
         Set(main,"_settings",new IslandSettings());

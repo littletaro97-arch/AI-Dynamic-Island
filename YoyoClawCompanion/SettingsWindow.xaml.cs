@@ -46,10 +46,8 @@ public partial class SettingsWindow : Window
     private System.Windows.Point _providerDragStart;
     private ProviderOrderItem? _providerDragCandidate;
     private IReadOnlyList<SettingsPresetSlot> _presets = [];
-    private readonly double[] _presetMarqueeOffsets = new double[4];
-    private readonly double[] _presetMarqueeCycles = new double[4];
-    private long _presetMarqueeLastTick;
-    private bool _presetMarqueeSubscribed;
+    private readonly (string Text, double Width, double Viewport, double Speed)?[] _presetMarqueeKeys = new (string, double, double, double)?[4];
+    private bool _presetMarqueeUpdatePending;
 
     public ObservableCollection<ProviderOrderItem> ProviderOrderItems { get; } = [];
 
@@ -66,6 +64,8 @@ public partial class SettingsWindow : Window
         _island.UpdateService.Changed += UpdateService_Changed;
         Closed += (_, _) => { _island.PositionChanged -= Island_PositionChanged; _island.ProviderAvailabilityChanged -= Island_ProviderAvailabilityChanged; _island.UpdateService.Changed -= UpdateService_Changed; StopPresetMarquees(); };
         SizeChanged += (_, _) => SchedulePresetMarquees();
+        IsVisibleChanged += (_, _) => SchedulePresetMarquees();
+        StateChanged += (_, _) => SchedulePresetMarquees();
         Loaded += (_, _) => Dispatcher.BeginInvoke(UpdateActiveNavigation, DispatcherPriority.Loaded);
         LoadValues(island.CurrentSettings);
         _loading = false;
@@ -425,60 +425,65 @@ public partial class SettingsWindow : Window
     }
 
     private void SchedulePresetMarquees()
-        => Dispatcher.BeginInvoke(UpdatePresetMarquees, DispatcherPriority.Loaded);
+    {
+        if (_presetMarqueeUpdatePending) return;
+        _presetMarqueeUpdatePending = true;
+        Dispatcher.BeginInvoke(() => { _presetMarqueeUpdatePending = false; UpdatePresetMarquees(); }, DispatcherPriority.Loaded);
+    }
 
     private void UpdatePresetMarquees()
     {
-        StopPresetMarquees();
-        var any = false;
         for (var slot = 1; slot <= 3; slot++)
         {
-            var (text, clone, editor, _, canvas, transforms) = PresetNameControls(slot);
-            if (editor.Visibility == Visibility.Visible || canvas.ActualWidth <= 0) continue;
+            var (text, clone, editor, display, canvas, transforms) = PresetNameControls(slot);
+            if (!IsVisible || WindowState == WindowState.Minimized || editor.Visibility == Visibility.Visible
+                || canvas.ActualWidth <= 0 || !IsPresetInViewport(display))
+            { StopPresetMarquee(slot); continue; }
             text.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
             var width = text.DesiredSize.Width;
-            if (width <= canvas.ActualWidth) { clone.Visibility = Visibility.Collapsed; continue; }
+            if (width <= canvas.ActualWidth) { StopPresetMarquee(slot); continue; }
+            var speed = _island.CurrentSettings.QuotaScrollSpeed;
+            var key = (text.Text, width, canvas.ActualWidth, speed);
+            if (_presetMarqueeKeys[slot] == key) continue;
+            StopPresetMarquee(slot);
+            _presetMarqueeKeys[slot] = key;
             var gap = text.FontSize * 5;
-            _presetMarqueeCycles[slot] = width + gap;
+            var cycle = width + gap;
             Canvas.SetLeft(text, 0);
-            Canvas.SetLeft(clone, _presetMarqueeCycles[slot]);
-            transforms.Primary.X = transforms.Clone.X = 0;
+            Canvas.SetLeft(clone, cycle);
             clone.Visibility = Visibility.Visible;
-            any = true;
+            var clock = new DoubleAnimation(0, -cycle, TimeSpan.FromSeconds(cycle / speed))
+                { RepeatBehavior = RepeatBehavior.Forever }.CreateClock();
+            transforms.Primary.ApplyAnimationClock(TranslateTransform.XProperty, clock);
+            transforms.Clone.ApplyAnimationClock(TranslateTransform.XProperty, clock);
         }
-        if (!any) return;
-        _presetMarqueeLastTick = Stopwatch.GetTimestamp();
-        CompositionTarget.Rendering += AdvancePresetMarquees;
-        _presetMarqueeSubscribed = true;
     }
 
-    private void AdvancePresetMarquees(object? sender, EventArgs e)
+    private bool IsPresetInViewport(FrameworkElement display)
     {
-        if (!IsVisible) { StopPresetMarquees(); return; }
-        var now = Stopwatch.GetTimestamp();
-        var elapsed = Math.Min(.1, Math.Max(0, (now - _presetMarqueeLastTick) / (double)Stopwatch.Frequency));
-        _presetMarqueeLastTick = now;
-        for (var slot = 1; slot <= 3; slot++)
+        if (!display.IsVisible || !display.IsDescendantOf(SettingsScroll)) return false;
+        try
         {
-            if (_presetMarqueeCycles[slot] <= 0) continue;
-            var (_, _, editor, _, _, transforms) = PresetNameControls(slot);
-            if (editor.Visibility == Visibility.Visible) continue;
-            _presetMarqueeOffsets[slot] = (_presetMarqueeOffsets[slot] + _island.CurrentSettings.QuotaScrollSpeed * elapsed) % _presetMarqueeCycles[slot];
-            transforms.Primary.X = transforms.Clone.X = -_presetMarqueeOffsets[slot];
+            var bounds = display.TransformToAncestor(SettingsScroll).TransformBounds(new Rect(display.RenderSize));
+            return bounds.IntersectsWith(new Rect(0, 0, SettingsScroll.ViewportWidth, SettingsScroll.ViewportHeight));
         }
+        catch (InvalidOperationException) { return false; }
     }
 
     private void StopPresetMarquees()
     {
-        if (_presetMarqueeSubscribed) CompositionTarget.Rendering -= AdvancePresetMarquees;
-        _presetMarqueeSubscribed = false;
-        for (var slot = 1; slot <= 3; slot++)
-        {
-            _presetMarqueeOffsets[slot] = _presetMarqueeCycles[slot] = 0;
-            var (text, clone, _, _, _, transforms) = PresetNameControls(slot);
-            Canvas.SetLeft(text, 0); Canvas.SetLeft(clone, 0);
-            transforms.Primary.X = transforms.Clone.X = 0;
-        }
+        for (var slot = 1; slot <= 3; slot++) StopPresetMarquee(slot);
+    }
+
+    private void StopPresetMarquee(int slot)
+    {
+        _presetMarqueeKeys[slot] = null;
+        var (text, clone, _, _, _, transforms) = PresetNameControls(slot);
+        transforms.Primary.BeginAnimation(TranslateTransform.XProperty, null);
+        transforms.Clone.BeginAnimation(TranslateTransform.XProperty, null);
+        Canvas.SetLeft(text, 0); Canvas.SetLeft(clone, 0);
+        transforms.Primary.X = transforms.Clone.X = 0;
+        clone.Visibility = Visibility.Collapsed;
     }
 
     private (TextBlock Text, TextBlock Clone, TextBox Editor, Grid Display, Canvas Canvas, (TranslateTransform Primary, TranslateTransform Clone) Transforms) PresetNameControls(int slot)
@@ -658,7 +663,11 @@ public partial class SettingsWindow : Window
         e.Handled = true;
     }
 
-    private void SettingsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e) => UpdateActiveNavigation();
+    private void SettingsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        UpdateActiveNavigation();
+        SchedulePresetMarquees();
+    }
 
     private void UpdateActiveNavigation()
     {

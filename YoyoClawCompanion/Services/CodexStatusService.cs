@@ -26,7 +26,7 @@ internal sealed record CodexStatus(
     bool HasStaleStarted,
     IReadOnlyList<TaskCompletionEvent>? Completions = null);
 
-internal sealed class CodexStatusService
+internal sealed class CodexStatusService : IDisposable
 {
     private sealed record RateLimitsSnapshot(int? FiveHour, int? Weekly, DateTimeOffset? FiveHourResetsAt, DateTimeOffset? WeeklyResetsAt);
     private const int ActivityCandidateLimit = 32;
@@ -41,6 +41,7 @@ internal sealed class CodexStatusService
     private static readonly TimeSpan ExpandedScanRecency = TimeSpan.FromMinutes(10);
 
     private readonly string _sessionsRoot = Path.Combine(ProductPaths.CodexHome, "sessions");
+    private readonly RecentSessionIndex _sessionIndex = new(Path.Combine(ProductPaths.CodexHome, "sessions"), "*.jsonl");
     private readonly object _limitsGate = new();
     private DateTimeOffset _lastLimitAttempt = DateTimeOffset.MinValue;
     private RateLimitsSnapshot? _cachedLimits;
@@ -57,6 +58,7 @@ internal sealed class CodexStatusService
 
     internal void ResetCache()
     {
+        _sessionIndex.Invalidate();
         lock (_limitsGate)
         {
             _limitGeneration++;
@@ -71,17 +73,17 @@ internal sealed class CodexStatusService
         LastError = null;
     }
 
-    public async Task<CodexStatus> ReadAsync(bool detectActivity, bool readLimits)
+    public async Task<CodexStatus> ReadAsync(bool detectActivity, bool readLimits, bool? isRunning = null)
     {
         if (readLimits) EnsureLimitRefreshStarted();
-        return await Task.Run(() => ReadStatus(detectActivity, readLimits));
+        return await Task.Run(() => ReadStatus(detectActivity, readLimits, isRunning));
     }
 
-    private CodexStatus ReadStatus(bool detectActivity, bool readLimits)
+    private CodexStatus ReadStatus(bool detectActivity, bool readLimits, bool? isRunning)
     {
         _candidateFiles = null;
         var watch = Stopwatch.StartNew();
-        var running = IsCodexRunning();
+        var running = isRunning ?? IsCodexRunning();
         var activity = running && detectActivity ? ReadActivityState() : default;
         var completion = running ? ReadRecentCompletion() : default;
         RateLimitsSnapshot? limits;
@@ -184,15 +186,18 @@ internal sealed class CodexStatusService
     private CompletionSnapshot ReadCompletion(FileInfo file)
     {
         file.Refresh();
+        var revision = _sessionIndex.RevisionFor(file.FullName);
         if (_completionCache.TryGetValue(file.FullName, out var cached)
             && cached.Length == file.Length
-            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc)
+            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc && cached.Revision == revision)
             return cached.Snapshot;
 
         string? response = null, id = null;
         DateTimeOffset? timestamp = null;
-        var events = new List<TaskCompletionEvent>();
-        foreach (var line in JsonLineTailReader.Read(file.FullName, LifecycleTailBytes, ["final_answer"]))
+        var cursor = cached?.Cursor ?? new JsonLineCursor();
+        var lines = cursor.Read(file.FullName, LifecycleTailBytes, ["final_answer"]);
+        var events = cursor.NewGeneration ? new List<TaskCompletionEvent>() : new List<TaskCompletionEvent>(cached?.Snapshot.Events ?? []);
+        foreach (var line in lines)
         {
             if (!line.Contains("\"phase\":\"final_answer\"", StringComparison.Ordinal) || !line.Contains("\"role\":\"assistant\"", StringComparison.Ordinal)) continue;
             try
@@ -211,10 +216,10 @@ internal sealed class CodexStatusService
             catch (JsonException) { }
         }
 
-        var snapshot = response is null && cached is not null && file.Length >= cached.Length
+        var snapshot = response is null && cached is not null && !cursor.NewGeneration
             ? cached.Snapshot
-            : new CompletionSnapshot(response, id, timestamp, events.TakeLast(32).ToArray());
-        _completionCache[file.FullName] = new CompletionCacheEntry(file.Length, file.LastWriteTimeUtc, snapshot);
+            : new CompletionSnapshot(response, id, timestamp, events.DistinctBy(item => item.Id).TakeLast(32).ToArray());
+        _completionCache[file.FullName] = new CompletionCacheEntry(file.Length, file.LastWriteTimeUtc, snapshot, cursor, revision);
         return snapshot;
     }
 
@@ -254,7 +259,9 @@ internal sealed class CodexStatusService
     }
 
     private IEnumerable<FileInfo> EnumerateCandidateFiles(int limit)
-        => (_candidateFiles ??= RecentSessionFiles.Find(_sessionsRoot, "*.jsonl", ActivityCandidateLimit)).Take(limit);
+        => (_candidateFiles ??= _sessionIndex.Find(ActivityCandidateLimit)).Take(limit);
+
+    public void Dispose() => _sessionIndex.Dispose();
 
     private static void PruneCache<T>(Dictionary<string, T> cache, IEnumerable<string> retainedPaths)
     {
@@ -265,28 +272,34 @@ internal sealed class CodexStatusService
     private LifecycleSnapshot ReadLifecycle(FileInfo file, DateTimeOffset now)
     {
         file.Refresh();
+        var revision = _sessionIndex.RevisionFor(file.FullName);
         if (_lifecycleCache.TryGetValue(file.FullName, out var cached)
             && cached.Length == file.Length
-            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc)
+            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc && cached.Revision == revision)
             return cached.Snapshot;
 
-        var snapshot = ParseLifecycleTail(file.FullName, LifecycleTailBytes);
-        if (snapshot.State is null && now - file.LastWriteTimeUtc <= ExpandedScanRecency && file.Length > LifecycleTailBytes)
+        var cursor = cached?.Cursor ?? new JsonLineCursor();
+        var lines = cursor.Read(file.FullName, LifecycleTailBytes, ["task_started", "task_complete", "turn_aborted"]);
+        var snapshot = ParseLifecycleLines(lines, file.LastWriteTimeUtc);
+        if (cursor.Rebuild && snapshot.State is null && now - file.LastWriteTimeUtc <= ExpandedScanRecency && file.Length > LifecycleTailBytes)
             snapshot = ParseLifecycleTail(file.FullName, ExpandedLifecycleTailBytes);
 
-        if (snapshot.State is null && cached is not null && file.Length >= cached.Length)
+        if (snapshot.State is null && cached is not null && !cursor.NewGeneration)
             snapshot = snapshot with { State = cached.Snapshot.State, LifecycleAt = cached.Snapshot.LifecycleAt };
 
-        _lifecycleCache[file.FullName] = new LifecycleCacheEntry(file.Length, file.LastWriteTimeUtc, snapshot);
+        _lifecycleCache[file.FullName] = new LifecycleCacheEntry(file.Length, file.LastWriteTimeUtc, snapshot, cursor, revision);
         return snapshot;
     }
 
     private static LifecycleSnapshot ParseLifecycleTail(string path, int maxBytes)
+        => ParseLifecycleLines(JsonLineTailReader.Read(path, maxBytes, ["task_started", "task_complete", "turn_aborted"]), File.GetLastWriteTimeUtc(path));
+
+    private static LifecycleSnapshot ParseLifecycleLines(IEnumerable<string> lines, DateTime lastWriteUtc)
     {
         string? state = null;
         DateTimeOffset? lifecycleAt = null;
         DateTimeOffset? latestActivityAt = null;
-        foreach (var line in JsonLineTailReader.Read(path, maxBytes, ["task_started", "task_complete", "turn_aborted"]))
+        foreach (var line in lines)
         {
             var timestamp = TryReadTimestamp(line);
             if (timestamp is not null && (latestActivityAt is null || timestamp > latestActivityAt)) latestActivityAt = timestamp;
@@ -298,7 +311,7 @@ internal sealed class CodexStatusService
             }
         }
         // File write time covers intervening tool/stream records without decoding their large payloads.
-        return new LifecycleSnapshot(state, lifecycleAt, File.GetLastWriteTimeUtc(path));
+        return new LifecycleSnapshot(state, lifecycleAt, lastWriteUtc);
     }
 
     private static bool TryReadLifecycle(string line, out string? lifecycle)
@@ -342,6 +355,7 @@ internal sealed class CodexStatusService
         var executable = FindCodexExecutable();
         if (executable is null) return null;
         Process? process = null;
+        OwnedProcessScope? processScope = null;
         try
         {
             LastError = "start";
@@ -357,8 +371,16 @@ internal sealed class CodexStatusService
                 }
             };
             if (!process.Start()) return null;
+            processScope = OwnedProcessScope.Attach(process);
             _ = process.StandardError.ReadToEndAsync();
-            await process.StandardInput.WriteLineAsync("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"ai-dynamic-island\",\"version\":\"0.7.0\"},\"capabilities\":{\"experimentalApi\":true}}}");
+            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                id = 1, method = "initialize", @params = new
+                {
+                    clientInfo = new { name = "ai-dynamic-island", version = GitHubUpdateService.CurrentVersion },
+                    capabilities = new { experimentalApi = true }
+                }
+            }));
             await process.StandardInput.FlushAsync();
             LastError = "initialize";
             var initialized = false;
@@ -397,7 +419,7 @@ internal sealed class CodexStatusService
         catch (Exception error) { LastError = $"{LastError}:{error.GetType().Name}"; }
         finally
         {
-            try { if (process is { HasExited: false }) process.Kill(true); } catch { }
+            if (process is not null) await OwnedProcessScope.StopAsync(process, processScope, TimeSpan.FromSeconds(1));
             process?.Dispose();
         }
         return null;
@@ -464,8 +486,8 @@ internal sealed class CodexStatusService
     }
 
     private sealed record LifecycleSnapshot(string? State, DateTimeOffset? LifecycleAt, DateTimeOffset? LatestActivityAt);
-    private sealed record LifecycleCacheEntry(long Length, DateTime LastWriteTimeUtc, LifecycleSnapshot Snapshot);
+    private sealed record LifecycleCacheEntry(long Length, DateTime LastWriteTimeUtc, LifecycleSnapshot Snapshot, JsonLineCursor Cursor, long Revision);
     private sealed record CompletionSnapshot(string? Response, string? Id, DateTimeOffset? Timestamp, IReadOnlyList<TaskCompletionEvent>? Events = null);
-    private sealed record CompletionCacheEntry(long Length, DateTime LastWriteTimeUtc, CompletionSnapshot Snapshot);
+    private sealed record CompletionCacheEntry(long Length, DateTime LastWriteTimeUtc, CompletionSnapshot Snapshot, JsonLineCursor Cursor, long Revision);
     private readonly record struct ActivityState(bool IsBusy, int SessionsScanned, int ActiveSessions, DateTimeOffset? LatestLifecycleAt, bool HasStaleStarted);
 }

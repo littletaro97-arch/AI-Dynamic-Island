@@ -1,12 +1,75 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace YoyoClawCompanion.Services;
 
 internal static class ApplicationLocator
 {
+    internal readonly record struct ProviderPresence(bool Codex, bool WorkBuddy, bool Yoyo, bool DeepSeek);
+
+    internal static ProviderPresence CaptureProviderPresence()
+    {
+        var codex = false; var workBuddy = false; var yoyo = false; var deepSeek = false;
+        // Toolhelp supplies names/IDs without allocating a managed Process plus
+        // thread/module metadata for every unrelated process on the computer.
+        using var snapshot = CreateToolhelp32Snapshot(2, 0); // TH32CS_SNAPPROCESS
+        var entry = new ProcessEntry { Size = (uint)Marshal.SizeOf<ProcessEntry>() };
+        if (snapshot.IsInvalid || !Process32First(snapshot, ref entry))
+        {
+            var candidates = Process.GetProcessesByName("ChatGPT");
+            try { codex = candidates.Any(IsCodexDesktopProcess); }
+            finally { foreach (var process in candidates) process.Dispose(); }
+            return new(codex, IsProcessRunning("WorkBuddy"), IsProcessRunning("HnMagicClawUI"), IsProcessRunning("DeepSeek Harness"));
+        }
+        do
+        {
+            var name = entry.Executable;
+            if (name.Equals("WorkBuddy.exe", StringComparison.OrdinalIgnoreCase)) workBuddy = true;
+            else if (name.Equals("HnMagicClawUI.exe", StringComparison.OrdinalIgnoreCase)) yoyo = true;
+            else if (name.Equals("DeepSeek Harness.exe", StringComparison.OrdinalIgnoreCase)) deepSeek = true;
+            else if (name.Equals("ChatGPT.exe", StringComparison.OrdinalIgnoreCase) && !codex)
+            {
+                try
+                {
+                    using var process = Process.GetProcessById((int)entry.ProcessId);
+                    codex = IsCodexDesktopProcess(process);
+                }
+                catch (ArgumentException) { } // Process exited during snapshot.
+            }
+        }
+        while (Process32Next(snapshot, ref entry));
+        return new(codex, workBuddy, yoyo, deepSeek);
+    }
+
+    private static bool IsCodexDesktopProcess(Process process)
+    {
+        try { return process.MainModule?.FileName?.Contains("OpenAI.Codex_", StringComparison.OrdinalIgnoreCase) == true; }
+        catch { try { return process.MainWindowTitle.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase); } catch { return false; } }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ProcessEntry
+    {
+        public uint Size, Usage, ProcessId;
+        public UIntPtr DefaultHeap;
+        public uint ModuleId, Threads, ParentId;
+        public int BasePriority;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string Executable;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeFileHandle CreateToolhelp32Snapshot(uint flags, uint processId);
+    [DllImport("kernel32.dll", EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32First(SafeFileHandle snapshot, ref ProcessEntry entry);
+    [DllImport("kernel32.dll", EntryPoint = "Process32NextW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32Next(SafeFileHandle snapshot, ref ProcessEntry entry);
+
     public static bool IsProcessRunning(string processName)
     {
         var processes = Process.GetProcessesByName(processName);

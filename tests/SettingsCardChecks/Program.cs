@@ -9,6 +9,11 @@ using YoyoClawCompanion.Controls;
 
 internal static class Program
 {
+    sealed class ControlTestApp : App
+    {
+        public ControlTestApp() => typeof(App).GetProperty("IsPreviewMode", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, true);
+        protected override void OnStartup(StartupEventArgs e) { }
+    }
     const BindingFlags Flags = BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public;
     static void Assert(bool value,string name) { if(!value) throw new Exception(name); Console.WriteLine("PASS "+name); }
     static void Settle()
@@ -19,7 +24,7 @@ internal static class Program
     static void Layout(FrameworkElement root) { root.Measure(new Size(920,720));root.Arrange(new Rect(0,0,920,720));root.UpdateLayout(); }
     [STAThread] static void Main()
     {
-        var app=new App();
+        var app=new ControlTestApp();
         var main=new MainWindow();
         var window=(SettingsWindow)Activator.CreateInstance(typeof(SettingsWindow),Flags,null,[main],null)!;
         typeof(SettingsWindow).GetField("_loading",Flags)!.SetValue(window,true);

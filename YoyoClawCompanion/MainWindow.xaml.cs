@@ -91,6 +91,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        IslandShadowLayer.Attach(Island, (System.Windows.Media.Effects.Effect)FindResource("IslandShadow"));
         InitializeProviderSuppression();
         Icon = App.CreateWindowIcon();
         ConfigureIslandMenu();
@@ -108,7 +109,7 @@ public partial class MainWindow : Window
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _readyClockTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _refreshTimer.Stop(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _readyClockTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -333,7 +334,7 @@ public partial class MainWindow : Window
         SetLaunchControls(settings.EnableAppLaunch);
         if (!settings.EnableHoverExpansion && _expanded) CollapseIsland(true);
         ApplyTheme();
-        Island.Effect = settings.ShowShadow ? (System.Windows.Media.Effects.Effect)FindResource("IslandShadow") : null;
+        IslandShadowLayer.SetEnabled(settings.ShowShadow, IsLoaded);
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
         if (!App.IsPreviewMode) StartupRegistration.SetEnabled(settings.StartWithWindows);
         if (settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
@@ -657,11 +658,12 @@ public partial class MainWindow : Window
         try
         {
             CaptureExecutablePaths();
-            var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync());
+            var presence = await Task.Run(ApplicationLocator.CaptureProviderPresence);
+            var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync(presence.WorkBuddy));
             var workBuddyCreditsTask = MeasureAsync(_workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits));
-            var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits));
-            var yoyoTask = MeasureAsync(_statusService.ReadAsync());
-            var deepSeekTask = _deepSeekStatusService.ReadAsync(_settings.DeepSeekExecutablePath);
+            var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits, presence.Codex));
+            var yoyoTask = MeasureAsync(_statusService.ReadAsync(presence.Yoyo));
+            var deepSeekTask = Task.Run(() => _deepSeekStatusService.ReadAsync(_settings.DeepSeekExecutablePath, presence.DeepSeek));
 
             // Codex activity is intentionally applied first. Slow YOYO bridge or quota reads must not
             // delay the visible busy state or active-only island wake-up.
@@ -682,9 +684,8 @@ public partial class MainWindow : Window
             YoyoMiniDot.Fill = !status.IsYoyoRunning ? OfflineBrush : !status.TaskStatusAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : status.LastTaskFailed ? ErrorBrush : OnlineBrush;
             StateDot.Fill = YoyoMiniDot.Fill;
             WorkBuddyDot.Fill = WorkBuddyMiniDot.Fill;
-            PointsText.Inlines.Clear();
-            PointsText.Inlines.Add(new Run("· ") { Foreground = Brush("#182033") });
-            PointsText.Inlines.Add(new Run(status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --") { Foreground = AccentBrush });
+            SetStatusInlines(PointsText, ("· ", _secondaryTextBrush),
+                (status.RemainingPoints is double remaining ? $"{remaining:0.##} 积分" : "积分 --", AccentBrush));
             StateText.Text = !status.IsYoyoRunning ? "未运行" : !status.TaskStatusAvailable ? "接口不可用" : status.IsBusy ? "忙碌中" : status.LastTaskFailed ? "最近任务失败" : "空闲";
             StateText.Foreground = YoyoMiniDot.Fill;
             ApplyCodexVisualState(codex, provisional: false);
@@ -1916,35 +1917,49 @@ public partial class MainWindow : Window
 
     private void SetCodexStateText(CodexStatus status)
     {
-        CodexStateText.Inlines.Clear();
         var state = !status.IsRunning ? "未运行" : !_settings.EnableCodexActivityDetection ? "已打开" : status.IsBusy ? "执行中" : "空闲";
         var stateBrush = !status.IsRunning ? OfflineBrush : status.IsBusy ? BusyBrush : OnlineBrush;
-        CodexStateText.Inlines.Add(new Run(state) { Foreground = stateBrush });
-        if (!_settings.ShowCodexLimits) return;
-        CodexStateText.Inlines.Add(new Run(" · ") { Foreground = _secondaryTextBrush });
+        if (!_settings.ShowCodexLimits) { SetStatusInlines(CodexStateText, (state, stateBrush)); return; }
         if (!status.LimitsAvailable)
         {
-            CodexStateText.Inlines.Add(new Run(status.LimitsLoading ? "限额读取中" : "限额不可用") { Foreground = status.LimitsLoading ? _secondaryTextBrush : ErrorBrush });
+            SetStatusInlines(CodexStateText, (state, stateBrush), (" · ", _secondaryTextBrush),
+                (status.LimitsLoading ? "限额读取中" : "限额不可用", status.LimitsLoading ? _secondaryTextBrush : ErrorBrush));
             return;
         }
         var quota = new List<string>();
         if (status.FiveHourRemainingPercent is int fiveHour) quota.Add($"5小时 {fiveHour}%");
         if (status.WeeklyRemainingPercent is int weekly) quota.Add($"本周 {weekly}%");
-        CodexStateText.Inlines.Add(new Run(quota.Count > 0 ? string.Join(" · ", quota) : "限额不可用") { Foreground = quota.Count > 0 ? AccentBrush : ErrorBrush });
+        SetStatusInlines(CodexStateText, (state, stateBrush), (" · ", _secondaryTextBrush),
+            (quota.Count > 0 ? string.Join(" · ", quota) : "限额不可用", quota.Count > 0 ? AccentBrush : ErrorBrush));
     }
 
     private void SetWorkBuddyStateText(WorkBuddyStatus status, WorkBuddyCredits credits)
     {
-        WorkBuddyStateText.Inlines.Clear();
         var state = !status.IsRunning ? "未运行" : !status.DataAvailable ? "状态不可用" : status.RequiresConfirmation ? "待确认" : status.IsBusy ? "执行中" : "空闲";
         var stateBrush = !status.IsRunning ? OfflineBrush : !status.DataAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : OnlineBrush;
-        WorkBuddyStateText.Inlines.Add(new Run(state) { Foreground = stateBrush });
-        if (!_settings.ShowWorkBuddyCredits) return;
-        WorkBuddyStateText.Inlines.Add(new Run(" · ") { Foreground = _secondaryTextBrush });
-        WorkBuddyStateText.Inlines.Add(new Run(credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用")
+        if (!_settings.ShowWorkBuddyCredits) { SetStatusInlines(WorkBuddyStateText, (state, stateBrush)); return; }
+        SetStatusInlines(WorkBuddyStateText, (state, stateBrush), (" · ", _secondaryTextBrush),
+            (credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用", credits.Available ? AccentBrush : ErrorBrush));
+    }
+
+    private static void SetStatusInlines(TextBlock target, params (string Text, Brush Brush)[] parts)
+    {
+        // Keep the same Run objects while only values/colors change. Replacing all
+        // inlines on every poll invalidates text layout even when status is identical.
+        if (target.Inlines.Count != parts.Length || target.Inlines.Any(inline => inline is not Run))
         {
-            Foreground = credits.Available ? AccentBrush : ErrorBrush
-        });
+            target.Inlines.Clear();
+            foreach (var part in parts) target.Inlines.Add(new Run(part.Text) { Foreground = part.Brush });
+            return;
+        }
+        var current = target.Inlines.FirstInline;
+        foreach (var part in parts)
+        {
+            var run = (Run)current!;
+            if (run.Text != part.Text) run.Text = part.Text;
+            if (!ReferenceEquals(run.Foreground, part.Brush)) run.Foreground = part.Brush;
+            current = run.NextInline;
+        }
     }
 
     private void ScheduleSummaryMarquee()

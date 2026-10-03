@@ -5,12 +5,17 @@ using System.Windows.Controls;
 using YoyoClawCompanion;
 class Program
 {
+    sealed class ControlTestApp : App
+    {
+        public ControlTestApp() => typeof(App).GetProperty("IsPreviewMode", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, true);
+        protected override void OnStartup(StartupEventArgs e) { }
+    }
     const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     static void Call(object o,string method,params object[] args) => o.GetType().GetMethod(method,Flags)!.Invoke(o,args);
     static void Assert(bool value,string name) { if(!value) throw new Exception(name); Console.WriteLine("PASS "+name); }
     [STAThread] static void Main()
     {
-        var app=new App { ShutdownMode=ShutdownMode.OnExplicitShutdown }; typeof(App).GetMethod("InitializeComponent",Flags)?.Invoke(app,null);
+        var app=new ControlTestApp { ShutdownMode=ShutdownMode.OnExplicitShutdown }; typeof(App).GetMethod("InitializeComponent",Flags)?.Invoke(app,null);
         var main=new MainWindow();
         var window=(Window)Activator.CreateInstance(typeof(SettingsWindow),Flags,null,new object[]{main},null)!;
         window.GetType().GetField("_loading",Flags)!.SetValue(window,true);

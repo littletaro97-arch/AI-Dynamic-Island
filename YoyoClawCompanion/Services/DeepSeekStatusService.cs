@@ -11,21 +11,22 @@ internal sealed record DeepSeekStatus(bool IsRunning, bool Available, string Sta
     internal bool RequiresConfirmation => IsRunning && Available && State == "decision";
 }
 
-internal sealed class DeepSeekStatusService
+internal sealed class DeepSeekStatusService : IDisposable
 {
+    private readonly RecentSessionIndex _sessionIndex = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "sessions"), "session.v4.jsonl.zstd");
+    public void Dispose() => _sessionIndex.Dispose();
     private string? _fingerprint;
     private DeepSeekStatus _cached = new(false, false, "unknown");
     private DateTimeOffset _retryAt;
-    internal void ResetCache() { _fingerprint = null; _retryAt = default; }
+    internal void ResetCache() { _fingerprint = null; _retryAt = default; _sessionIndex.Invalidate(); }
 
-    internal async Task<DeepSeekStatus> ReadAsync(string? executable)
+    internal async Task<DeepSeekStatus> ReadAsync(string? executable, bool? isRunning = null)
     {
-        if (!ApplicationLocator.IsProcessRunning("DeepSeek Harness")) return _cached with { IsRunning = false };
+        if (!(isRunning ?? ApplicationLocator.IsProcessRunning("DeepSeek Harness"))) return _cached with { IsRunning = false };
         try
         {
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh", "sessions");
-            var files = RecentSessionFiles.Find(root, "session.v4.jsonl.zstd", 24);
-            var fingerprint = string.Join('|', files.Select(file => $"{file.FullName}:{file.Length}:{file.LastWriteTimeUtc.Ticks}"));
+            var files = _sessionIndex.Find(24);
+            var fingerprint = string.Join('|', files.Select(file => $"{file.FullName}:{file.Length}:{file.LastWriteTimeUtc.Ticks}:{_sessionIndex.RevisionFor(file.FullName)}"));
             if (_fingerprint == fingerprint && ((_cached.Available && !_cached.IsBusy && _cached.State != "unknown") || DateTimeOffset.UtcNow < _retryAt)) return _cached;
             var node = Path.Combine(Path.GetDirectoryName(executable) ?? "", "resources", "runtime", "primary-runtime", "dependencies", "node", "bin", "node.exe");
             var script = Path.Combine(AppContext.BaseDirectory, "harness-bridge", "status.mjs");

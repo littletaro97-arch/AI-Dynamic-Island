@@ -12,17 +12,23 @@ internal static class JsonLineTailReader
 {
     private const int MaxStatusRecordBytes = 256 * 1024;
 
-    internal static IEnumerable<string> Read(string path, int maxBytes, string[]? markers = null)
+    internal static IEnumerable<string> Read(string path, int maxBytes, string[]? markers = null, JsonLineCursor? cursor = null)
     {
         var encodedMarkers = markers?.Select(Encoding.UTF8.GetBytes).ToArray();
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var byteCount = (int)Math.Min(maxBytes, stream.Length);
-        if (byteCount <= 0) yield break;
+        var fileStart = cursor?.Prepare(stream, maxBytes) ?? Math.Max(0, stream.Length - maxBytes);
+        var byteCount = (int)Math.Min(maxBytes, stream.Length - fileStart);
+        if (byteCount <= 0) { cursor?.Advance(fileStart, 0); yield break; }
 
         var buffer = ArrayPool<byte>.Shared.Rent(byteCount);
         try
         {
-            var fileStart = stream.Length - byteCount;
+            var skipPartialFirstLine = false;
+            if (fileStart > 0)
+            {
+                stream.Position = fileStart - 1;
+                skipPartialFirstLine = stream.ReadByte() != (byte)'\n';
+            }
             stream.Seek(fileStart, SeekOrigin.Begin);
             var read = 0;
             while (read < byteCount)
@@ -33,15 +39,17 @@ internal static class JsonLineTailReader
             }
 
             var lineStart = 0;
-            if (fileStart > 0)
+            if (skipPartialFirstLine)
             {
                 while (lineStart < read && buffer[lineStart] != (byte)'\n') lineStart++;
                 if (lineStart < read) lineStart++;
             }
 
+            var nextOffset = fileStart + lineStart;
             for (var index = lineStart; index <= read; index++)
             {
                 if (index < read && buffer[index] != (byte)'\n') continue;
+                if (index < read) nextOffset = fileStart + index + 1;
                 var length = index - lineStart;
                 if (length > 0 && buffer[lineStart + length - 1] == (byte)'\r') length--;
                 if (length is > 0 and <= MaxStatusRecordBytes)
@@ -56,6 +64,7 @@ internal static class JsonLineTailReader
                 }
                 lineStart = index + 1;
             }
+            cursor?.Advance(nextOffset, read);
         }
         finally
         {
