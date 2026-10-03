@@ -15,3 +15,13 @@ Assets/App.ico 是统一图标源，包含 16–256 px 多分辨率帧；EXE、W
 卸载仅删除安装器管理的文件。开机注册仅在其命令指向当前安装目录时清除；用户设置默认保留。
 
 回滚：保存历史 Release 到 artifacts/backup-v0.6.0；Git 保留旧提交。旧版发布源基线为 38e149f，本次修改独立在 codex/release-v0.7.0。不要用 reset --hard 删除用户本地文件。
+
+## 检测与渲染性能
+
+MainWindow 每次刷新共享一个 ProviderPresence 进程快照，来源服务仍可独立调用并采用各自运行判断。RecentSessionIndex 保存有界最近文件列表，监视变更并定期复核；JsonLineCursor 为 Codex、WorkBuddy 保留完整行偏移和文件身份，状态解析保留跨次调用及完成事件。服务关闭时释放目录监视器。DeepSeek 目录读取在后台执行。
+
+Codex 额度 RPC 子进程创建后立即附加到私有 OwnedProcessScope，清理采用输入 EOF、短暂等待及 Job Object 回收，避免系统进程树遍历。该作用域只用于应用自己创建的进程。
+
+CachedIslandShadow 将岛的轮廓阴影缓存为独立层，与滚动文字分离；设置方案名称仅在可见视口内运行 WPF 动画时钟。控件测试使用隔离 App 启动入口，避免正常单实例启动影响其它正在运行的版本。
+
+具体数据和验收边界见 [2026-10-03 性能记录](PERFORMANCE-2026-10-03.md)。设置界面的下一阶段方向见 [可用性方案](settings-usability-proposal.md)，尚未迁移现有布局。
