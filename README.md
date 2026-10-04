@@ -1,4 +1,4 @@
-# AI Dynamic Island v0.7.3
+# AI Dynamic Island v0.7.4
 
 Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO Claw 和 DeepSeek Harness 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
 
@@ -8,8 +8,8 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO 
 
 | 下载包 | 使用方式 | 卸载方式 |
 | --- | --- | --- |
-| `AI-Dynamic-Island-v0.7.3-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
-| `AI-Dynamic-Island-v0.7.3-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
+| `AI-Dynamic-Island-v0.7.4-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
+| `AI-Dynamic-Island-v0.7.4-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
 
 适用于 Windows 10/11 x64。两种包均内含 .NET 8 Desktop Runtime。YOYO 任务桥接需要另行安装 [Node.js](https://nodejs.org/)，对应功能还需要本机安装并登录相应 AI 应用。缺少某个来源时不影响其他来源。
 
@@ -19,9 +19,9 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO 
 
 ## 核心功能
 
-当前本地迭代尚未发布：主屏与副屏独立定位、横竖屏预览、系统通知同步及独立时长、Codex 中途询问提醒。实现与验收边界见 [本地迭代记录](docs/ITERATION-DISPLAYS-NOTIFICATIONS-2026-10-03.md)。GitHub 最新正式发布仍为 v0.7.3。
+v0.7.4 新增主屏与副屏独立定位、横竖屏预览、系统通知同步及独立时长、Codex 中途询问提醒。通知内容可点击打开来源应用；QQ 和微信托盘唤起分别使用本机配置的 Ctrl+Alt+X、Ctrl+Alt+W。系统原通知保留；应用须获得通知访问权限，未提交到 Windows 通知中心的弹窗不在监听范围内。
 
-后续本地验收已加入通知内容点击打开来源应用、设置滚轮缓动、运动期间的有界缓存和后台通知转换。CPU 对比、内存代价与人工验收项见 [通知点击与滚动优化记录](docs/NOTIFICATION-OPEN-SCROLL-PERFORMANCE-2026-10-03.md)。
+修复反向选择模式下点击横条导致整个岛隐藏的问题。设置滚轮缓动与运动期间有界缓存的效果及内存代价见 [验证记录](docs/NOTIFICATION-OPEN-SCROLL-PERFORMANCE-2026-10-03.md)。额度重置重复提醒仍待修复，详见 [发布说明](docs/RELEASE-v0.7.4.md)。
 
 - Codex：读取本地会话生命周期和最终回复，通过本机 app-server 获取额度与重置时间。
 - WorkBuddy：读取本地会话，识别执行、完成与待确认；通过本机宿主通道获取真实积分。
@@ -68,7 +68,7 @@ dotnet build '.\AI Dynamic Island.sln' -c Release
 .\Build-Release.ps1 -PortableOnly
 ```
 
-输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.3`。版本号以 `YoyoClawCompanion.csproj` 为准。
+输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.4`。版本号以 `YoyoClawCompanion.csproj` 为准。
 
 Magicore 的 `@magicore/*` 是从本机 YOYO 安装包取得的 vendor 运行组件，不属于普通 npm 可还原依赖。不要在桥接目录运行 `npm ci`；缺少 SDK 时打包会明确失败。第三方运行组件的再分发应遵循其授权。
 
