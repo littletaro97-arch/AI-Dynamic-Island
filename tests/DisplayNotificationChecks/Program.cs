@@ -95,12 +95,12 @@ internal static class Program
         var exactSession = Candidate(10, 800, 600, 20, exact: true);
         Assert(NotificationAppLauncher.SelectWindow([trayMain, exactSession]) == exactSession, "window app identity preferred to executable fallback");
         Assert(NotificationAppLauncher.SelectWindow([trayMain with { Enabled = false }, newerLogin with { Hung = true }]) is null, "disabled or hung windows never activated");
-        Assert(NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\QQ.exe", 1), "QQ hotkey requires registered executable and running instance");
-        Assert(!NotificationAppLauncher.SupportsQQHotkey("Weixin", @"D:\Apps\QQ.exe", 1)
-            && !NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\other.exe", 1)
-            && !NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\QQ.exe", 0), "hotkey never applied to unrelated or absent apps");
+        Assert(NotificationAppLauncher.GetWakeKey("QQ", @"D:\Apps\QQ.exe", 1) == 0x58, "QQ hotkey requires registered executable and running instance");
+        Assert(NotificationAppLauncher.GetWakeKey("Weixin", @"D:\Apps\QQ.exe", 1) is null
+            && NotificationAppLauncher.GetWakeKey("QQ", @"D:\Apps\other.exe", 1) is null
+            && NotificationAppLauncher.GetWakeKey("QQ", @"D:\Apps\QQ.exe", 0) is null, "hotkey never applied to unrelated or absent apps");
         var inputCalls = 0;
-        Assert(NotificationAppLauncher.SendQQHotkey(_ => 0, (count, inputs, size) => {
+        Assert(NotificationAppLauncher.SendHotkey(0x58, _ => 0, (count, inputs, size) => {
             inputCalls++;
             Assert(size == (IntPtr.Size == 8 ? 40 : 28) && count == 6 && inputs.All(i => i.Type == 1), "SendInput layout and one complete keyboard batch");
             Assert(inputs.Select(i => i.Data.Keyboard.Key).SequenceEqual(new ushort[] { 0x11, 0x12, 0x58, 0x58, 0x12, 0x11 })
@@ -108,17 +108,28 @@ internal static class Program
             return count;
         }) && inputCalls == 1, "successful hotkey sent once");
         foreach (var held in new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0x58 })
-            Assert(!NotificationAppLauncher.SendQQHotkey(k => k == held ? unchecked((short)0x8000) : (short)0,
+            Assert(!NotificationAppLauncher.SendHotkey(0x58, k => k == held ? unchecked((short)0x8000) : (short)0,
                 (_, _, _) => throw new Exception("input while physical key held")), "physical held key prevents injection " + held);
         inputCalls = 0;
-        Assert(!NotificationAppLauncher.SendQQHotkey(_ => 0, (_, _, _) => { inputCalls++; return 0; }) && inputCalls == 1, "blocked injection never retries");
+        Assert(!NotificationAppLauncher.SendHotkey(0x58, _ => 0, (_, _, _) => { inputCalls++; return 0; }) && inputCalls == 1, "blocked injection never retries");
         inputCalls = 0;
-        Assert(!NotificationAppLauncher.SendQQHotkey(_ => 0, (count, inputs, _) => {
+        Assert(!NotificationAppLauncher.SendHotkey(0x58, _ => 0, (count, inputs, _) => {
             if (++inputCalls == 1) return 2;
             Assert(count == 2 && inputs.All(i => i.Data.Keyboard.Flags == 2)
                 && inputs.Select(i => i.Data.Keyboard.Key).SequenceEqual(new ushort[] { 0x12, 0x11 }), "partial injection releases only injected modifiers");
             return count;
         }) && inputCalls == 2, "partial injection reports failure after cleanup");
+        Assert(NotificationAppLauncher.GetWakeKey(@"E:\Apps\Weixin.exe", @"E:\Apps\Weixin.exe", 1) == 0x57
+            && NotificationAppLauncher.GetWakeKey("WeChat", @"E:\Apps\WeChat.exe", 1) == 0x57, "Weixin path identity and legacy WeChat resolve Ctrl Alt W");
+        Assert(NotificationAppLauncher.GetWakeKey("QQ", @"E:\Apps\Weixin.exe", 1) is null
+            && NotificationAppLauncher.GetWakeKey("other", @"E:\Apps\Weixin.exe", 1) is null
+            && NotificationAppLauncher.GetWakeKey("WeChat", @"E:\Apps\WeChat.exe", 0) is null, "Weixin hotkey requires matching identity and verified running executable");
+        Assert(NotificationAppLauncher.SendHotkey(0x57, _ => 0, (count, inputs, _) => {
+            Assert(count == 6 && inputs.Select(i => i.Data.Keyboard.Key).SequenceEqual(new ushort[] { 0x11, 0x12, 0x57, 0x57, 0x12, 0x11 })
+                && inputs.Select(i => i.Data.Keyboard.Flags).SequenceEqual(new uint[] { 0, 0, 0, 2, 2, 2 }), "Ctrl Alt W balanced input batch"); return count;
+        }), "Weixin uses shared shortcut sender");
+        Assert(!NotificationAppLauncher.SendHotkey(0x57, k => k == 0x57 ? unchecked((short)0x8000) : (short)0,
+            (_, _, _) => throw new Exception("held W injected")), "held physical W prevents injection");
         var old = new SystemToast("old", "Mail", "历史消息", "正文", DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert(tracker.Accept([old]).Count == 0, "enabling notifications does not replay Action Center history");
         var fresh = old with { Id = "new", Title = "新消息", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) };
@@ -136,6 +147,16 @@ internal static class Program
         Assert(NotificationAppLauncher.ActivateExistingWindow(hiddenHandle) == NotificationOpenResult.RunningButUnavailable
             && !IsWindowVisible(hiddenHandle), "activation never forcibly exposes hidden framework window");
         hiddenApp.Close();
+        if (Environment.GetEnvironmentVariable("ISLAND_WEIXIN_HOTKEY_SMOKE") == "1")
+        {
+            var identity = @"E:\D-diskExpansionCabin\Weixin\Weixin.exe";
+            int[] Pids() => System.Diagnostics.Process.GetProcessesByName("Weixin").Select(p => { using (p) return p.Id; }).Order().ToArray();
+            var before = Pids();
+            Assert(before.Length > 0 && NotificationAppLauncher.TryResolveRegisteredTarget(identity, out _), "live Weixin smoke requires registered running app");
+            Assert(NotificationAppLauncher.OpenAsync(identity).GetAwaiter().GetResult() == NotificationOpenResult.Opened, "production Weixin activation reaches foreground");
+            System.Threading.Thread.Sleep(700);
+            Assert(!Pids().Except(before).Any(), "Weixin activation creates no new process");
+        }
         if (Environment.GetEnvironmentVariable("ISLAND_QQ_HOTKEY_SMOKE") == "1")
         {
             int[] QqPids() => System.Diagnostics.Process.GetProcessesByName("QQ").Select(p => { using (p) return p.Id; }).Order().ToArray();

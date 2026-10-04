@@ -84,10 +84,11 @@ internal static class NotificationAppLauncher
             return true;
         }, IntPtr.Zero);
         var selected = SelectWindow(windows);
+        var wakeKey = GetWakeKey(id, target, executableProcesses.Count);
+        if (wakeKey is ushort key && (selected is null || (!IsWindowVisible(selected.Handle) && !IsIconic(selected.Handle))))
+            return WakeByHotkey(executableProcesses, key);
         if (selected is not null)
         {
-            if (!IsWindowVisible(selected.Handle) && !IsIconic(selected.Handle) && SupportsQQHotkey(id, target, executableProcesses.Count))
-                return WakeQQByHotkey(executableProcesses);
             return ActivateExistingWindow(selected.Handle);
         }
         if (running.Count > 0 || inaccessibleCandidate) return NotificationOpenResult.RunningButUnavailable;
@@ -132,37 +133,45 @@ internal static class NotificationAppLauncher
         return NotificationOpenResult.RunningButUnavailable;
     }
 
-    internal static bool SupportsQQHotkey(string id, string? registeredTarget, int verifiedProcessCount) =>
-        verifiedProcessCount > 0 && string.Equals(id, "QQ", StringComparison.OrdinalIgnoreCase)
-        && string.Equals(Path.GetFileName(registeredTarget), "QQ.exe", StringComparison.OrdinalIgnoreCase);
-
-    internal static NotificationOpenResult WakeQQByHotkey(IReadOnlySet<int> verifiedProcesses)
+    internal static ushort? GetWakeKey(string id, string? registeredTarget, int verifiedProcessCount)
     {
-        bool QQIsForeground()
+        if (verifiedProcessCount <= 0) return null;
+        var executable = Path.GetFileName(registeredTarget);
+        if (string.Equals(id, "QQ", StringComparison.OrdinalIgnoreCase) && string.Equals(executable, "QQ.exe", StringComparison.OrdinalIgnoreCase)) return 0x58;
+        if ((string.Equals(executable, "Weixin.exe", StringComparison.OrdinalIgnoreCase) || string.Equals(executable, "WeChat.exe", StringComparison.OrdinalIgnoreCase))
+            && (string.Equals(id, registeredTarget, StringComparison.OrdinalIgnoreCase)
+                || id.Equals("Weixin", StringComparison.OrdinalIgnoreCase) || id.Equals("WeChat", StringComparison.OrdinalIgnoreCase)
+                || id.Equals("Tencent.WeChat", StringComparison.OrdinalIgnoreCase))) return 0x57;
+        return null;
+    }
+
+    internal static NotificationOpenResult WakeByHotkey(IReadOnlySet<int> verifiedProcesses, ushort key)
+    {
+        bool AppIsForeground()
         {
             var foreground = GetForegroundWindow();
             GetWindowThreadProcessId(foreground, out var pid);
             return verifiedProcesses.Contains((int)pid) && IsWindowVisible(foreground) && !IsIconic(foreground)
                 && IsWindowEnabled(foreground) && !IsHungAppWindow(foreground);
         }
-        if (QQIsForeground()) return NotificationOpenResult.Opened;
-        if (verifiedProcesses.Count == 0 || !SendQQHotkey(GetAsyncKeyState, SendInput))
+        if (AppIsForeground()) return NotificationOpenResult.Opened;
+        if (verifiedProcesses.Count == 0 || !SendHotkey(key, GetAsyncKeyState, SendInput))
             return NotificationOpenResult.RunningButUnavailable;
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < 1200)
         {
-            if (QQIsForeground()) return NotificationOpenResult.Opened;
+            if (AppIsForeground()) return NotificationOpenResult.Opened;
             Thread.Sleep(40);
         }
         return NotificationOpenResult.RunningButUnavailable;
     }
 
-    internal static bool SendQQHotkey(Func<int, short> keyState, Func<uint, KeyboardInput[], int, uint> send)
+    internal static bool SendHotkey(ushort key, Func<int, short> keyState, Func<uint, KeyboardInput[], int, uint> send)
     {
         // Do not release or override keys the user is holding. Send the complete
-        // chord once, never retry or fall back to launching another QQ process.
-        if (new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0x58 }.Any(k => (keyState(k) & 0x8000) != 0)) return false;
-        var chord = QQChord();
+        // chord once, never retry or fall back to launching another process.
+        if (key is not (0x58 or 0x57) || new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, (int)key }.Any(k => (keyState(k) & 0x8000) != 0)) return false;
+        var chord = Chord(key);
         var size = Marshal.SizeOf<KeyboardInput>();
         var sent = send((uint)chord.Length, chord, size);
         if (sent == chord.Length) return true;
@@ -175,7 +184,7 @@ internal static class NotificationAppLauncher
         return false;
     }
 
-    private static KeyboardInput[] QQChord() => new[] { Key(0x11), Key(0x12), Key(0x58), Key(0x58, 2), Key(0x12, 2), Key(0x11, 2) };
+    private static KeyboardInput[] Chord(ushort key) => new[] { Key(0x11), Key(0x12), Key(key), Key(key, 2), Key(0x12, 2), Key(0x11, 2) };
     private static KeyboardInput Key(ushort key, uint flags = 0) => new() { Type = 1, Data = new() { Keyboard = new() { Key = key, Flags = flags } } };
     [StructLayout(LayoutKind.Sequential)] internal struct KeyboardInput { public uint Type; public InputData Data; }
     [StructLayout(LayoutKind.Explicit)] internal struct InputData
