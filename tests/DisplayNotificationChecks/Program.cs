@@ -95,6 +95,30 @@ internal static class Program
         var exactSession = Candidate(10, 800, 600, 20, exact: true);
         Assert(NotificationAppLauncher.SelectWindow([trayMain, exactSession]) == exactSession, "window app identity preferred to executable fallback");
         Assert(NotificationAppLauncher.SelectWindow([trayMain with { Enabled = false }, newerLogin with { Hung = true }]) is null, "disabled or hung windows never activated");
+        Assert(NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\QQ.exe", 1), "QQ hotkey requires registered executable and running instance");
+        Assert(!NotificationAppLauncher.SupportsQQHotkey("Weixin", @"D:\Apps\QQ.exe", 1)
+            && !NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\other.exe", 1)
+            && !NotificationAppLauncher.SupportsQQHotkey("QQ", @"D:\Apps\QQ.exe", 0), "hotkey never applied to unrelated or absent apps");
+        var inputCalls = 0;
+        Assert(NotificationAppLauncher.SendQQHotkey(_ => 0, (count, inputs, size) => {
+            inputCalls++;
+            Assert(size == (IntPtr.Size == 8 ? 40 : 28) && count == 6 && inputs.All(i => i.Type == 1), "SendInput layout and one complete keyboard batch");
+            Assert(inputs.Select(i => i.Data.Keyboard.Key).SequenceEqual(new ushort[] { 0x11, 0x12, 0x58, 0x58, 0x12, 0x11 })
+                && inputs.Select(i => i.Data.Keyboard.Flags).SequenceEqual(new uint[] { 0, 0, 0, 2, 2, 2 }), "Ctrl Alt X keys released in reverse order");
+            return count;
+        }) && inputCalls == 1, "successful hotkey sent once");
+        foreach (var held in new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0x58 })
+            Assert(!NotificationAppLauncher.SendQQHotkey(k => k == held ? unchecked((short)0x8000) : (short)0,
+                (_, _, _) => throw new Exception("input while physical key held")), "physical held key prevents injection " + held);
+        inputCalls = 0;
+        Assert(!NotificationAppLauncher.SendQQHotkey(_ => 0, (_, _, _) => { inputCalls++; return 0; }) && inputCalls == 1, "blocked injection never retries");
+        inputCalls = 0;
+        Assert(!NotificationAppLauncher.SendQQHotkey(_ => 0, (count, inputs, _) => {
+            if (++inputCalls == 1) return 2;
+            Assert(count == 2 && inputs.All(i => i.Data.Keyboard.Flags == 2)
+                && inputs.Select(i => i.Data.Keyboard.Key).SequenceEqual(new ushort[] { 0x12, 0x11 }), "partial injection releases only injected modifiers");
+            return count;
+        }) && inputCalls == 2, "partial injection reports failure after cleanup");
         var old = new SystemToast("old", "Mail", "历史消息", "正文", DateTimeOffset.UtcNow.AddMinutes(-2));
         Assert(tracker.Accept([old]).Count == 0, "enabling notifications does not replay Action Center history");
         var fresh = old with { Id = "new", Title = "新消息", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(1) };
@@ -112,6 +136,16 @@ internal static class Program
         Assert(NotificationAppLauncher.ActivateExistingWindow(hiddenHandle) == NotificationOpenResult.RunningButUnavailable
             && !IsWindowVisible(hiddenHandle), "activation never forcibly exposes hidden framework window");
         hiddenApp.Close();
+        if (Environment.GetEnvironmentVariable("ISLAND_QQ_HOTKEY_SMOKE") == "1")
+        {
+            int[] QqPids() => System.Diagnostics.Process.GetProcessesByName("QQ").Select(p => { using (p) return p.Id; }).Order().ToArray();
+            var before = QqPids();
+            Assert(before.Length > 0 && NotificationAppLauncher.TryResolveRegisteredTarget("QQ", out _), "live QQ smoke requires registered running QQ");
+            var activation = NotificationAppLauncher.OpenAsync("QQ").GetAwaiter().GetResult();
+            Assert(activation == NotificationOpenResult.Opened, "production QQ activation reaches QQ foreground");
+            System.Threading.Thread.Sleep(700);
+            Assert(!QqPids().Except(before).Any(), "QQ activation creates no new process");
+        }
         if (Environment.GetEnvironmentVariable("ISLAND_NATIVE_NOTIFICATION_CHECK") == "1")
         {
             foreach (var identity in new[] { "QQ", @"E:\D-diskExpansionCabin\Weixin\Weixin.exe" })

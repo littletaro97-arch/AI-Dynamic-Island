@@ -66,6 +66,7 @@ internal static class NotificationAppLauncher
                 }
             }
         }
+        var executableProcesses = running.ToHashSet();
         var windows = new List<AppWindow>();
         EnumWindows((handle, _) =>
         {
@@ -85,6 +86,8 @@ internal static class NotificationAppLauncher
         var selected = SelectWindow(windows);
         if (selected is not null)
         {
+            if (!IsWindowVisible(selected.Handle) && !IsIconic(selected.Handle) && SupportsQQHotkey(id, target, executableProcesses.Count))
+                return WakeQQByHotkey(executableProcesses);
             return ActivateExistingWindow(selected.Handle);
         }
         if (running.Count > 0 || inaccessibleCandidate) return NotificationOpenResult.RunningButUnavailable;
@@ -128,6 +131,62 @@ internal static class NotificationAppLauncher
         }
         return NotificationOpenResult.RunningButUnavailable;
     }
+
+    internal static bool SupportsQQHotkey(string id, string? registeredTarget, int verifiedProcessCount) =>
+        verifiedProcessCount > 0 && string.Equals(id, "QQ", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(Path.GetFileName(registeredTarget), "QQ.exe", StringComparison.OrdinalIgnoreCase);
+
+    internal static NotificationOpenResult WakeQQByHotkey(IReadOnlySet<int> verifiedProcesses)
+    {
+        bool QQIsForeground()
+        {
+            var foreground = GetForegroundWindow();
+            GetWindowThreadProcessId(foreground, out var pid);
+            return verifiedProcesses.Contains((int)pid) && IsWindowVisible(foreground) && !IsIconic(foreground)
+                && IsWindowEnabled(foreground) && !IsHungAppWindow(foreground);
+        }
+        if (QQIsForeground()) return NotificationOpenResult.Opened;
+        if (verifiedProcesses.Count == 0 || !SendQQHotkey(GetAsyncKeyState, SendInput))
+            return NotificationOpenResult.RunningButUnavailable;
+        var deadline = Stopwatch.StartNew();
+        while (deadline.ElapsedMilliseconds < 1200)
+        {
+            if (QQIsForeground()) return NotificationOpenResult.Opened;
+            Thread.Sleep(40);
+        }
+        return NotificationOpenResult.RunningButUnavailable;
+    }
+
+    internal static bool SendQQHotkey(Func<int, short> keyState, Func<uint, KeyboardInput[], int, uint> send)
+    {
+        // Do not release or override keys the user is holding. Send the complete
+        // chord once, never retry or fall back to launching another QQ process.
+        if (new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0x58 }.Any(k => (keyState(k) & 0x8000) != 0)) return false;
+        var chord = QQChord();
+        var size = Marshal.SizeOf<KeyboardInput>();
+        var sent = send((uint)chord.Length, chord, size);
+        if (sent == chord.Length) return true;
+        // If Windows accepted a prefix, release only our still-held injected keys.
+        var down = new HashSet<ushort>();
+        foreach (var input in chord.Take((int)Math.Min(sent, (uint)chord.Length)))
+            if (input.Data.Keyboard.Flags == 0) down.Add(input.Data.Keyboard.Key); else down.Remove(input.Data.Keyboard.Key);
+        var release = chord.Skip(3).Where(i => down.Contains(i.Data.Keyboard.Key)).ToArray();
+        if (release.Length > 0) send((uint)release.Length, release, size);
+        return false;
+    }
+
+    private static KeyboardInput[] QQChord() => new[] { Key(0x11), Key(0x12), Key(0x58), Key(0x58, 2), Key(0x12, 2), Key(0x11, 2) };
+    private static KeyboardInput Key(ushort key, uint flags = 0) => new() { Type = 1, Data = new() { Keyboard = new() { Key = key, Flags = flags } } };
+    [StructLayout(LayoutKind.Sequential)] internal struct KeyboardInput { public uint Type; public InputData Data; }
+    [StructLayout(LayoutKind.Explicit)] internal struct InputData
+    {
+        [FieldOffset(0)] public KeyData Keyboard;
+        [FieldOffset(0)] public MouseData Mouse;
+    }
+    [StructLayout(LayoutKind.Sequential)] internal struct KeyData { public ushort Key, Scan; public uint Flags, Time; public UIntPtr Extra; }
+    [StructLayout(LayoutKind.Sequential)] internal struct MouseData { public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra; }
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, KeyboardInput[] inputs, int size);
 
     internal static bool TryResolveRegisteredTarget(string id, out string? target)
     {
