@@ -253,6 +253,10 @@ internal static class Program
         var reverseFrame = new DispatcherFrame(); var reverseTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(380) };
         reverseTick.Tick += (_, _) => { reverseTick.Stop(); reverseFrame.Continue = false; }; reverseTick.Start(); Dispatcher.PushFrame(reverseFrame);
         Assert(island.Visibility == Visibility.Visible && !ReverseHidden(), "obsolete reverse fade cannot hide later expansion");
+        // The off-screen fixture can receive MouseLeave and auto-collapse while
+        // the dispatcher pumps. Establish the expanded precondition explicitly.
+        ((DispatcherTimer)typeof(MainWindow).GetField("_leaveTimer", Flags)!.GetValue(main)!).Stop();
+        Call(main, "CompleteCollapseImmediately"); SetMain("_expanded", true);
         SetMain("_notificationHoldActive", false);
         main.ApplySettings(main.CurrentSettings, persist: false);
         Assert((bool)typeof(MainWindow).GetField("_expanded", Flags)!.GetValue(main)!, "reapplying reverse settings preserves an expanded notice");
