@@ -5,12 +5,12 @@
     {
       "name": "AI-Dynamic-Island-v0.7.5-win-x64-portable.zip",
       "digest": "sha256:4aa0e1314c378877d6a088c8d3d4739383d5de5fecf84b27885d978a260d51ee",
-      "browser_download_url": "https://github.com/littletaro97-arch/AI-Dynamic-Island/releases/download/untagged-1e196baacfaf3813f0ba/AI-Dynamic-Island-v0.7.5-win-x64-portable.zip"
+      "browser_download_url": "https://github.com/littletaro97-arch/AI-Dynamic-Island/releases/download/v0.7.5/AI-Dynamic-Island-v0.7.5-win-x64-portable.zip"
     },
     {
       "name": "AI-Dynamic-Island-v0.7.5-win-x64-setup.exe",
       "digest": "sha256:200d27ea128e8c94cbe4d98aa5323e3c8a7569f8c647781d4695ad7c55ed6202",
-      "browser_download_url": "https://github.com/littletaro97-arch/AI-Dynamic-Island/releases/download/untagged-1e196baacfaf3813f0ba/AI-Dynamic-Island-v0.7.5-win-x64-setup.exe"
+      "browser_download_url": "https://github.com/littletaro97-arch/AI-Dynamic-Island/releases/download/v0.7.5/AI-Dynamic-Island-v0.7.5-win-x64-setup.exe"
     }
   ]
 }
