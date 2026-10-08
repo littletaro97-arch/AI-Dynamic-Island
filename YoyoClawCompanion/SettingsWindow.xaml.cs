@@ -88,6 +88,9 @@ public partial class SettingsWindow : Window
         _island.SystemNotifications.StatusChanged += SystemNotificationStatus_Changed;
         Closed += (_, _) => _island.SystemNotifications.StatusChanged -= SystemNotificationStatus_Changed;
         SystemNotificationStatusText.Text = _island.SystemNotifications.Status;
+        _island.NotificationFiltersChanged += NotificationFilters_Changed;
+        Closed += (_, _) => _island.NotificationFiltersChanged -= NotificationFilters_Changed;
+        RefreshNotificationFilters();
     }
 
     private void LoadValues(IslandSettings value)
@@ -148,15 +151,6 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         if (_updatingWidthRange) return;
-        _loading = true;
-        try
-        {
-            if (ReferenceEquals(sender, ReverseHoverCheck) && ReverseHoverCheck.IsChecked == true)
-                HoverExpansionCheck.IsChecked = false;
-            else if (ReferenceEquals(sender, HoverExpansionCheck) && HoverExpansionCheck.IsChecked == true)
-                ReverseHoverCheck.IsChecked = false;
-        }
-        finally { _loading = false; }
         UpdateExpandedWidthRange(ExpandedWidthSlider.Value);
         var current = _island.CurrentSettings;
         current.CornerRadius = CornerSlider.Value;
@@ -626,6 +620,7 @@ public partial class SettingsWindow : Window
             ShadowCheck, TopmostCheck, ReadyClockCheck, YoyoCheck, CodexCheck, WorkBuddyCheck, DeepSeekCheck, TrayIconCheck, StartupCheck,
             CodexActivityCheck, CodexLimitsCheck, YoyoCreditsCheck, WorkBuddyCreditsCheck, AppLaunchCheck,
             HoverExpansionCheck, SpringAnimationCheck, CompletionNotificationsCheck, ConfirmationNotificationsCheck,
+            SystemNotificationsCheck, CodexConfirmationNotificationsCheck,
             CodexResetReminderCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck, ReverseHoverCheck, FullscreenActiveOnlyCheck,
             UnchangedAutoHideCheck, ReplyFirstWhenExpandedUpCheck, AllowExpandedBeyondScreenCheck, AutoUpdateCheck
         };
@@ -643,7 +638,8 @@ public partial class SettingsWindow : Window
         if (yoyo is not null)
             foreach (var checkBox in new[] { YoyoCheck, YoyoCreditsCheck, YoyoAutoCheckinCheck, YoyoLaunchForCheckinCheck }) checkBox.Tag = yoyo;
         if (codex is not null)
-            foreach (var checkBox in new[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck }) checkBox.Tag = codex;
+            foreach (var checkBox in new[] { CodexCheck, CodexActivityCheck, CodexLimitsCheck, CodexResetReminderCheck, CodexConfirmationNotificationsCheck }) checkBox.Tag = codex;
+        else CodexConfirmationNotificationsCheck.Tag = CodexCheck.Tag;
         if (workBuddy is not null)
             foreach (var checkBox in new[] { WorkBuddyCheck, WorkBuddyCreditsCheck, ConfirmationNotificationsCheck }) checkBox.Tag = workBuddy;
     }
@@ -900,6 +896,7 @@ public partial class SettingsWindow : Window
         Resources["SettingsTrackBackground"] = Brush(light ? "#E9EBEF" : "#354052");
         Resources["SettingsHoverBackground"] = Brush(light ? "#EEF1F3" : "#2A3444");
         Resources["SettingsHintForeground"] = primary;
+        Resources["SettingsSecondaryForeground"] = secondary;
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
         PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; UpdateCard.Background = card; PositionCard.Background = card;

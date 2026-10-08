@@ -15,6 +15,13 @@ internal sealed class WorkBuddyCreditsService
     private DateTimeOffset _lastRead;
     private WorkBuddyCredits _cached = new(false, null, null);
     internal string? LastError { get; private set; }
+    internal string UnavailableText => DescribeError(LastError);
+    internal static string DescribeError(string? error) => error switch
+    {
+        "connect:UnauthorizedAccessException" => "积分不可用（连接权限）",
+        "discovery:UnauthorizedAccessException" => "积分不可用（文件权限）",
+        _ => "积分不可用"
+    };
 
     internal void ResetCache()
     {
@@ -44,6 +51,7 @@ internal sealed class WorkBuddyCreditsService
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         await using var pipe = new NamedPipeClientStream(".", endpoint[prefix.Length..], PipeDirection.InOut, PipeOptions.Asynchronous);
+        LastError = "connect";
         await pipe.ConnectAsync(timeout.Token);
         using var reader = new StreamReader(pipe, Encoding.UTF8, false, 8192, true);
         using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 8192, true) { AutoFlush = true, NewLine = "\n" };

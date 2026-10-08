@@ -25,6 +25,8 @@ public sealed class SettingsSwitchPanel : Panel
     private FrameworkElement? _covered;
     private double _coveredOpacity;
     public bool IsEditing { get; private set; }
+    public int Columns { get; set; } = 2;
+    private int ColumnCount => Math.Max(1, Columns);
     public event EventHandler? EditRequested;
     public event EventHandler? OrderChanged;
     public IEnumerable<string> Order => InternalChildren.Cast<FrameworkElement>().Select(Key);
@@ -63,8 +65,8 @@ public sealed class SettingsSwitchPanel : Panel
     protected override Size MeasureOverride(Size available)
     {
         var width = double.IsInfinity(available.Width) ? 600 : available.Width;
-        foreach (UIElement child in InternalChildren) child.Measure(new Size(width/2,double.PositiveInfinity));
-        return new Size(width,Math.Ceiling(InternalChildren.Count/2d)*72);
+        foreach (UIElement child in InternalChildren) child.Measure(new Size(width/ColumnCount,double.PositiveInfinity));
+        return new Size(width,Math.Ceiling(InternalChildren.Count/(double)ColumnCount)*72);
     }
 
     protected override Size ArrangeOverride(Size final)
@@ -72,7 +74,7 @@ public sealed class SettingsSwitchPanel : Panel
         for (int i=0;i<InternalChildren.Count;i++)
         {
             var child = (FrameworkElement)InternalChildren[i];
-            child.Arrange(new Rect(i%2*final.Width/2,i/2*72,final.Width/2,
+            child.Arrange(new Rect(i%ColumnCount*final.Width/ColumnCount,i/ColumnCount*72,final.Width/ColumnCount,
                 child is ExpandableSettingCard card ? card.Height+10 : 72));
         }
         return final;
@@ -81,6 +83,8 @@ public sealed class SettingsSwitchPanel : Panel
     public void ApplyOrder(IEnumerable<string> order)
     {
         var items = Children.Cast<FrameworkElement>().ToArray();
+        foreach (var card in items.OfType<ExpandableSettingCard>()) card.SetExpanded(false);
+        RestoreCovered();
         var sorted = order.Distinct().Select(key => items.FirstOrDefault(item => Key(item)==key)).OfType<FrameworkElement>().ToList();
         sorted.AddRange(items.Where(item => !sorted.Contains(item)));
         Children.Clear();
@@ -89,6 +93,7 @@ public sealed class SettingsSwitchPanel : Panel
 
     public void SetEditing(bool editing)
     {
+        if (IsEditing == editing) { if (!editing) FinishPointerDrag(_down, false); return; }
         IsEditing = editing;
         if (!editing) FinishPointerDrag(_down, false);
         foreach (FrameworkElement item in InternalChildren)
@@ -166,9 +171,9 @@ public sealed class SettingsSwitchPanel : Panel
         RestoreCovered();
         if (!expanded) return;
         var indexOfCard = InternalChildren.IndexOf(card);
-        var next = indexOfCard+2;
+        var next = indexOfCard+ColumnCount;
         if (next < InternalChildren.Count) _covered = (FrameworkElement)InternalChildren[next];
-        else if (indexOfCard/2 == (InternalChildren.Count-1)/2 && Parent is StackPanel parent)
+        else if (indexOfCard/ColumnCount == (InternalChildren.Count-1)/ColumnCount && Parent is StackPanel parent)
         {
             var index = parent.Children.IndexOf(this)+1;
             if (index < parent.Children.Count) _covered = parent.Children[index] as FrameworkElement;
@@ -205,6 +210,7 @@ public sealed class SettingsSwitchPanel : Panel
 
     private void OnDown(object sender,MouseButtonEventArgs e)
     {
+        if (!IsEditing && EditRequested is null) return;
         _candidate = ItemAt(e.OriginalSource as DependencyObject);
         if (_candidate is null) return;
         if (_candidate is ExpandableSettingCard card && e.GetPosition(card).Y > 62) { _candidate = null; return; }
@@ -248,7 +254,8 @@ public sealed class SettingsSwitchPanel : Panel
             if (reorder && IsEditing && _dragMoved && _grabbed is { } item
                 && new Rect(RenderSize).Contains(position))
             {
-                var target = Math.Clamp((int)(position.Y/72)*2+(position.X<ActualWidth/2 ? 0 : 1),0,Children.Count-1);
+                var column = Math.Clamp((int)(position.X / (ActualWidth / ColumnCount)), 0, ColumnCount - 1);
+                var target = Math.Clamp((int)(position.Y/72)*ColumnCount+column,0,Children.Count-1);
                 MoveItem(item,target);
             }
             _candidate = null;

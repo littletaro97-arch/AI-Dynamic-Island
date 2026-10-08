@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _readyClockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private string? _plainSummaryText;
     private Brush? _plainSummaryBrush;
+    private bool _plainSummaryScroll;
     private IslandSettings _settings = AppSettings.Load();
     private SettingsWindow? _settingsWindow;
     private bool _holdArmed, _dragging, _dragMoved, _refreshing, _expanded, _finishingGesture;
@@ -85,7 +86,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
     private bool _summaryMarqueeUpdatePending;
     private (string Text, double Width, double Viewport, double Speed)? _summaryMarqueeKey;
-    private string? _codexFiveHourReminderId, _codexWeeklyReminderId;
+    private readonly Task<CodexResetReminderTracker> _codexResetReminders = Task.Run(() => CodexResetReminderTracker.Load(CodexResetReminderTracker.StatePath));
     private string? _highlightedProvider;
     private bool _yoyoInstalled, _codexInstalled, _workBuddyInstalled;
     private readonly Dictionary<string, DateTimeOffset> _headlineBusySeenAt = new(StringComparer.OrdinalIgnoreCase);
@@ -105,7 +106,7 @@ public partial class MainWindow : Window
         _holdTimer.Tick += (_, _) => ArmDrag();
         _enterTimer.Tick += (_, _) => { _enterTimer.Stop(); ExpandIsland(); };
         _leaveTimer.Tick += (_, _) => TryCollapseAfterPointerExit();
-        _completionTimer.Tick += (_, _) => EndCompletionNotice();
+        _completionTimer.Tick += (_, _) => NotificationHold_Tick();
         _passThroughTimer.Tick += (_, _) => CheckReverseHoverExit();
         _fullscreenTimer.Tick += (_, _) => UpdateFullscreenOverride();
         _zOrderTimer.Tick += (_, _) => EnsureTaskbarZOrder();
@@ -113,7 +114,14 @@ public partial class MainWindow : Window
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); _refreshTimer.Stop(); _passThroughTimer.Stop(); _fullscreenTimer.Stop(); _zOrderTimer.Stop(); _readyClockTimer.Stop(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); StopWindowTimers(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+    }
+
+    private void StopWindowTimers()
+    {
+        CancelNotificationHold();
+        foreach (var timer in new[] { _refreshTimer, _holdTimer, _enterTimer, _leaveTimer, _passThroughTimer,
+            _fullscreenTimer, _zOrderTimer, _readyClockTimer }) timer.Stop();
     }
 
     internal IslandSettings CurrentSettings => _settings;
@@ -227,6 +235,7 @@ public partial class MainWindow : Window
 
     private async Task ResetAndRefreshStatusAsync()
     {
+        if (_lifetimeCancellation.IsCancellationRequested) return;
         if (_refreshing)
         {
             _fullResetAfterCurrent = true;
@@ -244,7 +253,6 @@ public partial class MainWindow : Window
         _completionBaselineReady = false;
         _workBuddyConfirmationId = null;
         _activeCompletionNotice = _activeConfirmationNotice = _activeSystemNotice = null;
-        _codexFiveHourReminderId = _codexWeeklyReminderId = null;
         ClearProviderHighlight();
         _latestCombinedResult = "正在重新抓取三个应用的状态…";
         _stateFingerprint = null;
@@ -253,8 +261,9 @@ public partial class MainWindow : Window
         _lastStateChangeAt = DateTimeOffset.Now;
         _inactivityHidden = false;
         _trayWakeActive = true;
-        _completionTimer.Stop();
-        _notificationHoldActive = false;
+        CancelNotificationHold();
+        DiscardSystemToasts();
+        UpdateRecentNotice();
         HeadlineText.Text = "正在重新检测";
         HeadlineText.Foreground = BusyBrush;
         SetPlainSummary("旧状态已清除 · 正在重新抓取");
@@ -271,7 +280,7 @@ public partial class MainWindow : Window
         ExpandIsland(true);
 
         await RefreshStatusAsync();
-        _refreshTimer.Start();
+        if (!_lifetimeCancellation.IsCancellationRequested) _refreshTimer.Start();
     }
 
     internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false, bool preserveMarquee = false)
@@ -289,7 +298,7 @@ public partial class MainWindow : Window
         settings.SystemNotificationDisplaySeconds = double.IsFinite(settings.SystemNotificationDisplaySeconds) ? Math.Clamp(settings.SystemNotificationDisplaySeconds, 3, 60) : 10;
         settings.CodexResetReminderMinutes = Math.Clamp(settings.CodexResetReminderMinutes, 1, 120);
         settings.MaxResponseLines = Math.Clamp(settings.MaxResponseLines, 1, 6);
-        settings.TextSize = Math.Clamp(settings.TextSize, 9, 16);
+        settings.TextSize = Math.Clamp(settings.TextSize, IslandSettings.MinimumTextSize, 16);
         settings.UnchangedAutoHideMinutes = Math.Clamp(settings.UnchangedAutoHideMinutes, 1, 60);
         settings.ThemeMode = settings.ThemeMode is "light" or "dark" ? settings.ThemeMode : "system";
         settings.DisplayMode = settings.DisplayMode == "activeOnly" ? "activeOnly" : "always";
@@ -333,11 +342,12 @@ public partial class MainWindow : Window
         ApplyProviderOrder();
         ApplyExpandedContentOrder();
         _enterTimer.Interval = TimeSpan.FromMilliseconds(settings.HoverDelayMs);
-        _completionTimer.Interval = TimeSpan.FromSeconds(_activeWindowsToast is not null ? settings.SystemNotificationDisplaySeconds : settings.CompletionDisplaySeconds);
+        if (!_notificationHoldActive) _completionTimer.Interval = TimeSpan.FromSeconds(_activeWindowsToast is not null ? settings.SystemNotificationDisplaySeconds : settings.CompletionDisplaySeconds);
         ApplyTypography();
         SetLaunchControls(settings.EnableAppLaunch);
         if (!settings.EnableHoverExpansion && !settings.EnableReverseHover && _expanded) CollapseIsland(true);
         ApplyTheme();
+        if (_activeWindowsToast is not null) { FillSystemToastBatch(); UpdateRecentNotice(); SetSystemToastHeader(); }
         IslandShadowLayer.SetEnabled(settings.ShowShadow, IsLoaded);
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
         if (!App.IsPreviewMode) StartupRegistration.SetEnabled(settings.StartWithWindows);
@@ -641,15 +651,17 @@ public partial class MainWindow : Window
         {
             Left = x;
             Top = y;
-            await Dispatcher.InvokeAsync(ClampCollapsedPosition, DispatcherPriority.Loaded);
+            await Dispatcher.InvokeAsync(() => { if (!_lifetimeCancellation.IsCancellationRequested) ClampCollapsedPosition(); }, DispatcherPriority.Loaded);
         }
         else ResetPosition();
+        if (_lifetimeCancellation.IsCancellationRequested) return;
         _collapsedAnchorTop = Top;
         OrientCollapsedIsland();
         _positionInitialized = true;
         InitializeDisplayPlacements();
         if (_settings.EnableSystemNotifications) _ = ConfigureSystemNotificationsAsync();
         await RefreshStatusAsync();
+        if (_lifetimeCancellation.IsCancellationRequested) return;
         _refreshTimer.Start();
         if (_settings.AutoCheckForUpdates) _ = _updateService.CheckAsync();
         _zOrderTimer.Start();
@@ -670,12 +682,13 @@ public partial class MainWindow : Window
 
     private async Task RefreshStatusAsync()
     {
-        if (_refreshing) return;
+        if (_refreshing || _lifetimeCancellation.IsCancellationRequested) return;
         _refreshing = true;
         try
         {
             CaptureExecutablePaths();
             var presence = await Task.Run(ApplicationLocator.CaptureProviderPresence);
+            if (_lifetimeCancellation.IsCancellationRequested) return;
             var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync(presence.WorkBuddy));
             var workBuddyCreditsTask = MeasureAsync(Task.Run(() => _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits)));
             var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits, presence.Codex));
@@ -686,7 +699,7 @@ public partial class MainWindow : Window
             // delay the visible busy state or active-only island wake-up.
             var codexResult = await codexTask;
             var codex = codexResult.Value;
-            ApplyCodexVisualState(codex, provisional: true);
+            if (!_lifetimeCancellation.IsCancellationRequested) ApplyCodexVisualState(codex, provisional: true);
 
             var statusResult = await yoyoTask;
             var workBuddyResult = await workBuddyTask;
@@ -695,6 +708,7 @@ public partial class MainWindow : Window
             var workBuddy = workBuddyResult.Value;
             var workBuddyCredits = workBuddyCreditsResult.Value;
             _deepSeekStatus = await deepSeekTask;
+            if (_lifetimeCancellation.IsCancellationRequested) return;
             UpdateSuppressedProviders(status.IsYoyoRunning, codex.IsRunning, workBuddy.IsRunning, _deepSeekStatus.IsRunning);
             ApplyDeepSeekState();
             WorkBuddyMiniDot.Fill = !workBuddy.IsRunning ? OfflineBrush : !workBuddy.DataAvailable ? ErrorBrush : workBuddy.IsBusy ? BusyBrush : OnlineBrush;
@@ -711,7 +725,8 @@ public partial class MainWindow : Window
             _codexDecisionStatus = codex;
             UpdateConfirmationNotice(workBuddy);
             var completion = DetectCompletion(status, codex, workBuddy);
-            if (completion is null && _activeConfirmationNotice is null && _activeWindowsToast is null) UpdateCodexResetReminder(codex);
+            if (completion is null && _activeConfirmationNotice is null && _activeWindowsToast is null) await UpdateCodexResetReminder(codex);
+            if (_lifetimeCancellation.IsCancellationRequested) return;
             UpdateRecentNotice();
             _anyBusy = (IsProviderVisible("yoyo") && status.IsBusy)
                 || (IsProviderVisible("codex") && codex.IsBusy)
@@ -729,6 +744,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error)
         {
+            if (_lifetimeCancellation.IsCancellationRequested) return;
             HeadlineText.Text = "状态刷新失败";
             HeadlineText.Foreground = ErrorBrush;
             SetPlainSummary(error.GetType().Name);
@@ -736,7 +752,8 @@ public partial class MainWindow : Window
         finally
         {
             _refreshing = false;
-            if (_fullResetAfterCurrent)
+            if (_lifetimeCancellation.IsCancellationRequested) _fullResetAfterCurrent = _refreshAfterCurrent = false;
+            else if (_fullResetAfterCurrent)
             {
                 _fullResetAfterCurrent = false;
                 _refreshAfterCurrent = false;
@@ -842,7 +859,7 @@ public partial class MainWindow : Window
         else if (IsProviderVisible("workbuddy") && workBuddy.RequiresConfirmation) { HeadlineText.Text = "WorkBuddy 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(workBuddy.Summary, BusyBrush); }
         else if (IsProviderVisible("deepseek") && _deepSeekStatus.RequiresConfirmation) { HeadlineText.Text = "DeepSeek 待确认"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("请打开 Harness 完成决策", BusyBrush); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "deepseek") { HeadlineText.Text = "DeepSeek 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary("正在处理任务"); }
-        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("  |  ", busyProviders.Select(provider => BusyMetric(provider, yoyo, codex, workBuddyCredits)))); }
+        else if (busyProviders.Count > 1) { HeadlineText.Text = $"{busyProviders.Count} 个助手执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(string.Join("  |  ", busyProviders.Select(provider => BusyMetric(provider, yoyo, codex, workBuddyCredits))), scrollOverflow: true); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "yoyo") { HeadlineText.Text = "YOYO 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(yoyo.RecentResult, _settings.ShowYoyoCredits ? points : null)); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "codex") { HeadlineText.Text = "Codex 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(CodexSummary(codex)); }
         else if (busyProviders.Count == 1 && busyProviders[0] == "workbuddy") { HeadlineText.Text = "WorkBuddy 执行中"; HeadlineText.Foreground = BusyBrush; SetPlainSummary(AppendMetric(workBuddy.Summary, WorkBuddyMetric(workBuddyCredits))); }
@@ -897,7 +914,7 @@ public partial class MainWindow : Window
 
     private string? WorkBuddyMetric(WorkBuddyCredits credits)
         => !_settings.ShowWorkBuddyCredits ? null
-            : credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用";
+            : credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : _workBuddyCreditsService.UnavailableText;
 
     private static string AppendMetric(string? description, string? metric)
     {
@@ -918,6 +935,7 @@ public partial class MainWindow : Window
         if (_isBalanceSummary && string.Equals(_balanceSummaryKey, key, StringComparison.Ordinal)) return;
         _plainSummaryText = null;
         _plainSummaryBrush = null;
+        _plainSummaryScroll = false;
 
         _isBalanceSummary = values.Count > 0;
         _balanceSummaryKey = key;
@@ -947,11 +965,12 @@ public partial class MainWindow : Window
         target.Inlines.Add(new Run(value) { Foreground = AccentBrush, FontWeight = FontWeights.SemiBold });
     }
 
-    private void SetPlainSummary(string value, Brush? foreground = null)
+    private void SetPlainSummary(string value, Brush? foreground = null, bool scrollOverflow = false)
     {
-        if (!_isBalanceSummary && _plainSummaryText == value && ReferenceEquals(_plainSummaryBrush, foreground)) return;
+        if (!_isBalanceSummary && _plainSummaryText == value && ReferenceEquals(_plainSummaryBrush, foreground) && _plainSummaryScroll == scrollOverflow) return;
         _plainSummaryText = value;
         _plainSummaryBrush = foreground;
+        _plainSummaryScroll = scrollOverflow;
         _isBalanceSummary = false;
         _balanceSummaryKey = null;
         StopSummaryMarquee();
@@ -962,6 +981,13 @@ public partial class MainWindow : Window
         var run = new Run(value);
         if (foreground is not null) run.Foreground = foreground;
         SummaryText.Inlines.Add(run);
+        if (scrollOverflow)
+        {
+            var clone = new Run(value);
+            if (foreground is not null) clone.Foreground = foreground;
+            SummaryTextClone.Inlines.Add(clone);
+            ScheduleSummaryMarquee();
+        }
     }
 
     private string SelectLatestResponse(YoyoStatus yoyo, CodexStatus codex, WorkBuddyStatus workBuddy)
@@ -1022,28 +1048,18 @@ public partial class MainWindow : Window
 
     private string ActiveNoticeText => _activeConfirmationNotice ?? (_activeWindowsToast is null ? null : _activeWindowsToast.Text + (_notificationLaunchFeedback is null ? "" : "\n" + _notificationLaunchFeedback)) ?? _activeCompletionNotice ?? _activeSystemNotice ?? _latestCombinedResult;
 
-    private void UpdateCodexResetReminder(CodexStatus codex)
+    private async Task UpdateCodexResetReminder(CodexStatus codex)
     {
-        if (!IsProviderVisible("codex") || !_settings.EnableCodexResetReminder || _activeCompletionNotice is not null || _activeSystemNotice is not null) return;
+        var tracker = await _codexResetReminders;
+        if (!IsProviderVisible("codex") || !_settings.EnableCodexResetReminder || _activeCompletionNotice is not null || _activeSystemNotice is not null
+            || _activeConfirmationNotice is not null || _activeWindowsToast is not null || _lifetimeCancellation.IsCancellationRequested) return;
         var now = DateTimeOffset.Now;
         var window = TimeSpan.FromMinutes(_settings.CodexResetReminderMinutes);
-        var candidates = new List<(string Kind, DateTimeOffset At, int? Remaining)>();
-        if (codex.FiveHourResetsAt is DateTimeOffset five && five > now && five - now <= window)
-            candidates.Add(("5 小时额度", five, codex.FiveHourRemainingPercent));
-        if (codex.WeeklyResetsAt is DateTimeOffset weekly && weekly > now && weekly - now <= window)
-            candidates.Add(("周额度", weekly, codex.WeeklyRemainingPercent));
-        foreach (var candidate in candidates.OrderBy(item => item.At))
-        {
-            var id = $"{candidate.Kind}|{candidate.At:O}";
-            if (candidate.Kind.StartsWith("5", StringComparison.Ordinal) && id == _codexFiveHourReminderId) continue;
-            if (candidate.Kind.StartsWith("周", StringComparison.Ordinal) && id == _codexWeeklyReminderId) continue;
-            if (candidate.Kind.StartsWith("5", StringComparison.Ordinal)) _codexFiveHourReminderId = id;
-            else _codexWeeklyReminderId = id;
-            var minutes = Math.Max(1, (int)Math.Ceiling((candidate.At - now).TotalMinutes));
-            var remaining = candidate.Remaining is int percent ? $" · 当前剩余 {percent}%" : "";
-            ShowSystemNotice("Codex", $"Codex {candidate.Kind}将在 {minutes} 分钟后重置{remaining}");
-            break;
-        }
+        if (tracker.Take(codex, now, window) is not { } candidate) return;
+        var minutes = Math.Max(1, (int)Math.Ceiling((candidate.At - now).TotalMinutes));
+        var remaining = candidate.Remaining is int percent ? $" · 当前剩余 {percent}%" : "";
+        ShowSystemNotice("Codex", $"Codex {candidate.Kind}将在 {minutes} 分钟后重置{remaining}");
+        await Task.Run(() => tracker.Save(CodexResetReminderTracker.StatePath));
     }
 
     private async Task RunYoyoCheckinAsync(CancellationToken cancellationToken)
@@ -1094,8 +1110,7 @@ public partial class MainWindow : Window
             _workBuddyConfirmationId = null;
             if (wasActive)
             {
-                _completionTimer.Stop();
-                _notificationHoldActive = false;
+                CancelNotificationHold();
                 ClearProviderHighlight();
                 if (!Island.IsMouseOver) CollapseIsland(true);
             }
@@ -1118,18 +1133,14 @@ public partial class MainWindow : Window
 
     private void BeginNotificationHold()
     {
-        _completionTimer.Stop();
-        _completionTimer.Interval = TimeSpan.FromSeconds(_settings.CompletionDisplaySeconds);
-        _notificationHoldActive = true;
-        _completionTimer.Start();
+        BeginNotificationCountdown(TimeSpan.FromSeconds(_settings.CompletionDisplaySeconds));
     }
 
     private void EndCompletionNotice()
     {
         var hadSystemToast = _activeWindowsToast is not null;
-        _activeWindowsToast = null;
-        _completionTimer.Stop();
-        _notificationHoldActive = false;
+        ClearSystemToastBatch();
+        CancelNotificationHold();
         _activeCompletionNotice = null;
         _activeSystemNotice = null;
         if (_activeConfirmationNotice is null) ClearProviderHighlight();
@@ -1155,11 +1166,12 @@ public partial class MainWindow : Window
         }
         _manualCollapseUntilPointerExit = true;
         _trayWakeActive = false;
-        _completionTimer.Stop();
-        _notificationHoldActive = false;
+        CancelNotificationHold();
         _activeCompletionNotice = null;
         _activeSystemNotice = null;
-        if (_activeWindowsToast is not null) { _activeWindowsToast = null; _ = RefreshStatusAsync(); }
+        var hadSystemToast = _activeWindowsToast is not null;
+        DiscardSystemToasts();
+        if (hadSystemToast) _ = RefreshStatusAsync();
         ClearProviderHighlight();
         UpdateRecentNotice();
         CollapseIsland(true);
@@ -1344,13 +1356,29 @@ public partial class MainWindow : Window
         }
     }
 
-    private void HideIslandForReverseHover()
+    private bool _reverseAltBypass;
+    private bool CanPointerExpand(bool altHeld) => _settings.EnableHoverExpansion && (!_settings.EnableReverseHover || altHeld);
+    private bool CanReverseHoverHide => _settings.EnableReverseHover && !_focusModeHidden && !_notificationHoldActive
+        && !_expanded && !_islandAnimationInProgress && !_manualCollapseUntilPointerExit && !_dragging && !_holdArmed;
+
+    private void HideIslandForReverseHover() => ApplyReverseHoverEntry(NativeWindow.IsAltPressed());
+
+    private void ApplyReverseHoverEntry(bool altHeld)
     {
         // Reverse hover belongs to the settled, collapsed island only. In
         // particular, MouseUp runs before the collapse button's Click handler;
         // it must not start hiding an expanded notice after its hold expires.
-        if (!_settings.EnableReverseHover || _reverseHoverHidden || _notificationHoldActive
-            || _expanded || _islandAnimationInProgress || _manualCollapseUntilPointerExit || _dragging || _holdArmed) return;
+        if (!CanReverseHoverHide || _reverseHoverHidden) return;
+        if (altHeld)
+        {
+            _reverseHoverBoundsPixels = GetIslandScreenPixelBounds();
+            _reverseHoverBoundsPixels.Inflate(6, 6);
+            _reverseAltBypass = true;
+            _passThroughTimer.Start();
+            if (CanPointerExpand(altHeld)) _enterTimer.Start();
+            return;
+        }
+        _reverseAltBypass = false;
         _enterTimer.Stop();
         _leaveTimer.Stop();
         StopSummaryMarquee();
@@ -1374,17 +1402,44 @@ public partial class MainWindow : Window
     }
 
     private void CheckReverseHoverExit()
+        => UpdateReverseHoverPassThrough(NativeWindow.IsAltPressed(), NativeWindow.GetCursorPosition());
+
+    private void UpdateReverseHoverPassThrough(bool altHeld, Point cursor)
     {
-        if (!_reverseHoverHidden) { _passThroughTimer.Stop(); return; }
-        var cursor = NativeWindow.GetCursorPosition();
-        if (double.IsNaN(cursor.X) || _reverseHoverBoundsPixels.Contains(cursor)) return;
-        RestoreReverseHoverIsland();
+        if (!CanReverseHoverHide)
+        {
+            RestoreReverseHoverIsland();
+            return;
+        }
+        if (double.IsNaN(cursor.X)) return;
+        if (!_reverseHoverBoundsPixels.Contains(cursor))
+        {
+            RestoreReverseHoverIsland();
+            return;
+        }
+        if (_reverseHoverHidden && altHeld)
+        {
+            RestoreReverseHoverIsland();
+            _reverseAltBypass = true;
+            _passThroughTimer.Start();
+            if (CanPointerExpand(altHeld)) _enterTimer.Start();
+            return;
+        }
+        if (_reverseAltBypass)
+        {
+            if (altHeld) return;
+            _reverseAltBypass = false;
+            _enterTimer.Stop();
+            ApplyReverseHoverEntry(false);
+        }
+        if (!_reverseHoverHidden && !_reverseAltBypass) _passThroughTimer.Stop();
     }
 
     private void RestoreReverseHoverIsland()
     {
-        if (!_reverseHoverHidden) return;
         _passThroughTimer.Stop();
+        _reverseAltBypass = false;
+        if (!_reverseHoverHidden) return;
         _reverseHoverHidden = false;
         var fadeVersion = ++_reverseFadeVersion;
         if (!_focusModeHidden)
@@ -1410,7 +1465,7 @@ public partial class MainWindow : Window
 
     private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left || DismissOfflineButton.IsMouseOver || NotificationOpenButton.IsMouseOver) return;
+        if (e.ChangedButton != MouseButton.Left || DismissOfflineButton.IsMouseOver || NotificationBatchPanel.IsMouseOver) return;
         _suppressCollapseHandleClick = false;
         _collapseHandlePressed = _expanded && CollapseHandleButton.IsMouseOver;
         _enterTimer.Stop(); _leaveTimer.Stop();
@@ -1447,7 +1502,21 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => FinishPointerGesture();
+    private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var click = !_dragging && !_holdArmed && !_collapseHandlePressed;
+        FinishPointerGesture();
+        TryExpandReverseAltClick(click, Island.IsMouseOver, NativeWindow.IsAltPressed());
+    }
+
+    private void TryExpandReverseAltClick(bool click, bool mouseOver, bool altHeld)
+    {
+        if (click && mouseOver && !_expanded && _settings.EnableReverseHover && altHeld && CanPointerExpand(altHeld))
+        {
+            _manualCollapseUntilPointerExit = false; // Explicit click overrides only the hover re-open guard.
+            ExpandIsland(true);
+        }
+    }
     private void Island_LostMouseCapture(object sender, MouseEventArgs e) => FinishPointerGesture();
     private void FinishPointerGesture()
     {
@@ -1487,6 +1556,8 @@ public partial class MainWindow : Window
 
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     {
+        _notificationPointerInside = true;
+        PauseNotificationHoldForReading();
         _leaveTimer.Stop();
         if (_manualCollapseUntilPointerExit) return;
         if (_settings.EnableReverseHover && !_notificationHoldActive)
@@ -1494,11 +1565,14 @@ public partial class MainWindow : Window
             HideIslandForReverseHover();
             return;
         }
-        if (_settings.EnableHoverExpansion && !_dragging && !_holdArmed && !_expanded && !_islandAnimationInProgress) _enterTimer.Start();
+        if (CanPointerExpand(NativeWindow.IsAltPressed()) && !_dragging && !_holdArmed && !_expanded && !_islandAnimationInProgress) _enterTimer.Start();
     }
 
     private void Island_MouseLeave(object sender, MouseEventArgs e)
     {
+        _notificationPointerInside = false;
+        ResumeNotificationHoldAfterReading();
+        if (_reverseAltBypass && !_reverseHoverHidden) { _reverseAltBypass = false; _passThroughTimer.Stop(); }
         if (_trayWakeActive)
         {
             _enterTimer.Stop();
@@ -1551,6 +1625,7 @@ public partial class MainWindow : Window
         Island.VerticalAlignment = VerticalAlignment.Top;
         Island.Margin = new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
+        ResumeNotificationHoldAfterReading();
         _expandUp = false;
         ApplyExpandedContentOrder();
 
@@ -1562,7 +1637,7 @@ public partial class MainWindow : Window
 
     private void ExpandIsland(bool force = false)
     {
-        if ((!force && (!_settings.EnableHoverExpansion || _settings.EnableReverseHover)) || _expanded || _dragging || _holdArmed) return;
+        if ((!force && !CanPointerExpand(NativeWindow.IsAltPressed())) || _expanded || _dragging || _holdArmed) return;
         if (_islandAnimationInProgress)
         {
             if (!force) return;
@@ -1578,6 +1653,7 @@ public partial class MainWindow : Window
         _collapsedLeftBeforeExpansion = Left + (Width - DefaultHostWidth) / 2;
         _horizontalExpansionCompensated = false;
         _expanded = true;
+        PauseNotificationHoldForReading();
         _islandAnimationInProgress = true;
         var animationVersion = ++_islandAnimationVersion;
         ExpandedPanel.Visibility = Visibility.Visible;
@@ -1670,6 +1746,7 @@ public partial class MainWindow : Window
         Island.VerticalAlignment = _expandUp ? VerticalAlignment.Bottom : VerticalAlignment.Top;
         Island.Margin = _expandUp ? new Thickness(0, 0, 0, IslandMargin) : new Thickness(0, IslandMargin, 0, 0);
         _expanded = false;
+        ResumeNotificationHoldAfterReading();
         _islandAnimationInProgress = false;
     }
 
@@ -1679,6 +1756,7 @@ public partial class MainWindow : Window
         _enterTimer.Stop();
         _leaveTimer.Stop();
         _expanded = false;
+        ResumeNotificationHoldAfterReading();
         _islandAnimationInProgress = true;
         CollapseHandleButton.Visibility = Visibility.Collapsed;
         var animationVersion = ++_islandAnimationVersion;
@@ -1712,7 +1790,7 @@ public partial class MainWindow : Window
             _islandAnimationInProgress = false;
             ScheduleSummaryMarquee();
             if ((_inactivityHidden || (UsesActiveOnlyDisplay && !_anyBusy)) && _activeCompletionNotice is null && _activeConfirmationNotice is null && _activeSystemNotice is null) HideIslandForFocusMode();
-            else if (!_manualCollapseUntilPointerExit && IsCursorNearIsland() && _settings.EnableHoverExpansion && !_settings.EnableReverseHover) _enterTimer.Start();
+            else if (!_manualCollapseUntilPointerExit && IsCursorNearIsland() && CanPointerExpand(NativeWindow.IsAltPressed())) _enterTimer.Start();
         };
         Island.BeginAnimation(WidthProperty, width);
         Island.BeginAnimation(HeightProperty, height);
@@ -1970,7 +2048,7 @@ public partial class MainWindow : Window
         var stateBrush = !status.IsRunning ? OfflineBrush : !status.DataAvailable ? ErrorBrush : status.IsBusy ? BusyBrush : OnlineBrush;
         if (!_settings.ShowWorkBuddyCredits) { SetStatusInlines(WorkBuddyStateText, (state, stateBrush)); return; }
         SetStatusInlines(WorkBuddyStateText, (state, stateBrush), (" · ", _secondaryTextBrush),
-            (credits.Available && credits.Remaining is double remaining ? $"{remaining:0.##} 积分" : "积分不可用", credits.Available ? AccentBrush : ErrorBrush));
+            (WorkBuddyMetric(credits) ?? "", credits.Available ? AccentBrush : ErrorBrush));
     }
 
     private static void SetStatusInlines(TextBlock target, params (string Text, Brush Brush)[] parts)
@@ -2002,7 +2080,7 @@ public partial class MainWindow : Window
 
     private void UpdateSummaryMarquee()
     {
-        if (!_isBalanceSummary || _expanded || _focusModeHidden || _reverseHoverHidden || SummaryViewport.ActualWidth <= 0)
+        if ((!_isBalanceSummary && !_plainSummaryScroll) || _expanded || _focusModeHidden || _reverseHoverHidden || SummaryViewport.ActualWidth <= 0)
         { StopSummaryMarquee(); return; }
         SummaryText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var textWidth = SummaryText.DesiredSize.Width;
@@ -2179,8 +2257,7 @@ public partial class MainWindow : Window
             && (_activeCompletionNotice is not null || _activeSystemNotice is not null))
         {
             _manualCollapseUntilPointerExit = true;
-            _completionTimer.Stop();
-            _notificationHoldActive = false;
+            CancelNotificationHold();
             _activeCompletionNotice = null;
             _activeSystemNotice = null;
             ClearProviderHighlight();

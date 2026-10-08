@@ -14,7 +14,8 @@ internal sealed class SystemNotificationTracker
     {
         var current = snapshot.OrderByDescending(t => t.CreatedAt).Take(512).DistinctBy(t => t.Id).ToDictionary(t => t.Id);
         var newToasts = _previous is null ? [] : current.Values.Where(t => t.CreatedAt >= _startedAt
-            && (!_previous.TryGetValue(t.Id, out var old) || old != t)
+            && (!_previous.TryGetValue(t.Id, out var old) || old.Source != t.Source || old.Title != t.Title
+                || old.Body != t.Body || old.AppUserModelId != t.AppUserModelId)
             && !t.Source.Contains("AI Dynamic Island", StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.CreatedAt).ToArray();
         _previous = current;
         return newToasts;

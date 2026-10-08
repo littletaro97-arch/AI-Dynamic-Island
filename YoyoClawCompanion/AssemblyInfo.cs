@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("PerformanceChecks")]
 [assembly: InternalsVisibleTo("WorkBuddyCompletionChecks")]
 [assembly: InternalsVisibleTo("DisplayNotificationChecks")]
+[assembly: InternalsVisibleTo("SettingsCardChecks")]
 
 [assembly:ThemeInfo(
     ResourceDictionaryLocation.None,            //where theme specific resource dictionaries are located

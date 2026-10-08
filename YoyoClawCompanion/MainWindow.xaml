@@ -2,10 +2,27 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:YoyoClawCompanion.Controls"
-        Title="AI Dynamic Island" Width="456" Height="390"
+        Title="AI Dynamic Island" FontSize="12" Width="456" Height="390"
         WindowStyle="None" AllowsTransparency="True" Background="{x:Null}"
         ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <Window.Resources>
+        <Style x:Key="NotificationRowAction" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{Binding Foreground, ElementName=RecentResultText}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Grid Background="Transparent">
+                    <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name="CommonStates">
+                        <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.12"/></VisualStateGroup.Transitions>
+                        <VisualState x:Name="Normal"/>
+                        <VisualState x:Name="MouseOver"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".12" Duration="0"/></Storyboard></VisualState>
+                        <VisualState x:Name="Pressed"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".22" Duration="0"/></Storyboard></VisualState>
+                        <VisualState x:Name="Disabled"><Storyboard><DoubleAnimation Storyboard.TargetProperty="Opacity" To=".65" Duration="0"/></Storyboard></VisualState>
+                    </VisualStateGroup></VisualStateManager.VisualStateGroups>
+                    <Border x:Name="HoverSurface" Background="#45CFA2" CornerRadius="3" Opacity="0"/>
+                    <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                </Grid>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <DropShadowEffect x:Key="IslandShadow" BlurRadius="16" ShadowDepth="6" Opacity="0.38" Color="#000000"/>
         <Geometry x:Key="MenuHomeIcon">M3,11 L12,3 L21,11 M6,9 L6,20 L18,20 L18,9 M10,20 L10,14 L14,14 L14,20</Geometry>
         <Geometry x:Key="MenuRefreshIcon">M20,8 A8,8 0 1 0 20,16 M20,4 L20,9 L15,9</Geometry>
@@ -30,7 +47,7 @@
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <ContentPresenter ContentSource="Icon" Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         <ContentPresenter Grid.Column="1" ContentSource="Header" Margin="5,0,14,0" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{TemplateBinding Foreground}" Opacity=".65" FontSize="10.5" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{TemplateBinding Foreground}" Opacity=".65" FontSize="12" VerticalAlignment="Center"/>
                     </Grid>
                 </Border>
                 <ControlTemplate.Triggers>
@@ -125,10 +142,10 @@
                     <TextBlock x:Name="HeadlineText" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Text="正在读取状态…" Foreground="#F2F5FF" FontSize="13" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextTrimming="CharacterEllipsis"/>
                     <Grid x:Name="SummaryViewport" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Height="15" ClipToBounds="True">
                         <Canvas x:Name="SummaryMarqueeCanvas" ClipToBounds="True">
-                            <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap">
+                            <TextBlock x:Name="SummaryText" Text="请稍候" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap">
                                 <TextBlock.RenderTransform><TranslateTransform x:Name="SummaryPrimaryTranslate"/></TextBlock.RenderTransform>
                             </TextBlock>
-                            <TextBlock x:Name="SummaryTextClone" Foreground="#9AA5BC" FontSize="10.5" FontWeight="SemiBold" TextWrapping="NoWrap" Visibility="Collapsed">
+                            <TextBlock x:Name="SummaryTextClone" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap" Visibility="Collapsed">
                                 <TextBlock.RenderTransform><TranslateTransform x:Name="SummaryCloneTranslate"/></TextBlock.RenderTransform>
                             </TextBlock>
                         </Canvas>
@@ -149,25 +166,22 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*" MinWidth="12"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <Ellipse x:Name="StateDot" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="YoyoLabel" Grid.Column="1" Text="YOYO Claw" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="StateText" Grid.Column="2" Text="读取中" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="PointsText" Grid.Column="3" Text="--" Foreground="#8FA0FF" FontSize="11" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StateText" Grid.Column="2" Text="读取中" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PointsText" Grid.Column="3" Text="--" Foreground="#8FA0FF" FontSize="12" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                     <Ellipse x:Name="CodexDot" Grid.Row="1" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="CodexLabel" Grid.Row="1" Grid.Column="1" Text="Codex" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="CodexStateText" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="CodexStateText" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Ellipse x:Name="WorkBuddyDot" Grid.Row="2" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="WorkBuddyLabel" Grid.Row="2" Grid.Column="1" Text="WorkBuddy" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="WorkBuddyStateText" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="WorkBuddyStateText" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Ellipse x:Name="DeepSeekDot" Grid.Row="3" Width="8" Height="8" Fill="#727C90" VerticalAlignment="Center"/>
                     <TextBlock x:Name="DeepSeekLabel" Grid.Row="3" Grid.Column="1" Text="DeepSeek Harness" Foreground="#F2F5FF" FontSize="12" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="DeepSeekStateText" Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="DeepSeekStateText" Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Text="未运行" Foreground="#9AA5BC" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     <RadioButton x:Name="DeepSeekRowButton" Grid.Row="3" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenDeepSeek_Click"/>
                     <Border x:Name="RecentBorder" Grid.Row="4" Grid.ColumnSpan="4" Background="#B8182033" CornerRadius="12" Padding="10,5" Margin="0,6,0,0">
-                        <Grid><TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="10.5" FontWeight="SemiBold"
+                        <Grid><TextBlock x:Name="RecentResultText" Text="尚未检测到任务结果" Foreground="#B9C2D4" FontSize="12" FontWeight="SemiBold"
                                    TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="15" VerticalAlignment="Top"/>
-                            <Button x:Name="NotificationOpenButton" Visibility="Collapsed" Cursor="Hand" Click="NotificationOpen_Click"
-                                    AutomationProperties.Name="打开通知来源应用" Background="Transparent" BorderThickness="0">
-                                <Button.Template><ControlTemplate TargetType="Button"><Border Background="Transparent"/></ControlTemplate></Button.Template>
-                            </Button>
+                            <StackPanel x:Name="NotificationBatchPanel" Visibility="Collapsed" VerticalAlignment="Top"/>
                         </Grid>
                     </Border>
                     <RadioButton x:Name="YoyoRowButton" Grid.Row="0" Grid.ColumnSpan="4" GroupName="AssistantSelection" Style="{StaticResource AssistantRowButton}" Click="OpenYoyo_Click"/>

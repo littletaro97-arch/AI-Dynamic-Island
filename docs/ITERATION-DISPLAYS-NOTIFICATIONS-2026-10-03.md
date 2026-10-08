@@ -21,7 +21,9 @@
 
 微软说明：[通知监听接口](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/notification-listener)。未打包桌面应用事件订阅异常的记录：[WindowsAppSDK issue 6172](https://github.com/microsoft/WindowsAppSDK/issues/6172)。本机使用读取轮询的决定来自实际探测，不把 issue 中的现象当成本机证据。
 
-## 额度重复提醒排查（未修复）
+## 额度重复提醒排查（2026-10-03 历史记录，当时未修复）
+
+2026-10-04 已实施本地修复，见 [同周期预告去重修复](CODEX-RESET-REMINDER-2026-10-04.md)。以下保留此前只排查的证据与边界。
 
 - 当前用户配置是提前 40 分钟，而非默认 15 分钟。
 - 去重键为“窗口类型 + 重置时间完整字符串”，只有进程内两个字段保存最近键；不同剩余额度百分比本身不会再次触发。

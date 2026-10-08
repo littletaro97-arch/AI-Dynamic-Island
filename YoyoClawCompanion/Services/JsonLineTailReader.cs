@@ -1,12 +1,13 @@
 using System.Buffers;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace YoyoClawCompanion.Services;
 
 /// <summary>
 /// Reads a bounded JSONL tail without creating one large string for the whole file.
-/// Oversized individual records are ignored because status probes never need binary/tool payloads.
+/// Oversized bodies are ignored; completed tool records retain a small lifecycle envelope.
 /// </summary>
 internal static class JsonLineTailReader
 {
@@ -62,6 +63,12 @@ internal static class JsonLineTailReader
                     var line = Encoding.UTF8.GetString(buffer, lineStart, length);
                     yield return lineStart == 0 ? line.TrimStart('\uFEFF') : line;
                 }
+                else if (length > MaxStatusRecordBytes && index < read
+                    && (encodedMarkers is null || ContainsMarker(buffer, lineStart, length, encodedMarkers))
+                    && ToolResultEnvelope(buffer.AsSpan(lineStart, length)) is { } envelope)
+                {
+                    yield return envelope;
+                }
                 lineStart = index + 1;
             }
             cursor?.Advance(nextOffset, read);
@@ -70,6 +77,30 @@ internal static class JsonLineTailReader
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    // Utf8JsonReader walks the existing bounded byte buffer without materializing large outputs.
+    // Validate the complete record and only accept root-level lifecycle identifiers.
+    private static string? ToolResultEnvelope(ReadOnlySpan<byte> line)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(line);
+            string? type = null, callId = null;
+            while (reader.Read())
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1) continue;
+                var isType = reader.ValueTextEquals("type");
+                var isCallId = reader.ValueTextEquals("callId");
+                if (!reader.Read()) return null;
+                if (reader.TokenType != JsonTokenType.String) continue;
+                if (isType && reader.ValueSpan.Length <= 64) type = reader.GetString();
+                if (isCallId && reader.ValueSpan.Length <= 512) callId = reader.GetString();
+            }
+            return type == "function_call_result" && !string.IsNullOrWhiteSpace(callId)
+                ? JsonSerializer.Serialize(new { type, callId }) : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     private static bool ContainsMarker(byte[] buffer, int start, int length, byte[][] markers)

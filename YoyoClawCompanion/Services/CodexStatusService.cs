@@ -58,6 +58,7 @@ internal sealed class CodexStatusService : IDisposable
     private readonly Dictionary<string, DecisionCacheEntry> _decisionCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<TaskCompletionEvent> _recentCompletions = [];
     private FileInfo[]? _candidateFiles;
+    private readonly Dictionary<string, (DateTime Created, long Length, bool Guardian)> _sourceCache = new(StringComparer.OrdinalIgnoreCase);
     internal string? LastError { get; private set; }
     internal event EventHandler? LimitsUpdated;
 
@@ -76,6 +77,7 @@ internal sealed class CodexStatusService : IDisposable
         _lifecycleCache.Clear();
         _completionCache.Clear();
         _decisionCache.Clear();
+        _sourceCache.Clear();
         LastError = null;
     }
 
@@ -294,7 +296,29 @@ internal sealed class CodexStatusService : IDisposable
     }
 
     private IEnumerable<FileInfo> EnumerateCandidateFiles(int limit)
-        => (_candidateFiles ??= _sessionIndex.Find(ActivityCandidateLimit)).Take(limit);
+    {
+        if (_candidateFiles is null)
+        {
+            var files = _sessionIndex.Find(ActivityCandidateLimit);
+            PruneCache(_sourceCache, files.Select(file => file.FullName));
+            _candidateFiles = files.Where(IsUserSession).ToArray();
+        }
+        return _candidateFiles.Take(limit);
+    }
+
+    private bool IsUserSession(FileInfo file)
+    {
+        file.Refresh();
+        if (_sourceCache.TryGetValue(file.FullName, out var cached)
+            && cached.Created == file.CreationTimeUtc && file.Length >= cached.Length)
+        {
+            _sourceCache[file.FullName] = cached with { Length = file.Length };
+            return !cached.Guardian;
+        }
+        var guardian = CodexSessionSource.IsGuardian(file);
+        if (guardian is bool known) _sourceCache[file.FullName] = (file.CreationTimeUtc, file.Length, known);
+        return guardian != true;
+    }
 
     public void Dispose() => _sessionIndex.Dispose();
 

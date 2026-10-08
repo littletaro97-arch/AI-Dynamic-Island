@@ -25,3 +25,7 @@ Codex 额度 RPC 子进程创建后立即附加到私有 OwnedProcessScope，清
 CachedIslandShadow 将岛的轮廓阴影缓存为独立层，与滚动文字分离；设置方案名称仅在可见视口内运行 WPF 动画时钟。控件测试使用隔离 App 启动入口，避免正常单实例启动影响其它正在运行的版本。
 
 具体数据和验收边界见 [2026-10-03 性能记录](PERFORMANCE-2026-10-03.md)。设置界面的下一阶段方向见 [可用性方案](settings-usability-proposal.md)，尚未迁移现有布局。
+
+系统通知由 SystemNotificationService 在后台转换 Windows Toast，SystemNotificationTracker 去除历史与未变化快照。SystemNotificationQueue 保存有界待显示队列，MainWindow 按回复行数每批呈现最多三条并复用显示定时器。每条保留独立应用身份，NotificationTitleRule 按来源身份与具体标题屏蔽。设计、现场证据与验收边界见 [2026-10-06 通知迭代](NOTIFICATION-BATCHES-2026-10-06.md)。
+
+设置下拉框和恢复通知菜单共用弹出面板资源；ExpandableSettingCard 共用开关、按钮与说明的动画，SettingsSwitchPanel 用稳定的一列/两列槽位管理展开覆盖。生命周期检查与回归范围见 [2026-10-07 复用与逻辑检查](SHARED-SETTINGS-REVIEW-2026-10-07.md)。

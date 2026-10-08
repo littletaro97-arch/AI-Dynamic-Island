@@ -44,7 +44,29 @@ internal static class NotificationAppLauncher
 
     internal static NotificationOpenResult Open(string id)
     {
+        var trace = new StringBuilder();
+        var result = NotificationOpenResult.Failed;
+        try { return result = OpenCore(id, detail => trace.AppendLine(detail)); }
+        finally
+        {
+            // Only notification clicks write this bounded diagnostic; no message
+            // contents, continuous polling or file work on the UI thread.
+            try
+            {
+                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion");
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, "notification-open.log");
+                if (File.Exists(path) && new FileInfo(path).Length > 65536) File.WriteAllText(path, "");
+                File.AppendAllText(path, $"{DateTimeOffset.Now:O} id={id.Replace('\r', ' ').Replace('\n', ' ')} result={result}\n{trace}");
+            }
+            catch { /* Diagnostics must never prevent activation. */ }
+        }
+    }
+
+    private static NotificationOpenResult OpenCore(string id, Action<string> trace)
+    {
         if (!IsValidAppId(id) || !TryResolveRegisteredTarget(id, out var target)) return NotificationOpenResult.Failed;
+        trace($"registeredTarget={target}");
         var running = new HashSet<int>();
         var started = new Dictionary<int, long>();
         var inaccessibleCandidate = false;
@@ -84,9 +106,13 @@ internal static class NotificationAppLauncher
             return true;
         }, IntPtr.Zero);
         var selected = SelectWindow(windows);
-        var wakeKey = GetWakeKey(id, target, executableProcesses.Count);
-        if (wakeKey is ushort key && (selected is null || (!IsWindowVisible(selected.Handle) && !IsIconic(selected.Handle))))
-            return WakeByHotkey(executableProcesses, key);
+        var wakeKey = GetWakeKey(id, target, executableProcesses.Count, registeredTargetVerified: true);
+        trace($"verifiedProcesses={executableProcesses.Count} selected={selected?.ClassName} visible={selected?.Visible} key={wakeKey:X}");
+        // WeChat can retain a visible auxiliary window while its main interface
+        // is in the tray. Let its own registered shortcut restore the interface
+        // even then; QQ and other already-visible applications keep their path.
+        if (wakeKey is ushort key && ShouldUseHotkey(key, selected, selected is not null && IsIconic(selected.Handle)))
+            return WakeByHotkey(executableProcesses, key, trace);
         if (selected is not null)
         {
             return ActivateExistingWindow(selected.Handle);
@@ -105,6 +131,9 @@ internal static class NotificationAppLauncher
 
     internal sealed record AppWindow(IntPtr Handle, int ProcessId, bool ExactIdentity, bool Visible,
         bool Owned, bool Tool, int Width, int Height, bool HasTitle, string ClassName, long Started, bool Enabled = true, bool Hung = false);
+
+    internal static bool ShouldUseHotkey(ushort key, AppWindow? selected, bool minimized)
+        => key == 0x57 || selected is null || (!selected.Visible && !minimized);
 
     internal static AppWindow? SelectWindow(IEnumerable<AppWindow> windows) => windows
         .Where(w => w.Enabled && !w.Hung && !w.Owned && !w.Tool && w.HasTitle && w.Width >= 120 && w.Height >= 80
@@ -133,19 +162,22 @@ internal static class NotificationAppLauncher
         return NotificationOpenResult.RunningButUnavailable;
     }
 
-    internal static ushort? GetWakeKey(string id, string? registeredTarget, int verifiedProcessCount)
+    internal static ushort? GetWakeKey(string id, string? registeredTarget, int verifiedProcessCount, bool registeredTargetVerified = false)
     {
-        if (verifiedProcessCount <= 0) return null;
+        if (verifiedProcessCount <= 0 || !IsValidAppId(id)) return null;
         var executable = Path.GetFileName(registeredTarget);
         if (string.Equals(id, "QQ", StringComparison.OrdinalIgnoreCase) && string.Equals(executable, "QQ.exe", StringComparison.OrdinalIgnoreCase)) return 0x58;
         if ((string.Equals(executable, "Weixin.exe", StringComparison.OrdinalIgnoreCase) || string.Equals(executable, "WeChat.exe", StringComparison.OrdinalIgnoreCase))
             && (string.Equals(id, registeredTarget, StringComparison.OrdinalIgnoreCase)
                 || id.Equals("Weixin", StringComparison.OrdinalIgnoreCase) || id.Equals("WeChat", StringComparison.OrdinalIgnoreCase)
-                || id.Equals("Tencent.WeChat", StringComparison.OrdinalIgnoreCase))) return 0x57;
+                || id.Equals("Tencent.WeChat", StringComparison.OrdinalIgnoreCase)
+                // Exact AppsFolder registration plus full process path is the
+                // authority for other WeChat notification identity aliases.
+                || (registeredTargetVerified && !id.Equals("QQ", StringComparison.OrdinalIgnoreCase)))) return 0x57;
         return null;
     }
 
-    internal static NotificationOpenResult WakeByHotkey(IReadOnlySet<int> verifiedProcesses, ushort key)
+    internal static NotificationOpenResult WakeByHotkey(IReadOnlySet<int> verifiedProcesses, ushort key, Action<string>? trace = null)
     {
         bool AppIsForeground()
         {
@@ -155,7 +187,19 @@ internal static class NotificationAppLauncher
                 && IsWindowEnabled(foreground) && !IsHungAppWindow(foreground);
         }
         if (AppIsForeground()) return NotificationOpenResult.Opened;
-        if (verifiedProcesses.Count == 0 || !SendHotkey(key, GetAsyncKeyState, SendInput))
+        var sent = verifiedProcesses.Count > 0 && SendHotkey(key, k =>
+        {
+            var state = GetAsyncKeyState(k);
+            if ((state & 0x8000) != 0) trace?.Invoke($"physicalKeyHeld={k:X}");
+            return state;
+        }, (count, inputs, size) =>
+        {
+            var accepted = SendInput(count, inputs, size);
+            trace?.Invoke($"inputAccepted={accepted}/{count} win32Error={(accepted == count ? 0 : Marshal.GetLastWin32Error())}");
+            return accepted;
+        });
+        trace?.Invoke($"hotkeySent={sent}");
+        if (!sent)
             return NotificationOpenResult.RunningButUnavailable;
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < 1200)
@@ -163,6 +207,8 @@ internal static class NotificationAppLauncher
             if (AppIsForeground()) return NotificationOpenResult.Opened;
             Thread.Sleep(40);
         }
+        GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundPid);
+        trace?.Invoke($"hotkeyTimeout foregroundPid={foregroundPid}");
         return NotificationOpenResult.RunningButUnavailable;
     }
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using YoyoClawCompanion;
 using YoyoClawCompanion.Controls;
 
@@ -24,7 +25,7 @@ internal static class Program
     static void Layout(FrameworkElement root) { root.Measure(new Size(920,720));root.Arrange(new Rect(0,0,920,720));root.UpdateLayout(); }
     [STAThread] static void Main()
     {
-        var app=new ControlTestApp();
+        var app=new ControlTestApp { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var main=new MainWindow();
         var window=(SettingsWindow)Activator.CreateInstance(typeof(SettingsWindow),Flags,null,[main],null)!;
         typeof(SettingsWindow).GetField("_loading",Flags)!.SetValue(window,true);
@@ -32,12 +33,103 @@ internal static class Program
         var feature=(Border)window.FindName("FeatureCard");var notification=(Border)window.FindName("NotificationCard");
         var a=(TextBlock)((StackPanel)feature.Child).Children[0];var b=(TextBlock)((StackPanel)notification.Child).Children[0];
         Assert(a.Style==b.Style && a.FontWeight==b.FontWeight && a.FontSize==b.FontSize,"section heading typography identical");
+        var action = (ExpandableSettingCard)window.FindName("NotificationBannerSettingsCard");
+        var actionPanel = (SettingsSwitchPanel)action.Parent;
+        Assert(action.Header is Button && actionPanel.Columns == 1, "system settings entry reuses full width expandable card without a fake switch");
+        var guidance = (TextBlock)window.FindName("NotificationBannerGuidance");
+        var lines = (FrameworkElement)window.FindName("MaxResponseLinesCombo");
+        var linePosition = lines.TranslatePoint(new Point(), root);
+        action.SetExpanded(true); Settle(); Layout(root);
+        Assert(action.Height >= 126 && action.Detail.Opacity == 1 && guidance.IsDescendantOf(action), "hover description is enclosed by shared animated card");
+        Assert(action.Detail.TransformToAncestor(action).TransformBounds(new Rect(action.Detail.RenderSize)).Bottom <= action.ActualHeight, "description remains inside green outline");
+        var actionNext = ((StackPanel)actionPanel.Parent).Children[((StackPanel)actionPanel.Parent).Children.IndexOf(actionPanel) + 1];
+        Assert(actionNext.Opacity == 0 && !actionNext.IsHitTestVisible && lines.TranslatePoint(new Point(), root) == linePosition, "full width description only covers next row while later controls stay fixed");
+        action.SetExpanded(false); action.SetExpanded(true); action.SetExpanded(false); Settle(); Layout(root);
+        Assert(action.Height == 62 && action.Detail.Opacity == 0 && actionNext.Opacity == 1 && actionNext.IsHitTestVisible, "rapid description reversal restores next row and compact header");
+        var fullscreen = (ExpandableSettingCard)window.FindName("FullscreenActiveOnlyCard");
+        ((CheckBox)fullscreen.Header).IsChecked = false; fullscreen.SetExpanded(true); Settle(); Layout(root);
+        Assert(fullscreen.IsExpanded && !((CheckBox)fullscreen.Header).IsChecked.GetValueOrDefault(), "explanation hover is available without toggling fullscreen behaviour");
+        ((SettingsSwitchPanel)fullscreen.Parent).SetEditing(true); fullscreen.SetExpanded(true);
+        Assert(!fullscreen.IsExpanded, "description cards preserve edit mode restrictions");
+        ((SettingsSwitchPanel)fullscreen.Parent).SetEditing(false); Settle();
+        var reverseDescription = (ExpandableSettingCard)window.FindName("ReverseHoverCard");
+        ((CheckBox)reverseDescription.Header).IsChecked = false;
+        reverseDescription.SetExpanded(true); Settle(); Layout(root);
+        Assert(reverseDescription.IsExpanded && reverseDescription.Detail.Opacity == 1, "reverse hover description reuses expandable card even when disabled");
+        Assert(reverseDescription.Detail.TransformToAncestor(reverseDescription).TransformBounds(new Rect(reverseDescription.Detail.RenderSize)).Bottom <= reverseDescription.ActualHeight, "Alt explanation remains enclosed at minimum font size");
+        if (Environment.GetEnvironmentVariable("ISLAND_LAYOUT_EVIDENCE_DIR") is { Length: > 0 } altEvidence)
+        {
+            Directory.CreateDirectory(altEvidence);
+            var originalPanel = (SettingsSwitchPanel)reverseDescription.Parent;
+            var originalIndex = originalPanel.Children.IndexOf(reverseDescription);
+            originalPanel.Children.Remove(reverseDescription);
+            var captureWindow = new Window { Content = reverseDescription, Width = 310, SizeToContent = SizeToContent.Height,
+                Left = -10000, Top = -10000, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
+                Background = feature.Background, Foreground = window.Foreground, FontSize = 12 };
+            captureWindow.Resources.MergedDictionaries.Add(window.Resources);
+            captureWindow.Show(); reverseDescription.SetExpanded(true); Settle(); captureWindow.UpdateLayout();
+            SaveVisual(reverseDescription, Path.Combine(altEvidence, "reverse-alt-description.png"), feature.Background);
+            captureWindow.Close(); Settle(); captureWindow.Content = null;
+            originalPanel.Children.Insert(originalIndex, reverseDescription);
+        }
+        reverseDescription.SetExpanded(false); Settle();
+        foreach (var width in new[] { 780d, 920d })
+        {
+            root.Measure(new Size(width, 720)); root.Arrange(new Rect(0, 0, width, 720)); root.UpdateLayout();
+            action.SetExpanded(true); Settle(); root.UpdateLayout();
+            var batchGuidance = (FrameworkElement)window.FindName("NotificationBatchGuidance");
+            var borderBottom = action.TranslatePoint(new Point(0, action.ActualHeight), root).Y;
+            Assert(batchGuidance.TranslatePoint(new Point(), root).Y - borderBottom >= 6, "notification explanation clears expanded border by visible gap " + width);
+            action.SetExpanded(false); Settle();
+        }
+        var referenceSize = ((TextBlock)window.FindName("SystemNotificationStatusText")).FontSize;
+        Assert(((Slider)window.FindName("TextSizeSlider")).Minimum == referenceSize, "font slider minimum matches notification status size");
+        bool TextSizesValid(DependencyObject parent)
+        {
+            if (parent is TextBlock text && text.FontSize < referenceSize) return false;
+            if (parent is Control control && control.FontSize < referenceSize) return false;
+            for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+                if (!TextSizesValid(VisualTreeHelper.GetChild(parent, index))) return false;
+            return true;
+        }
+        Assert(TextSizesValid(root), "settings visual tree contains no text smaller than reference size");
+        var rule = new YoyoClawCompanion.Services.NotificationTitleRule("fixture.app", "通知标题", "测试来源");
+        main.CurrentSettings.IgnoredNotificationTitles = [rule];
+        window.Left = window.Top = -10000; window.ShowActivated = false; window.ShowInTaskbar = false; window.Show();
+        var filterButton = (Button)window.FindName("NotificationFiltersButton");
+        foreach (var mode in new[] { "light", "dark" })
+        {
+            var themes = (ComboBox)window.FindName("ThemeCombo");
+            themes.SelectedItem = themes.Items.OfType<ComboBoxItem>().First(item => (string)item.Tag == mode);
+            typeof(SettingsWindow).GetMethod("ApplyPanelTheme", Flags)!.Invoke(window, null);
+            typeof(SettingsWindow).GetMethod("NotificationFilters_Click", Flags)!.Invoke(window, [filterButton, new RoutedEventArgs(Button.ClickEvent)]);
+            Settle();
+            var menu = filterButton.ContextMenu!; menu.ApplyTemplate();
+            var surface = (Border)VisualTreeHelper.GetChild(menu, 0);
+            var item = (MenuItem)menu.Items[0]; item.ApplyTemplate();
+            Assert(surface.Style == window.FindResource("SettingsPopupSurface") && surface.CornerRadius.TopLeft == 9, "blocked notification menu shares dropdown surface " + mode);
+            Assert(item.Style == window.FindResource("SettingsContextMenuItem") && item.Tag == rule, "styled restore action retains exact rule " + mode);
+            Assert(((SolidColorBrush)surface.Background).Color == ((SolidColorBrush)window.Resources["SettingsPopupBackground"]).Color && menu.Foreground == window.Resources["SettingsHintForeground"], "popup honours current theme " + mode);
+            if (Environment.GetEnvironmentVariable("ISLAND_LAYOUT_EVIDENCE_DIR") is { Length: > 0 } evidence)
+            {
+                Directory.CreateDirectory(evidence);
+                SaveVisual(menu, Path.Combine(evidence, "blocked-notifications-" + mode + ".png"));
+                action.SetExpanded(true); Settle(); window.UpdateLayout();
+                SaveVisual(action, Path.Combine(evidence, "notification-description-" + mode + ".png"), notification.Background);
+                action.SetExpanded(false); Settle();
+            }
+            menu.IsOpen = false;
+        }
+        main.CurrentSettings.IgnoredNotificationTitles = [];
+        ((ComboBox)window.FindName("ThemeCombo")).SelectedIndex = 1;
+        typeof(SettingsWindow).GetMethod("ApplyPanelTheme", Flags)!.Invoke(window, null);
+        Layout(root);
         var card=(ExpandableSettingCard)window.FindName("CodexResetReminderCard");
         var hidden=(ExpandableSettingCard)window.FindName("UnchangedAutoHideCard");
         var panel=(SettingsSwitchPanel)card.Parent;
-        card.Header.IsChecked=false;card.SetExpanded(true);Settle();Layout(root);
+        ((CheckBox)card.Header).IsChecked=false;card.SetExpanded(true);Settle();Layout(root);
         Assert(!card.IsExpanded && card.Height==62,"disabled setting stays collapsed");
-        card.Header.IsEnabled=true;card.Header.IsChecked=true;
+        card.Header.IsEnabled=true;((CheckBox)card.Header).IsChecked=true;
         var positions=panel.Children.Cast<FrameworkElement>().Select(item=>item.TranslatePoint(new Point(),panel)).ToArray();
         var after=(FrameworkElement)window.FindName("YoyoLaunchForCheckinCheck");
         var originalOpacity=after.Opacity;
@@ -56,9 +148,9 @@ internal static class Program
         foreach (var name in new[]{"HoverExpansionCard","CompletionNotificationsCard"})
         {
             var combined=(ExpandableSettingCard)window.FindName(name);
-            combined.Header.IsChecked=false;combined.SetExpanded(true);Settle();
+            ((CheckBox)combined.Header).IsChecked=false;combined.SetExpanded(true);Settle();
             Assert(!combined.IsExpanded,name+" off stays collapsed");
-            combined.Header.IsChecked=true;combined.Header.IsEnabled=true;combined.SetExpanded(true);Settle();Layout(root);
+            ((CheckBox)combined.Header).IsChecked=true;combined.Header.IsEnabled=true;combined.SetExpanded(true);Settle();Layout(root);
             Assert(combined.IsExpanded && combined.Detail.ActualHeight>0 && combined.Detail.Opacity==1,name+" merges slider into card");
             Assert(combined.Detail.IsDescendantOf(combined),name+" slider remains within outer border");
             if(name=="HoverExpansionCard")
@@ -122,8 +214,23 @@ internal static class Program
         Assert(sortable.Order.SequenceEqual(new[]{"Two","Three","One"}),"cross section move rejected");
         sortable.ApplyOrder(new[]{"One","Removed","One","Two"});
         Assert(sortable.Order.SequenceEqual(new[]{"One","Two","Three"}),"saved order tolerates duplicate and removed keys");
-        hidden.Header.IsChecked=true;hidden.Header.IsEnabled=true;hidden.SetExpanded(true);Settle();Layout(root);
+        ((CheckBox)hidden.Header).IsChecked=true;hidden.Header.IsEnabled=true;hidden.SetExpanded(true);Settle();Layout(root);
         Assert(((FrameworkElement)window.FindName("MaxResponseLinesCombo")).Opacity==1,"following controls keep their own state");
-        window.Close();main.Close();app.Shutdown();
+        action.SetExpanded(true); Settle(); window.Close(); Settle();
+        Assert(!action.IsExpanded && action.Height == 62 && !action.HasAnimatedProperties && !action.Detail.HasAnimatedProperties, "unloaded descriptions release animation clocks");
+        main.Close();app.Shutdown();
+    }
+
+    static void SaveVisual(FrameworkElement element, string path, Brush? background = null)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth * 1.5), (int)Math.Ceiling(element.ActualHeight * 1.5), 144, 144, PixelFormats.Pbgra32);
+        if (background is not null)
+        {
+            var surface = new DrawingVisual();
+            using (var drawing = surface.RenderOpen()) drawing.DrawRectangle(background, null, new Rect(element.RenderSize));
+            bitmap.Render(surface);
+        }
+        bitmap.Render(element); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(path); encoder.Save(file);
     }
 }

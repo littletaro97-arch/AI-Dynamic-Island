@@ -5,12 +5,18 @@ using Windows.UI.Notifications.Management;
 internal static class Program
 {
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
         try
         {
             var listener = UserNotificationListener.Current;
             var access = listener.GetAccessStatus();
+            if (args.Contains("--identities") && access == UserNotificationListenerAccessStatus.Allowed)
+            {
+                var notifications = listener.GetNotificationsAsync(NotificationKinds.Toast).AsTask().GetAwaiter().GetResult();
+                Console.WriteLine(JsonSerializer.Serialize(notifications.Select(n => new { id = n.AppInfo.AppUserModelId, source = n.AppInfo.DisplayInfo.DisplayName }).Distinct()));
+                return; // Application identities only: never print notification bodies.
+            }
             var count = access == UserNotificationListenerAccessStatus.Allowed
                 ? listener.GetNotificationsAsync(NotificationKinds.Toast).AsTask().GetAwaiter().GetResult().Count : -1;
             string eventStatus;

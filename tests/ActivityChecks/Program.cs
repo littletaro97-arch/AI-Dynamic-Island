@@ -28,8 +28,43 @@ class Program
         bitmap.Render(root);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var file=File.Create(Path.Combine(directory,name+".png"));encoder.Save(file);
     }
+    static void CheckGuardianSessions()
+    {
+        string Meta(object source) => System.Text.Json.JsonSerializer.Serialize(new { type = "session_meta", payload = new { source, base_instructions = new string('x', 40000) } }) + "\n";
+        bool? Kind(string meta) => CodexSessionSource.Read(System.Text.Encoding.UTF8.GetBytes(meta)[..Math.Min(16384, System.Text.Encoding.UTF8.GetByteCount(meta))]);
+        Assert(Kind(Meta(new { subagent = new { other = "guardian" } })) == true, "guardian source recognized before large instruction body");
+        Assert(Kind(Meta("vscode")) == false && Kind(Meta("cli")) == false, "desktop and CLI user sessions remain eligible");
+        Assert(Kind(Meta(new { subagent = new { other = "explorer" } })) == false, "ordinary coding subagents are not blanket excluded");
+        Assert(Kind("{\"type\":\"session_meta\",\"payload\":{") is null, "partial metadata does not permanently classify a session");
+        var home = Path.Combine(Path.GetTempPath(), "IslandGuardianChecks-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(home, "sessions"));
+        var previous = Environment.GetEnvironmentVariable("CODEX_HOME");
+        try
+        {
+            Environment.SetEnvironmentVariable("CODEX_HOME", home);
+            string Event(string kind) => System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTimeOffset.UtcNow.ToString("O"), type = "event_msg", payload = new { type = kind } }) + "\n";
+            string Final(string id) => System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTimeOffset.UtcNow.ToString("O"), type = "response_item", payload = new { type = "message", role = "assistant", phase = "final_answer", id, content = new[] { new { type = "output_text", text = "{\"risk_level\":\"low\",\"outcome\":\"allow\"}" } } } }) + "\n";
+            var userFile = Path.Combine(home, "sessions", "user.jsonl");
+            var reviewFile = Path.Combine(home, "sessions", "guardian.jsonl");
+            File.WriteAllText(userFile, Meta("vscode") + Event("task_complete") + Final("user-final"));
+            File.WriteAllText(reviewFile, Meta(new { subagent = new { other = "guardian" } }) + Event("task_started") + Final("review-final"));
+            using var reader = new CodexStatusService();
+            var result = reader.ReadAsync(true, false, true).GetAwaiter().GetResult();
+            Assert(!result.IsBusy && result.Completions?.Single().Id == "user-final", "internal guardian affects neither busy state nor completion list");
+            Assert(result.RecentResponse!.Contains("risk_level"), "normal user JSON answer is preserved instead of text keyword filtering");
+            File.AppendAllText(reviewFile, Final("review-second"));
+            var updated = reader.ReadAsync(true, false, true).GetAwaiter().GetResult();
+            Assert(updated.Completions?.Single().Id == "user-final", "repeated guardian approval updates never create island completions");
+            Assert(((System.Collections.IDictionary)typeof(CodexStatusService).GetField("_sourceCache", Flags)!.GetValue(reader)!).Count == 2, "bounded candidate metadata decisions are cached");
+            reader.ResetCache();
+            Assert(reader.ReadAsync(true, false, true).GetAwaiter().GetResult().Completions?.Single().Id == "user-final", "reset does not reintroduce internal approvals");
+        }
+        finally { Environment.SetEnvironmentVariable("CODEX_HOME", previous); Directory.Delete(home, true); }
+    }
+
     [STAThread] static void Main()
     {
+        CheckGuardianSessions();
         var app=new ControlTestApp();var main=new MainWindow();
         ((HashSet<string>)typeof(MainWindow).GetField("_suppressedProviders",Flags)!.GetValue(main)!).Clear();
         foreach(var field in new[]{"_yoyoInstalled","_codexInstalled","_workBuddyInstalled","_deepSeekInstalled"})Set(main,field,true);
@@ -121,6 +156,28 @@ class Program
         Assert(primary.X<0 && Math.Abs(primary.X-clone.X)<.001,"marquee copies scroll continuously in phase");
         Set(main,"_expanded",true);Call(main,"UpdateSummaryMarquee");
         Assert(!primary.HasAnimatedProperties && !clone.HasAnimatedProperties && primary.X==0,"expansion removes unused animation clocks");
+        Set(main,"_expanded",false);
+        ((Dictionary<string,DateTimeOffset>)typeof(MainWindow).GetField("_headlineBusySeenAt",Flags)!.GetValue(main)!).Clear();
+        var busyCodex=codex with { IsBusy=true, LimitsAvailable=true, FiveHourRemainingPercent=75, WeeklyRemainingPercent=54 };
+        var busyBuddy=buddy with { IsBusy=true };
+        var idleYoyo=yoyo with { IsBusy=false };
+        var busyCredits=new WorkBuddyCredits(true,3060.75,4000);
+        Call(main,"UpdateHeadline",idleYoyo,busyCodex,busyBuddy,busyCredits);
+        viewport.Width=120;root.UpdateLayout();
+        Call(main,"UpdateSummaryMarquee");
+        var busyCopy=(TextBlock)main.FindName("SummaryTextClone");
+        Console.WriteLine($"BUSY headline={((TextBlock)main.FindName("HeadlineText")).Text} clone={busyCopy.Text}");
+        Assert(((TextBlock)main.FindName("HeadlineText")).Text=="2 个助手执行中" && busyCopy.Text.Contains("WorkBuddy") && busyCopy.Text.Contains("3060.75"),"busy summary clone retains second assistant quota");
+        Assert(primary.HasAnimatedProperties && clone.HasAnimatedProperties,"two busy assistants scroll overflowing quota summary");
+        var marqueeKey=typeof(MainWindow).GetField("_summaryMarqueeKey",Flags)!.GetValue(main);
+        Call(main,"UpdateHeadline",idleYoyo,busyCodex,busyBuddy,busyCredits);
+        Assert(Equals(marqueeKey,typeof(MainWindow).GetField("_summaryMarqueeKey",Flags)!.GetValue(main)),"unchanged busy status preserves marquee instead of restarting it");
+        Set(main,"_reverseHoverHidden",true);Call(main,"UpdateSummaryMarquee");
+        Assert(!primary.HasAnimatedProperties && !clone.HasAnimatedProperties,"hidden busy summary stops animation");
+        Set(main,"_reverseHoverHidden",false);Call(main,"UpdateSummaryMarquee");
+        Assert(primary.HasAnimatedProperties,"busy summary resumes when visible");
+        Set(main,"_expanded",true);Call(main,"UpdateSummaryMarquee");
+        Assert(!primary.HasAnimatedProperties,"expanded busy island stops collapsed quota scroll");
         var fixture=Path.Combine(AppContext.BaseDirectory,"fixtures");Directory.CreateDirectory(fixture);
         var log=Path.Combine(fixture,"large.jsonl");
         File.WriteAllText(log,string.Join('\n',Enumerable.Range(0,300).Select(i=>"{\"type\":\"tool\",\"text\":\""+new string('x',3000)+"\"}"))+"\n{\"type\":\"task_complete\"}\n");

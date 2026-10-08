@@ -281,7 +281,7 @@ class Program
         Property(settings, "IslandWidth", 375d); Property(settings, "TextSize", 11.2d);
         Call(main, "ApplySettings", settings, false, false, false);
         main.Left = 20; main.Top = 40; main.ShowInTaskbar = false; main.Show();
-        Call(main, "SetPlainSummary", "受控性能测试", null);
+        Call(main, "SetPlainSummary", "受控性能测试", null, false);
         Window? window = null;
         if (scenario is "settings" or "settings-short" or "presets" or "settings-scroll")
         {

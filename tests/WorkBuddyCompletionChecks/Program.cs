@@ -61,6 +61,32 @@ class Program
             Assert((status.Completions?.Count == 1) == expected && status.IsBusy != expected, label + " detection");
         }
 
+        var largePath = Path.Combine(directory, "large-result.jsonl");
+        var largeBody = new string('x', 300 * 1024);
+        var largeCall = "{\"type\":\"function_call\",\"callId\":\"large-tool\",\"name\":\"Read\"}\n";
+        var largeResult = JsonSerializer.Serialize(new { type = "function_call_result", output = largeBody, callId = "large-tool" }) + "\n";
+        File.WriteAllText(largePath, largeCall + largeResult + Message("large-final", "任务结束", "\"providerData\":{\"usage\":{\"outputTokens\":20}}"));
+        using var largeReader = new WorkBuddyStatusService();
+        var largeFinished = Read(largeReader, largePath);
+        Assert(!largeFinished.IsBusy && largeFinished.Completions?.Single().Id == "large-final", "oversized tool result clears pending call before actual final");
+        var envelopes = JsonLineTailReader.Read(largePath, 1024 * 1024).ToArray();
+        Assert(envelopes.All(line => line.Length < 4096), "large output is not materialized into returned status strings");
+        Assert(!Read(largeReader, largePath).IsBusy, "cached completed large result remains idle");
+        var streamingPath = Path.Combine(directory, "large-streaming.jsonl");
+        File.WriteAllText(streamingPath, largeCall);
+        using var streamingReader = new WorkBuddyStatusService();
+        Assert(Read(streamingReader, streamingPath).IsBusy, "pending large tool remains busy before result");
+        File.AppendAllText(streamingPath, largeResult.TrimEnd('\n'));
+        Assert(Read(streamingReader, streamingPath).IsBusy, "unterminated oversized record cannot close a pending call");
+        File.AppendAllText(streamingPath, "\n" + Message("still-commentary", "继续处理"));
+        Assert(Read(streamingReader, streamingPath).IsBusy && Read(streamingReader, streamingPath).Completions?.Count == 0, "large result followed by commentary does not fake completion");
+        File.AppendAllText(streamingPath, Message("stream-final", "结束", "\"message\":{\"usage\":{\"output_tokens\":10}}"));
+        Assert(!Read(streamingReader, streamingPath).IsBusy, "incremental final after large result becomes idle");
+        var malformedPath = Path.Combine(directory, "large-malformed.jsonl");
+        File.WriteAllText(malformedPath, largeCall + largeResult.TrimEnd('\n', '}') + ",broken}\n" + Message("blocked-final", "不能作为完成", "\"providerData\":{\"usage\":{\"outputTokens\":20}}"));
+        using var malformedReader = new WorkBuddyStatusService();
+        Assert(Read(malformedReader, malformedPath).IsBusy && Read(malformedReader, malformedPath).Completions?.Count == 0, "malformed large result does not resolve a pending call");
+
         var app = new TestApp(); var main = new MainWindow(); // Never Show: no persistence or monitoring.
         typeof(MainWindow).GetField("_monitorStartedAt", Flags)!.SetValue(main, DateTimeOffset.UtcNow.AddMinutes(-1));
         typeof(MainWindow).GetField("_settings", Flags)!.SetValue(main, new IslandSettings());

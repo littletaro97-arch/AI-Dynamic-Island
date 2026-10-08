@@ -6,6 +6,8 @@ namespace YoyoClawCompanion.Services;
 
 internal static class NativeWindow
 {
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    internal static bool IsAltPressed() => (GetAsyncKeyState(0x12) & 0x8000) != 0;
     public static IReadOnlyList<DisplayInfo> GetDisplays()
     {
         var displays = new List<DisplayInfo>();

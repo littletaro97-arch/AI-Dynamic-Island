@@ -26,10 +26,15 @@ class Program
         Assert(cards.Children.OfType<Border>().Select(x=>x.Name).SequenceEqual(order.Select(x=>x+"Card")),"content order");
         Assert(((FrameworkElement)window.FindName("ReverseHoverCheck")).IsDescendantOf((DependencyObject)window.FindName("FeatureCard")),"reverse hover in behaviour");
         var settings=typeof(MainWindow).GetProperty("CurrentSettings",Flags)!.GetValue(main)!;
+        foreach(var name in new[]{"SystemNotificationsCheck","CodexConfirmationNotificationsCheck"})
+            Assert(((CheckBox)window.FindName(name)).Tag is System.Windows.Media.ImageSource, "notification icon is renderable " + name);
+        Assert(ReferenceEquals(((CheckBox)window.FindName("CodexConfirmationNotificationsCheck")).Tag, ((CheckBox)window.FindName("CodexCheck")).Tag), "Codex waiting reuses provider icon");
+        Assert(((Button)window.FindName("NotificationBannerSettingsButton")).IsDescendantOf((DependencyObject)window.FindName("NotificationCard")), "system settings entry stays in reminders");
+        Assert((string)typeof(SettingsWindow).GetField("NotificationSettingsUri",BindingFlags.NonPublic|BindingFlags.Static)!.GetRawConstantValue()! == "ms-settings:notifications", "entry targets Windows notifications without changing OS configuration");
         var reverse=settings.GetType().GetProperty("EnableReverseHover")!;
         var hover=settings.GetType().GetProperty("EnableHoverExpansion")!;
         reverse.SetValue(settings,true); hover.SetValue(settings,true); Call(settings,"NormalizeInteraction");
-        Assert(!(bool)hover.GetValue(settings)!,"legacy conflicting modes normalize");
+        Assert((bool)hover.GetValue(settings)! && (bool)reverse.GetValue(settings)!,"both hover modes survive normalization independently");
         for(int mask=0;mask<8;mask++) {
             string[] keys={"yoyo","codex","workbuddy"}; string[] fields={"_yoyoInstalled","_codexInstalled","_workBuddyInstalled"};
             for(int i=0;i<3;i++) typeof(MainWindow).GetField(fields[i],Flags)!.SetValue(main,(mask&(1<<i))!=0);
@@ -114,6 +119,21 @@ class Program
         Assert(badge.Visibility==Visibility.Visible && badge.Opacity==1,"rapid update badge reversal remains visible");
         Assert(progress.Visibility==Visibility.Visible && Math.Abs(progress.Value-80)<.01 && progress.Opacity==1,"rapid progress hide/show settles visible");
         foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Visible,"rapid toggle label visible "+name);
+        if(Environment.GetEnvironmentVariable("ISLAND_LAYOUT_EVIDENCE_DIR") is {Length:>0} evidence)
+        {
+            var notificationCard=(FrameworkElement)window.FindName("NotificationCard");
+            notificationCard.BeginAnimation(UIElement.OpacityProperty,null);notificationCard.Opacity=1;
+            ((Panel)notificationCard.Parent).Children.Remove(notificationCard);
+            var evidenceWindow=new Window { Content=notificationCard,Width=620,SizeToContent=SizeToContent.Height,Left=-10000,Top=-10000,ShowActivated=false,ShowInTaskbar=false,WindowStyle=WindowStyle.None };
+            evidenceWindow.Resources.MergedDictionaries.Add(window.Resources);evidenceWindow.Foreground=window.Foreground;
+            evidenceWindow.Show();evidenceWindow.UpdateLayout();
+            var bitmap=new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(notificationCard.ActualWidth*1.5),(int)Math.Ceiling(notificationCard.ActualHeight*1.5),144,144,System.Windows.Media.PixelFormats.Pbgra32);
+            bitmap.Render(notificationCard);
+            var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            System.IO.Directory.CreateDirectory(evidence);
+            using var file=System.IO.File.Create(System.IO.Path.Combine(evidence,"notification-settings.png"));encoder.Save(file);
+            evidenceWindow.Close();
+        }
         window.Close(); main.Close(); app.Shutdown();
     }
 }
