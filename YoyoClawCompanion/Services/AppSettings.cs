@@ -84,6 +84,10 @@ internal static class AppSettings
     private static readonly object SaveGate = new();
     private static long _saveVersion;
     private static long _writtenVersion;
+    private sealed record SettingsWrite(string Snapshot, long Version);
+    private static readonly LatestSnapshotQueue<SettingsWrite> PendingWrites = new(
+        value => Write(value.Snapshot, value.Version),
+        (previous, next) => previous.Version > next.Version ? previous : next);
 
     public static IslandSettings Load()
     {
@@ -113,7 +117,7 @@ internal static class AppSettings
         {
             var snapshot = JsonSerializer.Serialize(settings, JsonOptions);
             var version = Interlocked.Increment(ref _saveVersion);
-            return Task.Run(() => Write(snapshot, version));
+            return PendingWrites.Submit(new SettingsWrite(snapshot, version));
         }
         catch { return Task.CompletedTask; }
     }

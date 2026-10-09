@@ -39,6 +39,9 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _checkinCancellation;
     private YoyoCheckinSchedule _yoyoCheckinSchedule = new();
+    private readonly LatestSnapshotQueue<object> _statusSnapshots = new(StatusSnapshotStore.Write);
+    private bool? _appliedLightTheme;
+    private bool _hasAsyncSettingsSave;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
@@ -115,7 +118,7 @@ public partial class MainWindow : Window
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); StopWindowTimers(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { _statusSnapshots.Stop(); if (_hasAsyncSettingsSave) AppSettings.Save(_settings); _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); StopWindowTimers(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     private void StopWindowTimers()
@@ -357,7 +360,7 @@ public partial class MainWindow : Window
             _fullscreenTimer.Stop();
             _fullscreenOverrideActive = false;
         }
-        if (persist) AppSettings.Save(_settings);
+        if (persist) PersistSettingsAsync();
         if (refreshStatus && IsLoaded) _ = RefreshStatusAsync();
         if (IsLoaded && _systemNotificationEnabled != settings.EnableSystemNotifications) _ = ConfigureSystemNotificationsAsync();
         if (IsLoaded && _positionInitialized)
@@ -676,7 +679,13 @@ public partial class MainWindow : Window
             : Left + (Width - DefaultHostWidth) / 2;
         _settings.Y = _expandUp ? _collapsedAnchorTop : Top;
         if (_displayPlacementsInitialized) CaptureDisplayPosition();
-        AppSettings.Save(_settings);
+        PersistSettingsAsync();
+    }
+
+    private void PersistSettingsAsync()
+    {
+        _hasAsyncSettingsSave = true;
+        _ = AppSettings.SaveAsync(_settings);
     }
 
     private async Task RefreshStatusAsync()
@@ -2183,6 +2192,8 @@ public partial class MainWindow : Window
     private void ApplyTheme()
     {
         var light = IsLightTheme;
+        if (_appliedLightTheme == light) return;
+        _appliedLightTheme = light;
         var primary = Brush(light ? "#182033" : "#F2F5FF");
         var secondary = Brush(light ? "#5E687A" : "#9AA5BC");
         _secondaryTextBrush = secondary;
@@ -2224,8 +2235,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion"); Directory.CreateDirectory(directory);
-            var json = JsonSerializer.Serialize(new
+            // Capture values on the UI thread; serialization and disk work belong to the worker.
+            _ = _statusSnapshots.Submit(new
             {
                 updatedAt = DateTimeOffset.Now,
                 deepSeek = new { _deepSeekStatus.IsRunning, _deepSeekStatus.Available, _deepSeekStatus.State, _deepSeekStatus.Error },
@@ -2251,7 +2262,6 @@ public partial class MainWindow : Window
                 },
                 workBuddy = new { running = workBuddy.IsRunning, available = workBuddy.DataAvailable, busy = workBuddy.IsBusy, requiresConfirmation = workBuddy.RequiresConfirmation, confirmationId = workBuddy.ConfirmationId, summary = workBuddy.Summary, credits = credits.Remaining, totalCredits = credits.Total, recentResponseAt = workBuddy.RecentResponseAt, readMilliseconds = timings.WorkBuddyReadMilliseconds, creditsReadMilliseconds = timings.WorkBuddyCreditsReadMilliseconds }
             });
-            File.WriteAllText(Path.Combine(directory, "status.json"), json);
         }
         catch { }
     }

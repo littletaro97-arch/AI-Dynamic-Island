@@ -879,10 +879,14 @@ public partial class SettingsWindow : Window
         return null;
     }
 
+    private bool? _appliedPanelLightTheme;
+
     private void ApplyPanelTheme()
     {
         var mode = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "system";
         var light = mode == "light" || (mode == "system" && SystemUsesLightTheme());
+        if (_appliedPanelLightTheme == light) return;
+        _appliedPanelLightTheme = light;
         var background = Brush(light ? "#F5F7FB" : "#111620");
         var card = Brush(light ? "#FFFFFF" : "#1B2230");
         var primary = Brush(light ? "#182033" : "#F2F5FF");
