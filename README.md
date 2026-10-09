@@ -1,4 +1,4 @@
-# AI Dynamic Island v0.7.5
+# AI Dynamic Island v0.7.6
 
 Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO Claw 和 DeepSeek Harness 的任务状态、额度及最近回复。支持悬停展开、多显示器、主题、托盘、完成提醒和应用内更新。
 
@@ -8,8 +8,8 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO 
 
 | 下载包 | 使用方式 | 卸载方式 |
 | --- | --- | --- |
-| `AI-Dynamic-Island-v0.7.5-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
-| `AI-Dynamic-Island-v0.7.5-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
+| `AI-Dynamic-Island-v0.7.6-win-x64-setup.exe` | 按向导安装到当前用户目录，可创建快捷方式 | Windows 设置 → 应用 → 已安装的应用 → AI Dynamic Island，或开始菜单卸载入口 |
+| `AI-Dynamic-Island-v0.7.6-win-x64-portable.zip` | 解压后运行 `YoyoClawCompanion.exe`，保留完整目录 | 从托盘退出后删除解压目录；如开启过开机启动，删除前先关闭此设置 |
 
 适用于 Windows 10/11 x64。两种包均内含 .NET 8 Desktop Runtime。YOYO 任务桥接需要另行安装 [Node.js](https://nodejs.org/)，对应功能还需要本机安装并登录相应 AI 应用。缺少某个来源时不影响其他来源。
 
@@ -19,9 +19,9 @@ Windows 桌面上的 AI 状态灵动岛，集中显示 Codex、WorkBuddy、YOYO 
 
 ## 核心功能
 
-v0.7.5 完善通知分批、悬停阅读和具体标题屏蔽，修复 Codex 重置预告、内部审批误提醒与 WorkBuddy 超长工具返回误判。反向选择与悬停展开独立设置，同时开启时按住 Alt 才能悬停或点击展开。所有应用文字下限为 12 DIP。保留主屏/副屏独立定位与 Codex 中途询问提醒。通知内容可点击打开来源应用；QQ 和微信托盘唤起分别使用本机配置的 Ctrl+Alt+X、Ctrl+Alt+W。系统原通知保留；应用须获得通知访问权限，未提交到 Windows 通知中心的弹窗不在监听范围内。
+v0.7.6 修复常驻跨日时 YOYO 自动签到未触发，增加有限补试与执行记录；将状态与高频设置保存移至后台合并，复用未变化主题资源，减少界面等待。保留此前通知分批、悬停阅读和具体标题屏蔽，修复 Codex 重置预告、内部审批误提醒与 WorkBuddy 超长工具返回误判。反向选择与悬停展开独立设置，同时开启时按住 Alt 才能悬停或点击展开。所有应用文字下限为 12 DIP。保留主屏/副屏独立定位与 Codex 中途询问提醒。通知内容可点击打开来源应用；QQ 和微信托盘唤起分别使用本机配置的 Ctrl+Alt+X、Ctrl+Alt+W。系统原通知保留；应用须获得通知访问权限，未提交到 Windows 通知中心的弹窗不在监听范围内。
 
-修复反向选择模式下点击横条导致整个岛隐藏的问题。设置滚轮缓动与运动期间有界缓存的效果及内存代价见 [验证记录](docs/NOTIFICATION-OPEN-SCROLL-PERFORMANCE-2026-10-03.md)。已修复同周期额度重置重复提醒，详见 [发布说明](docs/RELEASE-v0.7.5.md)。
+修复反向选择模式下点击横条导致整个岛隐藏的问题。设置滚轮缓动与运动期间有界缓存的效果及内存代价见 [验证记录](docs/NOTIFICATION-OPEN-SCROLL-PERFORMANCE-2026-10-03.md)。已修复同周期额度重置重复提醒，详见 [发布说明](docs/RELEASE-v0.7.6.md)。
 
 - Codex：读取本地会话生命周期和最终回复，通过本机 app-server 获取额度与重置时间。
 - WorkBuddy：读取本地会话，识别执行、完成与待确认；通过本机宿主通道获取真实积分。
@@ -68,7 +68,7 @@ dotnet build '.\AI Dynamic Island.sln' -c Release
 .\Build-Release.ps1 -PortableOnly
 ```
 
-输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.5`。版本号以 `YoyoClawCompanion.csproj` 为准。
+输出目录为 `artifacts`，应用发布目录为 `publish-v0.7.6`。版本号以 `YoyoClawCompanion.csproj` 为准。
 
 Magicore 的 `@magicore/*` 是从本机 YOYO 安装包取得的 vendor 运行组件，不属于普通 npm 可还原依赖。不要在桥接目录运行 `npm ci`；缺少 SDK 时打包会明确失败。第三方运行组件的再分发应遵循其授权。
 
