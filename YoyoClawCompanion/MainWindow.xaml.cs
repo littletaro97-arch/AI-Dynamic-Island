@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private readonly ContextMenu _islandMenu = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _checkinCancellation;
+    private YoyoCheckinSchedule _yoyoCheckinSchedule = new();
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(420) };
     private readonly DispatcherTimer _enterTimer = new() { Interval = TimeSpan.FromMilliseconds(70) };
@@ -166,9 +167,8 @@ public partial class MainWindow : Window
         _checkinCancellation?.Cancel();
         _checkinCancellation?.Dispose();
         _checkinCancellation = null;
-        if (!_settings.EnableYoyoAutoCheckin || !IsLoaded) return;
-        _checkinCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
-        _ = RunYoyoCheckinAsync(_checkinCancellation.Token);
+        _yoyoCheckinSchedule = new();
+        TryStartYoyoCheckin();
     }
 
     private void ConfigureIslandMenu()
@@ -666,7 +666,6 @@ public partial class MainWindow : Window
         if (_settings.AutoCheckForUpdates) _ = _updateService.CheckAsync();
         _zOrderTimer.Start();
         if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
-        if (_settings.EnableYoyoAutoCheckin) StartYoyoCheckinFromSettings();
     }
 
     private void SavePosition()
@@ -682,7 +681,9 @@ public partial class MainWindow : Window
 
     private async Task RefreshStatusAsync()
     {
-        if (_refreshing || _lifetimeCancellation.IsCancellationRequested) return;
+        if (_lifetimeCancellation.IsCancellationRequested) return;
+        TryStartYoyoCheckin();
+        if (_refreshing) return;
         _refreshing = true;
         try
         {
@@ -1062,9 +1063,49 @@ public partial class MainWindow : Window
         await Task.Run(() => tracker.Save(CodexResetReminderTracker.StatePath));
     }
 
-    private async Task RunYoyoCheckinAsync(CancellationToken cancellationToken)
+    private void TryStartYoyoCheckin()
     {
-        var result = await _yoyoCheckinService.RunAfterNetworkAsync(_settings.YoyoExecutablePath, _settings.LaunchYoyoForAutoCheckin, cancellationToken);
+        if (!_settings.EnableYoyoAutoCheckin || !IsLoaded || _lifetimeCancellation.IsCancellationRequested) return;
+        var schedule = _yoyoCheckinSchedule;
+        if (!schedule.TryStart(DateTimeOffset.Now)) return;
+        _checkinCancellation?.Dispose();
+        _checkinCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        _ = RunYoyoCheckinAsync(schedule, _checkinCancellation.Token);
+    }
+
+    private async Task RunYoyoCheckinAsync(YoyoCheckinSchedule schedule, CancellationToken cancellationToken)
+    {
+        var executable = _settings.YoyoExecutablePath;
+        var launch = _settings.LaunchYoyoForAutoCheckin;
+        YoyoCheckinResult result;
+        try
+        {
+            result = await Task.Run(async () =>
+            {
+                YoyoCheckinService.RecordExecution(schedule.Attempts, "started");
+                try
+                {
+                    var value = await _yoyoCheckinService.RunAfterNetworkAsync(executable, launch, cancellationToken);
+                    YoyoCheckinService.RecordExecution(schedule.Attempts,
+                        cancellationToken.IsCancellationRequested ? "cancelled" : value.Success ? "success" : "failed");
+                    return value;
+                }
+                catch (OperationCanceledException)
+                {
+                    YoyoCheckinService.RecordExecution(schedule.Attempts, "cancelled");
+                    throw;
+                }
+                catch (Exception error)
+                {
+                    YoyoCheckinService.RecordExecution(schedule.Attempts, "exception:" + error.GetType().Name);
+                    return new YoyoCheckinResult(true, false, "YOYO Claw 自动签到异常 · " + error.GetType().Name);
+                }
+            });
+        }
+        catch (OperationCanceledException) { return; }
+        if (cancellationToken.IsCancellationRequested || _lifetimeCancellation.IsCancellationRequested
+            || !ReferenceEquals(schedule, _yoyoCheckinSchedule)) return;
+        schedule.Complete(DateTimeOffset.Now, result.Success);
         if (!result.ShouldNotify || !_settings.EnableYoyoAutoCheckin || !IsLoaded) return;
         ShowSystemNotice("YOYO Claw", result.Message);
         if (result.Success) _ = RefreshStatusAsync();

@@ -39,7 +39,7 @@ internal sealed partial class YoyoCheckinService
         try
         {
             acquired = mutex.WaitOne(0);
-            if (!acquired) return new(false, true, "签到程序正在运行");
+            if (!acquired) return new(false, false, "签到程序正在运行");
             if (launchYoyoWhenNeeded) EnsureYoyoRunning(rememberedExecutable);
             var session = await WaitForSessionAsync(cancellationToken);
             if (session is null) return new(true, false, "YOYO Claw 自动签到失败 · 未检测到有效登录状态");
@@ -62,7 +62,8 @@ internal sealed partial class YoyoCheckinService
 
     private static async Task<YoyoCheckinResult> CheckInOnceAsync(SessionInfo session, CancellationToken token)
     {
-        var month = DateTime.Now.ToString("yyyyMM");
+        var runDay = DateTime.Today;
+        var month = runDay.ToString("yyyyMM");
         using var calendar = await SendAsync(session, HttpMethod.Get, $"/yoyoclaw/points/sign-in/calendar?month={month}", null, token);
         if (calendar.StatusCode == HttpStatusCode.Unauthorized)
             return new(true, false, "YOYO Claw 自动签到失败 · 登录状态已失效");
@@ -70,7 +71,7 @@ internal sealed partial class YoyoCheckinService
             throw new HttpRequestException($"查询签到状态失败 ({(int)calendar.StatusCode})");
         if (SignedToday(calendarData))
         {
-            WriteState(true, null, true);
+            WriteState(true, null, true, runDay);
             return new(false, true, "今日已经签到");
         }
 
@@ -81,7 +82,7 @@ internal sealed partial class YoyoCheckinService
 
         using var verify = await SendAsync(session, HttpMethod.Get, $"/yoyoclaw/points/sign-in/calendar?month={month}", null, token);
         var verified = verify.StatusCode == HttpStatusCode.OK && TryData(verify.Document.RootElement, out var verifyData) && SignedToday(verifyData);
-        WriteState(verified, granted, false);
+        WriteState(verified, granted, false, runDay);
         return verified
             ? new(true, true, granted is double value ? $"YOYO Claw 签到成功 · 获得 {value:0.##} 积分" : "YOYO Claw 签到成功")
             : new(true, false, "YOYO Claw 已提交签到，但服务端复核尚未完成");
@@ -177,12 +178,27 @@ internal sealed partial class YoyoCheckinService
         catch { return false; }
     }
 
-    private static void WriteState(bool ok, double? granted, bool alreadySigned)
+    // Called only from the background check-in task; bounded, credential-free diagnostics.
+    internal static void RecordExecution(int attempt, string outcome)
+    {
+        try
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YoyoClawCompanion");
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "yoyo-checkin.log");
+            if (File.Exists(path) && new FileInfo(path).Length >= 64 * 1024)
+                File.Move(path, path + ".previous", true);
+            File.AppendAllText(path, $"{DateTimeOffset.Now:O} attempt={attempt} outcome={outcome}{Environment.NewLine}");
+        }
+        catch { /* Diagnostics must not block check-in. */ }
+    }
+
+    private static void WriteState(bool ok, double? granted, bool alreadySigned, DateTime runDay)
     {
         try
         {
             Directory.CreateDirectory(StateDirectory);
-            var value = new { date = DateTime.Today.ToString("yyyy-MM-dd"), ok, grantedPoints = granted, alreadySigned, at = DateTime.Now.ToString("s") };
+            var value = new { date = runDay.ToString("yyyy-MM-dd"), ok, grantedPoints = granted, alreadySigned, at = DateTime.Now.ToString("s") };
             var temp = StatePath + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temp, StatePath, true);
