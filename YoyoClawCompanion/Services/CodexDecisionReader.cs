@@ -9,6 +9,7 @@ internal sealed class CodexDecisionReader
     private sealed record Pending(CodexDecision Decision, int Count, HashSet<int> Answered);
     private readonly Dictionary<string, Pending> _pending = new();
     internal IEnumerable<string> PendingCallIds => _pending.Keys;
+    internal string[] ReadMarkers => new[] { "request_user_input", "send_user_message_question_reply", "turn_aborted", "task_complete", "answers" }.Concat(PendingCallIds).ToArray();
     public CodexDecision? Current => _pending.Values.Where(p => DateTimeOffset.UtcNow - p.Decision.CreatedAt < TimeSpan.FromHours(2)).OrderBy(p => p.Decision.CreatedAt).FirstOrDefault()?.Decision;
     public void Reset() => _pending.Clear();
 
@@ -23,7 +24,7 @@ internal sealed class CodexDecisionReader
                 if (!root.TryGetProperty("payload", out var p)) continue;
                 var record = Text(root, "type");
                 var type = Text(p, "type");
-                if (record == "event_msg" && type == "turn_aborted") { Reset(); continue; }
+                if (record == "event_msg" && type is ("turn_aborted" or "task_complete")) { Reset(); continue; }
                 if (record != "response_item") continue;
                 if (type is "function_call" or "custom_tool_call")
                 {

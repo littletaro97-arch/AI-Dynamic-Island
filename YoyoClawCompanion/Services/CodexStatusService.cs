@@ -145,8 +145,7 @@ internal sealed class CodexStatusService : IDisposable
                 {
                     var cursor = cached?.Cursor ?? new JsonLineCursor();
                     var reader = cached?.Reader ?? new CodexDecisionReader();
-                    var markers = new[] { "request_user_input", "send_user_message_question_reply", "turn_aborted", "answers" }.Concat(reader.PendingCallIds).ToArray();
-                    var lines = cursor.Read(file.FullName, LifecycleTailBytes, markers);
+                    var lines = cursor.Read(file.FullName, LifecycleTailBytes, reader.ReadMarkers);
                     if (cursor.Rebuild) reader.Reset();
                     reader.Apply(lines, file.FullName);
                     _decisionCache[file.FullName] = cached = new(file.Length, file.LastWriteTimeUtc, revision, cursor, reader);
