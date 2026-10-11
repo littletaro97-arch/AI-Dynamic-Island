@@ -10,6 +10,9 @@ $artifacts = Join-Path $PSScriptRoot 'artifacts'
 New-Item -ItemType Directory -Force $artifacts | Out-Null
 dotnet publish $project -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $publishDirectory
 if ($LASTEXITCODE -ne 0) { throw "发布失败：$LASTEXITCODE" }
+$publishedExecutable = Join-Path $publishDirectory 'YoyoClawCompanion.exe'
+$productVersion = (Get-Item -LiteralPath $publishedExecutable).VersionInfo.ProductVersion.Split('+')[0].Trim()
+if ($productVersion -ne $version) { throw "程序产品版本 $productVersion 与发布版本 $version 不一致，停止打包。" }
 Get-ChildItem -LiteralPath $publishDirectory -Filter '*.pdb' -File | Remove-Item -Force
 $assetPath = Join-Path $artifacts "AI-Dynamic-Island-v$version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $assetPath -CompressionLevel Optimal -Force
