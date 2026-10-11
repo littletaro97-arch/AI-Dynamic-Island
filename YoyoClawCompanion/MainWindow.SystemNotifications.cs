@@ -184,7 +184,7 @@ public partial class MainWindow
         var batch = CurrentToastBatch();
         var lineHeight = RecentResultText.LineHeight;
         var compact = _settings.MaxResponseLines == 1;
-        var key = $"{lineHeight}|{RecentResultText.FontSize}|{RecentResultText.Foreground}|{compact}|{_notificationLaunchFeedback}|{_notificationFeedbackId}|{_notificationOpening}";
+        var key = $"{_settings.CornerRadius}|{lineHeight}|{RecentResultText.FontSize}|{RecentResultText.Foreground}|{compact}|{_notificationLaunchFeedback}|{_notificationFeedbackId}|{_notificationOpening}";
         if (key == _notificationRowsKey && batch.SequenceEqual(_renderedSystemToasts)) return;
         _notificationRowsKey = key;
         _renderedSystemToasts = batch.ToArray();
@@ -209,6 +209,8 @@ public partial class MainWindow
                 Style = (Style)FindResource("NotificationMuteAction"), Height = lineHeight, FontSize = RecentResultText.FontSize,
                 Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top,
                 ToolTip = $"不再提醒此标题：{toast.Title}（可在设置中恢复）", Padding = new Thickness(0) };
+            // Keep straight edges on this compact action, even when the island uses a large radius.
+            ignore.Resources["NotificationActionCornerRadius"] = new CornerRadius(Math.Min(_settings.CornerRadius, lineHeight / 4));
             System.Windows.Automation.AutomationProperties.SetName(ignore, "不再通知此来源的相同标题");
             ignore.Click += IgnoreNotification_Click;
             Grid.SetColumn(ignore, 1); row.Children.Add(ignore);

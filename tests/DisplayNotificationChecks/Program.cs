@@ -190,7 +190,7 @@ internal static class Program
             Assert(Lines() == Math.Min(2, maximum), "single notification reserves only actual lines within budget " + maximum);
             Assert(((Grid)panel.Children[0]).Height == text.LineHeight * Lines(), "notification row matches adaptive height " + maximum);
             var ignore = (Button)((Grid)panel.Children[0]).Children[1];
-            Assert(Equals(ignore.Content, "不再通知") && ignore.Style == main.FindResource("NotificationMuteAction"), "persistent mute is explicit pill action " + maximum);
+            Assert(Equals(ignore.Content, "不再通知") && ignore.Style == main.FindResource("NotificationMuteAction"), "persistent mute is explicit rounded rectangle action " + maximum);
             active.Clear();
             for (var i = 0; i < SystemNotificationQueue.BatchSize(maximum); i++) active.Add(toast with { Id = "height-" + i });
             Set("_activeWindowsToast", active[0]); Call(main, "UpdateRecentNotice");

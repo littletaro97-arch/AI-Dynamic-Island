@@ -33,8 +33,8 @@
                         <VisualState x:Name="MouseOver"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".18" Duration="0"/></Storyboard></VisualState>
                         <VisualState x:Name="Pressed"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".3" Duration="0"/></Storyboard></VisualState>
                     </VisualStateGroup></VisualStateManager.VisualStateGroups>
-                    <Border Background="#2045CFA2" CornerRadius="100"/>
-                    <Border x:Name="HoverSurface" Background="#45CFA2" CornerRadius="100" Opacity="0"/>
+                    <Border Background="#2045CFA2" BorderBrush="#3045CFA2" BorderThickness="1" CornerRadius="{DynamicResource NotificationActionCornerRadius}"/>
+                    <Border x:Name="HoverSurface" Background="#45CFA2" CornerRadius="{DynamicResource NotificationActionCornerRadius}" Opacity="0"/>
                     <StackPanel Orientation="Horizontal" Margin="8,0" VerticalAlignment="Center">
                         <Ellipse Width="5" Height="5" Fill="{TemplateBinding Foreground}" Margin="0,0,5,0" VerticalAlignment="Center"/>
                         <ContentPresenter VerticalAlignment="Center"/>
