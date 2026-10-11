@@ -30,8 +30,8 @@ public partial class SettingsWindow
     private void SwitchDisplay_Click(object sender, RoutedEventArgs args)
     {
         var displays = _island.ConnectedDisplays;
-        var current = PreviewDisplay;
-        if (current is null || displays.Count < 2) return;
+        if (displays.Count < 2) return;
+        var current = DisplayPlacement.Resolve(displays, _previewDisplayId);
         var index = displays.ToList().FindIndex(d => d.Id == current.Id);
         var target = displays[(index + 1) % displays.Count];
         _previewDisplayId = target.IsPrimary ? DisplayPlacement.PrimaryId : target.Id;
@@ -39,18 +39,41 @@ public partial class SettingsWindow
         RefreshDisplayPreview(true);
     }
 
+    private void SetSecondaryDisplayControl(FrameworkElement control, bool visible, bool animate, int version)
+    {
+        if (!animate)
+        {
+            control.BeginAnimation(OpacityProperty, null);
+            control.Opacity = visible ? 1 : 0;
+            control.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+        if (visible) control.Visibility = Visibility.Visible;
+        var fade = new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromMilliseconds(160));
+        fade.Completed += (_, _) =>
+        {
+            if (version != _displayPreviewVersion || _closed) return;
+            control.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        };
+        control.BeginAnimation(OpacityProperty, fade);
+    }
+
     private void RefreshDisplayPreview(bool animate)
     {
-        var display = PreviewDisplay;
-        if (display is null) return;
-        if (_previewDisplayId != DisplayPlacement.PrimaryId && display.IsPrimary) _previewDisplayId = DisplayPlacement.PrimaryId;
+        if (_closed) return;
         var displays = _island.ConnectedDisplays;
-        SwitchDisplayButton.IsEnabled = displays.Count > 1;
+        if (displays.Count == 0) return;
+        var display = DisplayPlacement.Resolve(displays, _previewDisplayId);
+        if (_previewDisplayId != DisplayPlacement.PrimaryId && display.IsPrimary) _previewDisplayId = DisplayPlacement.PrimaryId;
+        var hasSecondary = displays.Count > 1;
+        SwitchDisplayButton.IsEnabled = hasSecondary;
         SwitchDisplayButton.Content = displays.Count > 2 ? "前往下一屏" : display.IsPrimary ? "前往副屏" : "返回主屏";
         DisplayConnectionText.Text = displays.Count > 1
             ? "主屏、副屏分别记忆位置；副屏断开时回到主屏，重新连接后恢复。"
-            : "副屏未连接 · 使用主屏位置，保留副屏已保存的位置。";
+            : "";
         var version = ++_displayPreviewVersion;
+        SetSecondaryDisplayControl(SwitchDisplayButton, hasSecondary, animate, version);
+        SetSecondaryDisplayControl(DisplayConnectionText, hasSecondary, animate, version);
         void Apply()
         {
             DisplayRoleText.Text = display.Label;

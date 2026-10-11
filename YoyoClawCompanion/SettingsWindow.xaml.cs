@@ -48,6 +48,8 @@ public partial class SettingsWindow : Window
     private IReadOnlyList<SettingsPresetSlot> _presets = [];
     private readonly (string Text, double Width, double Viewport, double Speed)?[] _presetMarqueeKeys = new (string, double, double, double)?[4];
     private bool _presetMarqueeUpdatePending;
+    private bool _closed;
+    private readonly (AnimationClock Clock, double BaseSpeed)?[] _presetMarqueeClocks = new (AnimationClock, double)?[4];
     private double? _wheelScrollTarget;
     private int _scrollAnimationVersion;
     private readonly HashSet<FrameworkElement> _cachedScrollCards = [];
@@ -60,7 +62,7 @@ public partial class SettingsWindow : Window
         _island = island;
         InitializeComponent();
         _scrollCacheRelease.Tick += (_, _) => ReleaseScrollCardCaches();
-        Closed += (_, _) => { BeginAnimation(AnimatedScrollOffsetProperty, null); ReleaseScrollCardCaches(); };
+        Closed += (_, _) => { _closed = true; BeginAnimation(AnimatedScrollOffsetProperty, null); ReleaseScrollCardCaches(); };
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) ReleaseScrollCardCaches(); };
         IsVisibleChanged += (_, _) => { if (!IsVisible) ReleaseScrollCardCaches(); };
         PrepareSettingIcons();
@@ -149,8 +151,15 @@ public partial class SettingsWindow : Window
 
     private void Setting_ValueChanged(object sender, RoutedEventArgs e)
     {
-        if (_loading) return;
+        if (_loading || _closed) return;
         if (_updatingWidthRange) return;
+        if (ReferenceEquals(sender, QuotaScrollSpeedSlider))
+        {
+            _island.SetQuotaScrollSpeed(QuotaScrollSpeedSlider.Value);
+            QuotaScrollSpeedValue.Text = $"{QuotaScrollSpeedSlider.Value:0} px/s";
+            SchedulePresetMarquees();
+            return;
+        }
         UpdateExpandedWidthRange(ExpandedWidthSlider.Value);
         var current = _island.CurrentSettings;
         current.CornerRadius = CornerSlider.Value;
@@ -205,7 +214,7 @@ public partial class SettingsWindow : Window
             || ReferenceEquals(sender, WorkBuddyCreditsCheck)
             || ReferenceEquals(sender, ConfirmationNotificationsCheck)
             || ReferenceEquals(sender, ReadyClockCheck) || ReferenceEquals(sender, CodexConfirmationNotificationsCheck);
-        _island.ApplySettings(current, refreshStatus: refreshStatus, preserveMarquee: ReferenceEquals(sender, QuotaScrollSpeedSlider));
+        _island.ApplySettings(current, refreshStatus: refreshStatus);
         if (ReferenceEquals(sender, YoyoAutoCheckinCheck) || ReferenceEquals(sender, YoyoLaunchForCheckinCheck)) _island.StartYoyoCheckinFromSettings();
         UpdateLabels();
         UpdateDependencyStates();
@@ -442,9 +451,9 @@ public partial class SettingsWindow : Window
 
     private void SchedulePresetMarquees()
     {
-        if (_presetMarqueeUpdatePending) return;
+        if (_presetMarqueeUpdatePending || _closed) return;
         _presetMarqueeUpdatePending = true;
-        Dispatcher.BeginInvoke(() => { _presetMarqueeUpdatePending = false; UpdatePresetMarquees(); }, DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => { _presetMarqueeUpdatePending = false; if (!_closed) UpdatePresetMarquees(); }, DispatcherPriority.Loaded);
     }
 
     private void UpdatePresetMarquees()
@@ -460,7 +469,14 @@ public partial class SettingsWindow : Window
             if (width <= canvas.ActualWidth) { StopPresetMarquee(slot); continue; }
             var speed = _island.CurrentSettings.QuotaScrollSpeed;
             var key = (text.Text, width, canvas.ActualWidth, speed);
-            if (_presetMarqueeKeys[slot] == key) continue;
+            if (_presetMarqueeKeys[slot] is { } previous && previous.Text == text.Text
+                && previous.Width == width && previous.Viewport == canvas.ActualWidth
+                && _presetMarqueeClocks[slot] is { } running && running.Clock.Controller is not null)
+            {
+                if (previous.Speed != speed) running.Clock.Controller.SpeedRatio = speed / running.BaseSpeed;
+                _presetMarqueeKeys[slot] = key;
+                continue;
+            }
             StopPresetMarquee(slot);
             _presetMarqueeKeys[slot] = key;
             var gap = text.FontSize * 5;
@@ -470,6 +486,7 @@ public partial class SettingsWindow : Window
             clone.Visibility = Visibility.Visible;
             var clock = new DoubleAnimation(0, -cycle, TimeSpan.FromSeconds(cycle / speed))
                 { RepeatBehavior = RepeatBehavior.Forever }.CreateClock();
+            _presetMarqueeClocks[slot] = (clock, speed);
             transforms.Primary.ApplyAnimationClock(TranslateTransform.XProperty, clock);
             transforms.Clone.ApplyAnimationClock(TranslateTransform.XProperty, clock);
         }
@@ -494,6 +511,7 @@ public partial class SettingsWindow : Window
     private void StopPresetMarquee(int slot)
     {
         _presetMarqueeKeys[slot] = null;
+        _presetMarqueeClocks[slot] = null;
         var (text, clone, _, _, _, transforms) = PresetNameControls(slot);
         transforms.Primary.BeginAnimation(TranslateTransform.XProperty, null);
         transforms.Clone.BeginAnimation(TranslateTransform.XProperty, null);

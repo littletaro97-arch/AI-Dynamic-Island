@@ -204,9 +204,24 @@ class Program
         Assert(cards.All(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is null), "idle settings releases temporary raster caches");
         smoothScroll.ScrollToVerticalOffset(300); Pump(50);
         Assert(cards.Any(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is BitmapCache), "visible moving settings cards use bounded raster caches");
+        Set(main, "_settingsWindow", settingsWindow);
         settingsWindow.WindowState = WindowState.Minimized; Pump(50);
         Assert(cards.All(name => ((FrameworkElement)settingsWindow.FindName(name)).CacheMode is null), "minimized settings releases all scroll caches");
-        settingsWindow.WindowState = WindowState.Normal; Pump(100);
+        Call(main, "OpenHome"); Pump(100);
+        Assert(settingsWindow.WindowState == WindowState.Normal && settingsWindow.IsVisible
+            && ReferenceEquals(typeof(MainWindow).GetField("_settingsWindow", Flags)!.GetValue(main), settingsWindow),
+            "opening settings restores the same minimized window");
+        settingsWindow.Hide(); Call(main, "OpenHome"); Pump(60);
+        Assert(settingsWindow.IsVisible, "opening settings restores an existing hidden window");
+        settingsWindow.WindowState = WindowState.Maximized; Call(main, "OpenHome");
+        Assert(settingsWindow.WindowState == WindowState.Maximized, "opening visible settings preserves maximized state");
+        settingsWindow.WindowState = WindowState.Normal;
+        var switchDisplay = (Button)settingsWindow.FindName("SwitchDisplayButton");
+        var connectionText = (TextBlock)settingsWindow.FindName("DisplayConnectionText");
+        Call(settingsWindow, "RefreshDisplayPreview", false);
+        Assert(switchDisplay.Visibility == (main.ConnectedDisplays.Count > 1 ? Visibility.Visible : Visibility.Collapsed)
+            && connectionText.Visibility == switchDisplay.Visibility, "secondary controls follow connected display count");
+
         for (var slot = 1; slot <= 3; slot++)
         {
             ((TextBlock)settingsWindow.FindName($"Preset{slot}NameText")).Text = new string('测', 80);
@@ -221,13 +236,24 @@ class Program
         scroll.ScrollToVerticalOffset(scroll.VerticalOffset + card.TransformToAncestor(scroll).Transform(new Point()).Y);
         Pump(200);
         Assert(primary.HasAnimatedProperties && clone.HasAnimatedProperties && primary.X < 0 && Math.Abs(primary.X - clone.X) < .001, "visible preset scrolls with synchronized native clocks");
+        var presetClock = ((ValueTuple<System.Windows.Media.Animation.AnimationClock, double>?[])
+            typeof(SettingsWindow).GetField("_presetMarqueeClocks", Flags)!.GetValue(settingsWindow)!)[1]!.Value.Item1;
+        var initialSpeed = main.CurrentSettings.QuotaScrollSpeed;
+        main.CurrentSettings.QuotaScrollSpeed = 80;
+        Call(settingsWindow, "SchedulePresetMarquees"); Pump(100);
+        var retunedPreset = ((ValueTuple<System.Windows.Media.Animation.AnimationClock, double>?[])
+            typeof(SettingsWindow).GetField("_presetMarqueeClocks", Flags)!.GetValue(settingsWindow)!)[1]!.Value;
+        Assert(ReferenceEquals(presetClock, retunedPreset.Item1)
+            && Math.Abs(presetClock.Controller!.SpeedRatio - 80 / retunedPreset.Item2) < .001,
+            "visible preset speed changes immediately without replacing shared clock");
+        main.CurrentSettings.QuotaScrollSpeed = initialSpeed;
         settingsWindow.WindowState = WindowState.Minimized; Pump(80);
         Assert(!primary.HasAnimatedProperties && !clone.HasAnimatedProperties, "minimized settings releases marquee clocks");
         settingsWindow.WindowState = WindowState.Normal; Pump(200);
         Assert(primary.HasAnimatedProperties, "restored visible preset resumes animation");
         scroll.ScrollToTop(); Pump(150);
         Assert(!primary.HasAnimatedProperties && ((UIElement)settingsWindow.FindName("Preset1NameClone")).Visibility == Visibility.Collapsed, "scrolling preset out of viewport stops both copies");
-        settingsWindow.Close();
+        settingsWindow.Close(); Set(main, "_settingsWindow", null);
         main.Show(); Pump(100);
         Set(main, "_isBalanceSummary", true);
         ((TextBlock)main.FindName("SummaryText")).Text = new string('测', 80);
@@ -237,8 +263,27 @@ class Program
         var previousOffset = marquee.X;
         Call(main, "ScheduleSummaryMarquee"); Call(main, "ScheduleSummaryMarquee"); Pump(80);
         Assert(previousOffset < 0 && marquee.X < previousOffset, "unchanged and coalesced refresh preserves marquee phase");
+        var originalClock = typeof(MainWindow).GetField("_summaryMarqueeClock", Flags)!.GetValue(main);
+        var normalSpeed = main.CurrentSettings.QuotaScrollSpeed;
+        var offsetBeforeSpeed = marquee.X;
+        Call(main, "SetQuotaScrollSpeed", 80d, false); Pump(100);
+        var retunedClock = (System.Windows.Media.Animation.AnimationClock)typeof(MainWindow).GetField("_summaryMarqueeClock", Flags)!.GetValue(main)!;
+        Assert(ReferenceEquals(originalClock, retunedClock) && Math.Abs(retunedClock.Controller!.SpeedRatio - 80 / normalSpeed) < .001,
+            "quota speed updates existing animation immediately");
+        Assert(marquee.X < offsetBeforeSpeed, "speed adjustment preserves current scroll phase");
+        Call(main, "SetQuotaScrollSpeed", 8d, false); Pump(80);
+        Assert(ReferenceEquals(originalClock, typeof(MainWindow).GetField("_summaryMarqueeClock", Flags)!.GetValue(main))
+            && Math.Abs(retunedClock.Controller.SpeedRatio - 8 / normalSpeed) < .001, "repeated speed changes do not multiply animation clocks");
+        var allocatedBeforeFull = GC.GetAllocatedBytesForCurrentThread(); var speedWatch = Stopwatch.StartNew();
+        for (var i = 0; i < 200; i++) { main.CurrentSettings.QuotaScrollSpeed = 8 + i % 73; Call(main, "ApplySettings", main.CurrentSettings, false, false, true); }
+        var fullMs = speedWatch.Elapsed.TotalMilliseconds; var fullBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBeforeFull;
+        var allocatedBeforeFast = GC.GetAllocatedBytesForCurrentThread(); speedWatch.Restart();
+        for (var i = 0; i < 200; i++) Call(main, "SetQuotaScrollSpeed", 8d + i % 73, false);
+        Console.WriteLine($"SPEED PATH 200 updates: full={fullMs:F3}ms/{fullBytes}B fast={speedWatch.Elapsed.TotalMilliseconds:F3}ms/{GC.GetAllocatedBytesForCurrentThread() - allocatedBeforeFast}B");
+        Call(main, "SetQuotaScrollSpeed", normalSpeed, false);
         Call(main, "StopSummaryMarquee");
-        Assert(!marquee.HasAnimatedProperties, "stopped marquee releases its clock");
+        Assert(!marquee.HasAnimatedProperties && typeof(MainWindow).GetField("_summaryMarqueeClock", Flags)!.GetValue(main) is null,
+            "stopped marquee releases its shared clock and controller reference");
         var island = (Border)main.FindName("Island");
         var shadow = (YoyoClawCompanion.Controls.CachedIslandShadow)main.FindName("IslandShadowLayer");
         shadow.SetEnabled(true, false); Pump(100);

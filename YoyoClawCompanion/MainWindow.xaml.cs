@@ -89,6 +89,8 @@ public partial class MainWindow : Window
     private double _appliedUnchangedAutoHideMinutes;
     private DateTimeOffset _lastPathCapture = DateTimeOffset.MinValue;
     private bool _summaryMarqueeUpdatePending;
+    private AnimationClock? _summaryMarqueeClock;
+    private double _summaryMarqueeBaseSpeed;
     private (string Text, double Width, double Viewport, double Speed)? _summaryMarqueeKey;
     private readonly Task<CodexResetReminderTracker> _codexResetReminders = Task.Run(() => CodexResetReminderTracker.Load(CodexResetReminderTracker.StatePath));
     private string? _highlightedProvider;
@@ -286,6 +288,16 @@ public partial class MainWindow : Window
         if (!_lifetimeCancellation.IsCancellationRequested) _refreshTimer.Start();
     }
 
+    internal void SetQuotaScrollSpeed(double speed, bool persist = true)
+    {
+        if (_lifetimeCancellation.IsCancellationRequested) return;
+        speed = Math.Clamp(speed, 8, 80);
+        if (_settings.QuotaScrollSpeed == speed) return;
+        _settings.QuotaScrollSpeed = speed;
+        ScheduleSummaryMarquee();
+        if (persist) PersistSettingsAsync();
+    }
+
     internal void ApplySettings(IslandSettings settings, bool persist = true, bool refreshStatus = false, bool preserveMarquee = false)
     {
         settings.NormalizeInteraction();
@@ -376,7 +388,7 @@ public partial class MainWindow : Window
             UpdateDisplayMode();
             EnsureTaskbarZOrder();
         }
-        if (!preserveMarquee) ScheduleSummaryMarquee();
+        if (!preserveMarquee || _summaryMarqueeKey?.Speed != settings.QuotaScrollSpeed) ScheduleSummaryMarquee();
     }
 
     internal void ApplyPresetSettings(IslandSettings settings)
@@ -2123,9 +2135,9 @@ public partial class MainWindow : Window
 
     private void ScheduleSummaryMarquee()
     {
-        if (_summaryMarqueeUpdatePending) return;
+        if (_summaryMarqueeUpdatePending || _lifetimeCancellation.IsCancellationRequested) return;
         _summaryMarqueeUpdatePending = true;
-        Dispatcher.BeginInvoke(() => { _summaryMarqueeUpdatePending = false; UpdateSummaryMarquee(); }, DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => { _summaryMarqueeUpdatePending = false; if (!_lifetimeCancellation.IsCancellationRequested) UpdateSummaryMarquee(); }, DispatcherPriority.Loaded);
     }
 
     private void UpdateSummaryMarquee()
@@ -2136,9 +2148,13 @@ public partial class MainWindow : Window
         var textWidth = SummaryText.DesiredSize.Width;
         var key = (InlineText(SummaryText), textWidth, SummaryViewport.ActualWidth, _settings.QuotaScrollSpeed);
         if (textWidth > SummaryViewport.ActualWidth && _summaryMarqueeKey is { } previous
-            && previous.Text == key.Item1 && previous.Width == textWidth && previous.Speed == _settings.QuotaScrollSpeed
+            && previous.Text == key.Item1 && previous.Width == textWidth && _summaryMarqueeClock?.Controller is not null
             && SummaryPrimaryTranslate.HasAnimatedProperties)
-        { _summaryMarqueeKey = key; return; }
+        {
+            if (previous.Speed != _settings.QuotaScrollSpeed)
+                _summaryMarqueeClock.Controller.SpeedRatio = _settings.QuotaScrollSpeed / _summaryMarqueeBaseSpeed;
+            _summaryMarqueeKey = key; return;
+        }
         StopSummaryMarquee();
         if (textWidth <= SummaryViewport.ActualWidth)
         {
@@ -2156,6 +2172,8 @@ public partial class MainWindow : Window
         var animation = new DoubleAnimation(0, -cycleWidth, TimeSpan.FromSeconds(cycleWidth / _settings.QuotaScrollSpeed))
             { RepeatBehavior = RepeatBehavior.Forever };
         var clock = animation.CreateClock();
+        _summaryMarqueeClock = clock;
+        _summaryMarqueeBaseSpeed = _settings.QuotaScrollSpeed;
         SummaryPrimaryTranslate.ApplyAnimationClock(TranslateTransform.XProperty, clock);
         SummaryCloneTranslate.ApplyAnimationClock(TranslateTransform.XProperty, clock);
     }
@@ -2163,6 +2181,7 @@ public partial class MainWindow : Window
     private void StopSummaryMarquee()
     {
         _summaryMarqueeKey = null;
+        _summaryMarqueeClock = null;
         SummaryPrimaryTranslate.BeginAnimation(TranslateTransform.XProperty, null);
         SummaryCloneTranslate.BeginAnimation(TranslateTransform.XProperty, null);
         Canvas.SetLeft(SummaryText, 0);
@@ -2268,7 +2287,14 @@ public partial class MainWindow : Window
 
     private void OpenHome()
     {
-        if (_settingsWindow is { IsLoaded: true }) { _settingsWindow.Activate(); return; }
+        if (_settingsWindow is { IsLoaded: true })
+        {
+            if (_settingsWindow.WindowState == WindowState.Minimized)
+                _settingsWindow.WindowState = WindowState.Normal;
+            if (!_settingsWindow.IsVisible) _settingsWindow.Show();
+            _settingsWindow.Activate();
+            return;
+        }
         _settingsWindow = new SettingsWindow(this) { Owner = this };
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.Show(); _settingsWindow.Activate();
