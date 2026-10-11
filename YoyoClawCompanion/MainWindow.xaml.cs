@@ -452,7 +452,7 @@ public partial class MainWindow : Window
     {
         var rowHeight = Math.Max(24, Math.Ceiling(_settings.TextSize * 1.7));
         var lineHeight = Math.Ceiling(_settings.TextSize * 1.45);
-        return Math.Min(Height - IslandMargin * 2, 42 + CollapsedHeight + rowHeight * VisibleProviderOrder().Length + lineHeight * _settings.MaxResponseLines);
+        return Math.Min(Height - IslandMargin * 2, 42 + CollapsedHeight + rowHeight * VisibleProviderOrder().Length + lineHeight * NoticeLineCount);
     }
 
     private static string NormalizeProviderOrder(string? value)

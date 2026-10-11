@@ -171,6 +171,61 @@ internal static class Program
         Call(main, "CompleteCollapseImmediately");
     }
 
+    private static void CheckNotificationAdaptiveHeight(MainWindow main)
+    {
+        var settings = main.CurrentSettings;
+        var active = (List<SystemToast>)typeof(MainWindow).GetField("_activeSystemToastBatch", Flags)!.GetValue(main)!;
+        var panel = (StackPanel)main.FindName("NotificationBatchPanel");
+        var text = (TextBlock)main.FindName("RecentResultText");
+        var toast = new SystemToast("height-test", "来源", "标题", "正文", DateTimeOffset.UtcNow, "source");
+        int Lines() => (int)typeof(MainWindow).GetProperty("NoticeLineCount", Flags)!.GetValue(main)!;
+        void Set(string field, object? value) => typeof(MainWindow).GetField(field, Flags)!.SetValue(main, value);
+        Set("_activeConfirmationNotice", null);
+        for (var maximum = 1; maximum <= 6; maximum++)
+        {
+            settings.MaxResponseLines = maximum;
+            Call(main, "ApplyTypography");
+            active.Clear(); active.Add(toast); Set("_activeWindowsToast", toast);
+            Call(main, "UpdateRecentNotice");
+            Assert(Lines() == Math.Min(2, maximum), "single notification reserves only actual lines within budget " + maximum);
+            Assert(((Grid)panel.Children[0]).Height == text.LineHeight * Lines(), "notification row matches adaptive height " + maximum);
+            var ignore = (Button)((Grid)panel.Children[0]).Children[1];
+            Assert(Equals(ignore.Content, "不再通知") && ignore.Style == main.FindResource("NotificationMuteAction"), "persistent mute is explicit pill action " + maximum);
+            active.Clear();
+            for (var i = 0; i < SystemNotificationQueue.BatchSize(maximum); i++) active.Add(toast with { Id = "height-" + i });
+            Set("_activeWindowsToast", active[0]); Call(main, "UpdateRecentNotice");
+            Assert(Lines() == Math.Min(maximum, active.Count * 2), "batch uses actual occupied rows without spare fifth line " + maximum);
+            Set("_activeConfirmationNotice", "Codex 等待回答"); Call(main, "UpdateRecentNotice");
+            Assert(Lines() == maximum && panel.Visibility == Visibility.Collapsed, "agent decision retains configured text budget " + maximum);
+            Set("_activeConfirmationNotice", null); Call(main, "ClearSystemToastBatch"); Call(main, "UpdateRecentNotice");
+            Assert(Lines() == maximum, "agent result retains configured text budget " + maximum);
+        }
+        settings.MaxResponseLines = 6;
+        var titleOnly = toast with { Body = " " }; active.Add(titleOnly); Set("_activeWindowsToast", titleOnly);
+        Call(main, "UpdateRecentNotice");
+        Assert(Lines() == 1 && ((Grid)panel.Children[0]).Height == text.LineHeight, "title only notification consumes one line");
+        Set("_notificationFeedbackId", titleOnly.Id); Set("_notificationLaunchFeedback", "无法打开来源应用");
+        Call(main, "UpdateRecentNotice");
+        Assert(Lines() == 2, "launch feedback adds a second line without clipping");
+        // Exercise rapid height changes while expansion is still running.
+        Call(main, "ExpandIsland", true);
+        active.Clear(); active.AddRange(Enumerable.Range(0, 3).Select(i => toast with { Id = "animate-" + i }));
+        Set("_activeWindowsToast", active[0]); Call(main, "UpdateRecentNotice");
+        active.RemoveRange(1, 2); Call(main, "UpdateRecentNotice");
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; }; timer.Start(); Dispatcher.PushFrame(frame);
+        main.UpdateLayout();
+        var expected = (double)typeof(MainWindow).GetMethod("GetExpandedHeight", Flags)!.Invoke(main, null)!;
+        Assert(Math.Abs(((Border)main.FindName("Island")).ActualHeight - expected) < 1,
+            "rapid batch resize settles at sparse notification height");
+        Assert(!(bool)typeof(MainWindow).GetField("_islandAnimationInProgress", Flags)!.GetValue(main)!,
+            "batch resize preserves expansion lifecycle completion");
+
+        Call(main, "ClearSystemToastBatch"); settings.MaxResponseLines = 3;
+        Call(main, "ApplyTypography"); Call(main, "UpdateRecentNotice");
+    }
+
     private static void CheckHoverNotificationHold(MainWindow main)
     {
         void Set(string field, object? value) => typeof(MainWindow).GetField(field, Flags)!.SetValue(main, value);
@@ -454,6 +509,7 @@ internal static class Program
         var mainRoot = (FrameworkElement)main.Content;
         mainRoot.Measure(new Size(550, 500)); mainRoot.Arrange(new Rect(0, 0, 550, 500)); mainRoot.UpdateLayout();
         CheckNotificationBatchUi(main);
+        CheckNotificationAdaptiveHeight(main);
         CheckHoverNotificationHold(main);
         var savedHover = main.CurrentSettings.EnableHoverExpansion;
         var savedReverse = main.CurrentSettings.EnableReverseHover;

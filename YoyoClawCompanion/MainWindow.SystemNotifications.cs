@@ -23,6 +23,7 @@ public partial class MainWindow
     private bool _notificationFlushPending;
     private string? _notificationRowsKey;
     private SystemToast[] _renderedSystemToasts = [];
+    private int _noticeLayoutLines = -1;
     internal SystemNotificationService SystemNotifications => _systemNotifications;
     internal event EventHandler? NotificationFiltersChanged;
 
@@ -153,8 +154,29 @@ public partial class MainWindow
         RecentResultText.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;
         NotificationBatchPanel.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
         if (wasShowing && !canOpen) RecentBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(.45, 1, TimeSpan.FromMilliseconds(160)));
-        if (!canOpen) { NotificationBatchPanel.Children.Clear(); _notificationRowsKey = null; _renderedSystemToasts = []; return; }
-        RenderSystemToastBatch();
+        if (!canOpen) { NotificationBatchPanel.Children.Clear(); _notificationRowsKey = null; _renderedSystemToasts = []; }
+        else RenderSystemToastBatch();
+        UpdateNoticeHeight();
+    }
+
+    private int SystemToastLines(SystemToast toast)
+        => _settings.MaxResponseLines == 1 || string.IsNullOrWhiteSpace(
+            _notificationFeedbackId == toast.Id ? _notificationLaunchFeedback ?? toast.Body : toast.Body) ? 1 : 2;
+
+    private int NoticeLineCount => _activeWindowsToast is not null && _activeConfirmationNotice is null
+        ? Math.Clamp(CurrentToastBatch().Sum(SystemToastLines), 1, _settings.MaxResponseLines)
+        : _settings.MaxResponseLines;
+
+    private void UpdateNoticeHeight()
+    {
+        var lines = NoticeLineCount;
+        if (_noticeLayoutLines == lines) return;
+        _noticeLayoutLines = lines;
+        if (!_expanded) return;
+        // Preserve the expansion lifecycle callback when the batch changes mid-animation.
+        if (_islandAnimationInProgress) StartExpandAnimations(++_islandAnimationVersion);
+        else Island.BeginAnimation(HeightProperty, new DoubleAnimation(GetExpandedHeight(), TimeSpan.FromMilliseconds(220))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
 
     private void RenderSystemToastBatch()
@@ -169,24 +191,25 @@ public partial class MainWindow
         NotificationBatchPanel.Children.Clear();
         foreach (var toast in batch)
         {
-            var row = new Grid { Height = lineHeight * (compact ? 1 : 2) };
+            var row = new Grid { Height = lineHeight * SystemToastLines(toast) };
             row.ColumnDefinitions.Add(new ColumnDefinition());
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var content = new StackPanel();
             var feedback = _notificationFeedbackId == toast.Id ? _notificationLaunchFeedback : null;
             var title = $"{toast.Source} · {OneLine(toast.Title)}";
             var body = OneLine(feedback ?? toast.Body);
             content.Children.Add(NotificationLine(compact ? title + " · " + body : title));
-            if (!compact) content.Children.Add(NotificationLine(body));
+            if (!compact && SystemToastLines(toast) == 2) content.Children.Add(NotificationLine(body));
             var open = new Button { Content = content, Tag = toast, Cursor = Cursors.Hand, IsEnabled = !_notificationOpening,
                 Style = (Style)FindResource("NotificationRowAction"), HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
                 ToolTip = $"点击打开 {toast.Source}", Padding = new Thickness(0) };
             open.Click += NotificationOpen_Click;
             row.Children.Add(open);
-            var ignore = new Button { Content = "×", Tag = toast, Cursor = Cursors.Hand,
-                Style = (Style)FindResource("NotificationRowAction"), Height = lineHeight, VerticalAlignment = VerticalAlignment.Top,
+            var ignore = new Button { Content = "不再通知", Tag = toast, Cursor = Cursors.Hand,
+                Style = (Style)FindResource("NotificationMuteAction"), Height = lineHeight, FontSize = RecentResultText.FontSize,
+                Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top,
                 ToolTip = $"不再提醒此标题：{toast.Title}（可在设置中恢复）", Padding = new Thickness(0) };
-            System.Windows.Automation.AutomationProperties.SetName(ignore, "屏蔽此通知标题");
+            System.Windows.Automation.AutomationProperties.SetName(ignore, "不再通知此来源的相同标题");
             ignore.Click += IgnoreNotification_Click;
             Grid.SetColumn(ignore, 1); row.Children.Add(ignore);
             NotificationBatchPanel.Children.Add(row);

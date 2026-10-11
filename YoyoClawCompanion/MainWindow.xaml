@@ -23,6 +23,25 @@
                 </Grid>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <Style x:Key="NotificationMuteAction" TargetType="Button" BasedOn="{StaticResource NotificationRowAction}">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Grid>
+                    <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name="CommonStates">
+                        <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.12"/></VisualStateGroup.Transitions>
+                        <VisualState x:Name="Normal"/>
+                        <VisualState x:Name="MouseOver"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".18" Duration="0"/></Storyboard></VisualState>
+                        <VisualState x:Name="Pressed"><Storyboard><DoubleAnimation Storyboard.TargetName="HoverSurface" Storyboard.TargetProperty="Opacity" To=".3" Duration="0"/></Storyboard></VisualState>
+                    </VisualStateGroup></VisualStateManager.VisualStateGroups>
+                    <Border Background="#2045CFA2" CornerRadius="100"/>
+                    <Border x:Name="HoverSurface" Background="#45CFA2" CornerRadius="100" Opacity="0"/>
+                    <StackPanel Orientation="Horizontal" Margin="8,0" VerticalAlignment="Center">
+                        <Ellipse Width="5" Height="5" Fill="{TemplateBinding Foreground}" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         <DropShadowEffect x:Key="IslandShadow" BlurRadius="16" ShadowDepth="6" Opacity="0.38" Color="#000000"/>
         <Geometry x:Key="MenuHomeIcon">M3,11 L12,3 L21,11 M6,9 L6,20 L18,20 L18,9 M10,20 L10,14 L14,14 L14,20</Geometry>
         <Geometry x:Key="MenuRefreshIcon">M20,8 A8,8 0 1 0 20,16 M20,4 L20,9 L15,9</Geometry>
