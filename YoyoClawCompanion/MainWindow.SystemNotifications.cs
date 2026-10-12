@@ -39,6 +39,7 @@ public partial class MainWindow
     private void ReceiveSystemToast(SystemToast toast)
     {
         if (!_settings.EnableSystemNotifications || IsIgnoredNotification(toast)) return;
+        if (MagicActive) { _magicNotice?.Invoke(toast.Source,toast.Title,toast.Body,toast.Id); return; }
         var index = _activeSystemToastBatch.FindIndex(item => item.Id == toast.Id);
         if (index >= 0)
         {

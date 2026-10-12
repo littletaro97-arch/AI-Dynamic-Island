@@ -78,6 +78,7 @@ public partial class SettingsWindow : Window
         StateChanged += (_, _) => SchedulePresetMarquees();
         Loaded += (_, _) => Dispatcher.BeginInvoke(UpdateActiveNavigation, DispatcherPriority.Loaded);
         LoadValues(island.CurrentSettings);
+        InitializeMagicSettings();
         _loading = false;
         UpdateLabels();
         UpdateDependencyStates();
@@ -245,6 +246,7 @@ public partial class SettingsWindow : Window
         if (UnchangedAutoHideCheck.IsChecked != true) UnchangedAutoHideCard.SetExpanded(false);
         if (HoverExpansionCheck.IsChecked != true) HoverExpansionCard.SetExpanded(false);
         if (CompletionNotificationsCheck.IsChecked != true) CompletionNotificationsCard.SetExpanded(false);
+        UpdateMagicControls(false);
     }
 
     private void Island_ProviderAvailabilityChanged(object? sender, EventArgs e)
@@ -748,12 +750,13 @@ public partial class SettingsWindow : Window
         if (!IsLoaded) return;
         var sections = new (System.Windows.Controls.RadioButton Nav, FrameworkElement Section)[]
         {
-            (PositionNav, PositionCard), (AppearanceNav, AppearanceCard), (ComponentNav, ComponentCard),
+            (MagicNav, MagicCard), (PositionNav, PositionCard), (AppearanceNav, AppearanceCard), (ComponentNav, ComponentCard),
             (FeatureNav, FeatureCard), (NotificationNav, NotificationCard), (PresetNav, PresetCard), (UpdateNav, UpdateCard)
         };
-        var active = sections[0].Nav;
+        var active = sections.First(item=>item.Section.Visibility==Visibility.Visible).Nav;
         foreach (var item in sections)
         {
+            if (item.Section.Visibility != Visibility.Visible) continue;
             var top = item.Section.TransformToAncestor(SettingsScroll).Transform(new System.Windows.Point(0, 0)).Y;
             if (top <= 72) active = item.Nav;
             else break;
@@ -921,7 +924,7 @@ public partial class SettingsWindow : Window
         Resources["SettingsSecondaryForeground"] = secondary;
         TitleText.Foreground = primary; SubtitleText.Foreground = secondary;
         NavTitle.Foreground = primary; NavSubtitle.Foreground = secondary;
-        PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; UpdateCard.Background = card; PositionCard.Background = card;
+        MagicCard.Background = card; PresetCard.Background = card; AppearanceCard.Background = card; ComponentCard.Background = card; FeatureCard.Background = card; NotificationCard.Background = card; UpdateCard.Background = card; PositionCard.Background = card;
         PreviewSurface.Background = Brush(light ? "#EEF1F7" : "#111620");
         PreviewIsland.Background = Brush(light ? "#F4FFFFFF" : "#EB0E121C");
         PreviewIsland.BorderBrush = Brush(light ? "#24182033" : "#1AFFFFFF");
@@ -960,7 +963,7 @@ public partial class SettingsWindow : Window
         }
         NavigationBrand.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
         NavigationBrand.Margin = new Thickness(4, 0, 0, 26);
-        foreach (var nav in new[] { PositionNav, AppearanceNav, ComponentNav, FeatureNav, NotificationNav, PresetNav, UpdateNav })
+        foreach (var nav in new[] { MagicNav, PositionNav, AppearanceNav, ComponentNav, FeatureNav, NotificationNav, PresetNav, UpdateNav })
         {
             var content = (StackPanel)nav.Content;
             labels.Add((FrameworkElement)content.Children[1]);

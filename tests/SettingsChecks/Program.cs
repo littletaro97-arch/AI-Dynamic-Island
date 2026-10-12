@@ -20,10 +20,10 @@ class Program
         var window=(Window)Activator.CreateInstance(typeof(SettingsWindow),Flags,null,new object[]{main},null)!;
         window.GetType().GetField("_loading",Flags)!.SetValue(window,true);
         var order=new[]{"Position","Appearance","Component","Feature","Notification","Preset","Update"};
-        var nav=((Panel)window.FindName("NavigationItems")).Children.OfType<RadioButton>().Select(x=>x.Name).ToArray();
+        var nav=((Panel)window.FindName("NavigationItems")).Children.OfType<RadioButton>().Where(x=>x.Name!="MagicNav").Select(x=>x.Name).ToArray();
         Assert(nav.SequenceEqual(order.Select(x=>x+"Nav")),"navigation order");
         var cards=(Panel)((FrameworkElement)window.FindName("PositionCard")).Parent;
-        Assert(cards.Children.OfType<Border>().Select(x=>x.Name).SequenceEqual(order.Select(x=>x+"Card")),"content order");
+        Assert(cards.Children.OfType<Border>().Where(x=>x.Name!="MagicCard").Select(x=>x.Name).SequenceEqual(order.Select(x=>x+"Card")),"content order");
         Assert(((FrameworkElement)window.FindName("ReverseHoverCheck")).IsDescendantOf((DependencyObject)window.FindName("FeatureCard")),"reverse hover in behaviour");
         var settings=typeof(MainWindow).GetProperty("CurrentSettings",Flags)!.GetValue(main)!;
         foreach(var name in new[]{"SystemNotificationsCheck","CodexConfirmationNotificationsCheck"})
@@ -31,6 +31,26 @@ class Program
         Assert(ReferenceEquals(((CheckBox)window.FindName("CodexConfirmationNotificationsCheck")).Tag, ((CheckBox)window.FindName("CodexCheck")).Tag), "Codex waiting reuses provider icon");
         Assert(((Button)window.FindName("NotificationBannerSettingsButton")).IsDescendantOf((DependencyObject)window.FindName("NotificationCard")), "system settings entry stays in reminders");
         Assert((string)typeof(SettingsWindow).GetField("NotificationSettingsUri",BindingFlags.NonPublic|BindingFlags.Static)!.GetRawConstantValue()! == "ms-settings:notifications", "entry targets Windows notifications without changing OS configuration");
+        Assert(((FrameworkElement)window.FindName("MagicCard")).Visibility==Visibility.Collapsed,"Magic panel hidden before installation detection");
+        var magicFields=typeof(MainWindow);
+        magicFields.GetField("_magicDetectionDone",Flags)!.SetValue(main,true);
+        magicFields.GetField("_magicInstalled",Flags)!.SetValue(main,false);
+        var enableMagic=settings.GetType().GetProperty("EnableMagicAdaptation")!;
+        enableMagic.SetValue(settings,true);Call(main,"CheckMagicMode");
+        Assert(!AppDomain.CurrentDomain.GetAssemblies().Any(a=>a.GetName().Name=="MagicStatusbarAdapter"),"absent Magic never loads adapter assembly even with enabled setting");
+        Assert(!System.Diagnostics.Process.GetCurrentProcess().Modules.Cast<System.Diagnostics.ProcessModule>().Any(m=>m.ModuleName=="MagicBarLayout.dll"),"absent Magic never loads native layout DLL");
+        magicFields.GetField("_magicInstalled",Flags)!.SetValue(main,true);enableMagic.SetValue(settings,false);Call(main,"CheckMagicMode");
+        Assert(!AppDomain.CurrentDomain.GetAssemblies().Any(a=>a.GetName().Name=="MagicStatusbarAdapter"),"disabled Magic never loads adapter assembly");
+        Call(window,"UpdateMagicControls",false);
+        Assert(((FrameworkElement)window.FindName("MagicCard")).Visibility==Visibility.Visible,"installed Magic exposes settings section");
+        Assert(((Slider)window.FindName("MagicDurationSlider")).Value==8 && ((Slider)window.FindName("MagicBlinkSlider")).Value==700,"validated experiment defaults retained");
+        var savedWidth=settings.GetType().GetProperty("IslandWidth")!.GetValue(settings);
+        magicFields.GetField("_magicAdapter",Flags)!.SetValue(main,new object());Call(window,"UpdateMagicControls",false);
+        Assert(!((FrameworkElement)window.FindName("PositionCard")).IsEnabled&&!((Slider)window.FindName("TextSizeSlider")).IsEnabled,"Magic disables normal position and typography controls");
+        Assert(((CheckBox)window.FindName("SystemNotificationsCheck")).IsEnabled,"shared notification toggle remains available");
+        Assert(Equals(savedWidth,settings.GetType().GetProperty("IslandWidth")!.GetValue(settings)),"mode changes preserve normal width");
+        magicFields.GetField("_magicAdapter",Flags)!.SetValue(main,null);Call(window,"UpdateMagicControls",false);
+        Assert(((FrameworkElement)window.FindName("PositionCard")).IsEnabled&&((Slider)window.FindName("TextSizeSlider")).IsEnabled,"normal controls restored after Magic exit");
         var reverse=settings.GetType().GetProperty("EnableReverseHover")!;
         var hover=settings.GetType().GetProperty("EnableHoverExpansion")!;
         reverse.SetValue(settings,true); hover.SetValue(settings,true); Call(settings,"NormalizeInteraction");
@@ -133,6 +153,25 @@ class Program
             System.IO.Directory.CreateDirectory(evidence);
             using var file=System.IO.File.Create(System.IO.Path.Combine(evidence,"notification-settings.png"));encoder.Save(file);
             evidenceWindow.Close();
+        }
+        // Read-only live toolbar acceptance probe; never changes vendor configuration.
+        if (System.Diagnostics.Process.GetProcessesByName("magictaskbar-ui").Length > 0)
+        {
+            enableMagic.SetValue(settings,true);Call(main,"CheckMagicMode");
+            Assert((bool)typeof(MainWindow).GetProperty("MagicActive",Flags)!.GetValue(main)!,"live Magic module starts inside main process");
+            var adapter=magicFields.GetField("_magicAdapter",Flags)!.GetValue(main)!;
+            var form=adapter.GetType().GetField("form",Flags)!.GetValue(adapter)!;
+            var liveFrame=new System.Windows.Threading.DispatcherFrame();
+            var liveTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(1600)};
+            liveTimer.Tick+=(_,_)=>{liveTimer.Stop();liveFrame.Continue=false;};liveTimer.Start();System.Windows.Threading.Dispatcher.PushFrame(liveFrame);
+            Assert(form.GetType().GetField("layoutWatch",Flags)!.GetValue(form) is IntPtr watch && watch!=IntPtr.Zero,"live native layout worker attached");
+            enableMagic.SetValue(settings,false);Call(main,"CheckMagicMode");
+            var stopFrame=new System.Windows.Threading.DispatcherFrame();
+            var stopTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(500)};
+            stopTimer.Tick+=(_,_)=>{stopTimer.Stop();stopFrame.Continue=false;};stopTimer.Start();System.Windows.Threading.Dispatcher.PushFrame(stopFrame);
+            Assert(!(bool)typeof(MainWindow).GetProperty("MagicActive",Flags)!.GetValue(main)!,"disabling returns host to ordinary mode");
+            Assert(form.GetType().GetField("layoutWatch",Flags)!.GetValue(form) is IntPtr disposed && disposed==IntPtr.Zero,"disabling releases UIA worker");
+            Assert((bool)form.GetType().GetProperty("IsDisposed")!.GetValue(form)!,"disabling disposes overlay and render timers");
         }
         window.Close(); main.Close(); app.Shutdown();
     }

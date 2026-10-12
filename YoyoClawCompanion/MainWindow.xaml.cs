@@ -120,7 +120,7 @@ public partial class MainWindow : Window
         _codexStatusService.LimitsUpdated += CodexLimitsUpdated;
         Deactivated += MainWindow_Deactivated;
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Closed += (_, _) => { _statusSnapshots.Stop(); if (_hasAsyncSettingsSave) AppSettings.Save(_settings); _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); StopWindowTimers(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
+        Closed += (_, _) => { StopMagic(); _statusSnapshots.Stop(); if (_hasAsyncSettingsSave) AppSettings.Save(_settings); _checkinCancellation?.Cancel(); _checkinCancellation?.Dispose(); _lifetimeCancellation.Cancel(); _lifetimeCancellation.Dispose(); StopSummaryMarquee(); StopWindowTimers(); _codexStatusService.LimitsUpdated -= CodexLimitsUpdated; _codexStatusService.Dispose(); _workBuddyStatusService.Dispose(); _deepSeekStatusService.Dispose(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged; };
     }
 
     private void StopWindowTimers()
@@ -320,6 +320,7 @@ public partial class MainWindow : Window
         settings.ProviderOrder = NormalizeProviderOrder(settings.ProviderOrder);
         settings.PositionPreset = NormalizePositionPreset(settings.PositionPreset);
         _settings = settings;
+        UpdateMagicSettings();
         if (_appliedUnchangedAutoHide != settings.EnableUnchangedAutoHide
             || Math.Abs(_appliedUnchangedAutoHideMinutes - settings.UnchangedAutoHideMinutes) > .01)
         {
@@ -330,7 +331,7 @@ public partial class MainWindow : Window
             _inactivityHidden = false;
             if (wasHiddenByInactivity && IsLoaded) ShowIslandForFocusMode(animate: true);
         }
-        if (!settings.EnableReverseHover) RestoreReverseHoverIsland();
+        if (!settings.EnableReverseHover || MagicActive) RestoreReverseHoverIsland();
         else if (!_expanded && !_islandAnimationInProgress && !_notificationHoldActive)
         {
             if (IsLoaded && Island.IsMouseOver) Dispatcher.BeginInvoke(HideIslandForReverseHover, DispatcherPriority.Input);
@@ -366,7 +367,7 @@ public partial class MainWindow : Window
         IslandShadowLayer.SetEnabled(settings.ShowShadow, IsLoaded);
         ((App)Application.Current).SetTrayIconVisible(settings.ShowTrayIcon);
         if (!App.IsPreviewMode) StartupRegistration.SetEnabled(settings.StartWithWindows);
-        if (settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
+        if (settings.EnableFullscreenActiveOnly && !MagicActive) _fullscreenTimer.Start();
         else
         {
             _fullscreenTimer.Stop();
@@ -644,6 +645,7 @@ public partial class MainWindow : Window
     private IntPtr WindowProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (message != 0x0084) return IntPtr.Zero;
+        if (MagicActive) { handled = true; return new IntPtr(-1); }
         if (_focusModeHidden || _reverseHoverHidden || Island.Visibility != Visibility.Visible)
         {
             handled = true;
@@ -675,12 +677,13 @@ public partial class MainWindow : Window
         _positionInitialized = true;
         InitializeDisplayPlacements();
         if (_settings.EnableSystemNotifications) _ = ConfigureSystemNotificationsAsync();
+        await InitializeMagicAsync();
         await RefreshStatusAsync();
         if (_lifetimeCancellation.IsCancellationRequested) return;
         _refreshTimer.Start();
         if (_settings.AutoCheckForUpdates) _ = _updateService.CheckAsync();
         _zOrderTimer.Start();
-        if (_settings.EnableFullscreenActiveOnly) _fullscreenTimer.Start();
+        if (_settings.EnableFullscreenActiveOnly && !MagicActive) _fullscreenTimer.Start();
     }
 
     private void SavePosition()
@@ -711,6 +714,7 @@ public partial class MainWindow : Window
             CaptureExecutablePaths();
             var presence = await Task.Run(ApplicationLocator.CaptureProviderPresence);
             if (_lifetimeCancellation.IsCancellationRequested) return;
+            if (presence.Magic && !_magicInstalled) { _magicInstalled = true; CheckMagicMode(); MagicModeChanged?.Invoke(this, EventArgs.Empty); }
             var workBuddyTask = MeasureAsync(_workBuddyStatusService.ReadAsync(presence.WorkBuddy));
             var workBuddyCreditsTask = MeasureAsync(Task.Run(() => _workBuddyCreditsService.ReadAsync(_settings.ShowWorkBuddyCredits)));
             var codexTask = MeasureAsync(_codexStatusService.ReadAsync(_settings.EnableCodexActivityDetection, _settings.ShowCodexLimits, presence.Codex));
@@ -745,7 +749,9 @@ public partial class MainWindow : Window
             SetWorkBuddyStateText(workBuddy, workBuddyCredits);
             _latestCombinedResult = SelectLatestResponse(status, codex, workBuddy);
             _codexDecisionStatus = codex;
+            _magicQuestion?.Invoke(IsProviderVisible("codex") && _settings.EnableCodexConfirmationNotifications && codex.RequiresConfirmation ? codex.ConfirmationId : null, codex.ConfirmationPrompt);
             UpdateConfirmationNotice(workBuddy);
+            if (MagicActive) { _pendingCompletions.Clear(); _activeCompletionNotice = _activeSystemNotice = null; }
             var completion = DetectCompletion(status, codex, workBuddy);
             if (completion is null && _activeConfirmationNotice is null && _activeWindowsToast is null) await UpdateCodexResetReminder(codex);
             if (_lifetimeCancellation.IsCancellationRequested) return;
@@ -891,7 +897,7 @@ public partial class MainWindow : Window
         else if (IsProviderVisible("yoyo") && yoyo.LastTaskFailed) { HeadlineText.Text = "1 项需要处理"; HeadlineText.Foreground = ErrorBrush; SetPlainSummary(yoyo.RecentResult); }
         else
         {
-            if (_settings.ShowClockWhenReady)
+            if (_settings.ShowClockWhenReady && !MagicActive)
             {
                 UpdateReadyClockText();
                 _readyClockTimer.Start();
@@ -1046,7 +1052,8 @@ public partial class MainWindow : Window
                 && item.Event.CompletedAt >= DateTimeOffset.UtcNow.AddMinutes(-30) && item.Event.CompletedAt <= DateTimeOffset.UtcNow.AddMinutes(2))
             {
                 if (_pendingCompletions.Count >= 64) _pendingCompletions.Dequeue();
-                _pendingCompletions.Enqueue(new(item.Provider, item.Event.Response, item.Event.CompletedAt));
+                if (MagicActive) _magicNotice?.Invoke(item.Provider,"任务已完成",item.Event.Response,id);
+                else _pendingCompletions.Enqueue(new(item.Provider, item.Event.Response, item.Event.CompletedAt));
             }
         }
         _completionBaselineReady = true;
@@ -1134,6 +1141,7 @@ public partial class MainWindow : Window
 
     private void ShowSystemNotice(string provider, string message)
     {
+        if (MagicActive) { _magicNotice?.Invoke(provider,"",message,Guid.NewGuid().ToString()); return; }
         _activeSystemNotice = message;
         HighlightProvider(provider);
         UpdateRecentNotice();
@@ -1310,6 +1318,7 @@ public partial class MainWindow : Window
 
     private void UpdateFullscreenOverride()
     {
+        if (MagicActive) return;
         var active = _settings.EnableFullscreenActiveOnly
             && IsLoaded
             && NativeWindow.IsForegroundWindowFullscreen(new WindowInteropHelper(this).Handle);
@@ -1320,6 +1329,8 @@ public partial class MainWindow : Window
 
     private void EnsureTaskbarZOrder()
     {
+        CheckMagicMode();
+        if (MagicActive) return;
         if (!IsLoaded) return;
         var visible = Island.Visibility == Visibility.Visible && !_focusModeHidden && !_reverseHoverHidden;
         var overlapsTaskbar = visible && NativeWindow.IntersectsTaskbar(GetIslandScreenPixelBounds());
@@ -1380,6 +1391,7 @@ public partial class MainWindow : Window
 
     private void ShowIslandForFocusMode(bool animate = false)
     {
+        if (MagicActive) return;
         if (!_focusModeHidden) return;
         _focusModeHidden = false;
         var animationVersion = ++_focusAnimationVersion;
@@ -1699,6 +1711,7 @@ public partial class MainWindow : Window
 
     private void ExpandIsland(bool force = false)
     {
+        if (MagicActive) return;
         if ((!force && !CanPointerExpand(NativeWindow.IsAltPressed())) || _expanded || _dragging || _holdArmed) return;
         if (_islandAnimationInProgress)
         {
@@ -2135,6 +2148,7 @@ public partial class MainWindow : Window
 
     private void ScheduleSummaryMarquee()
     {
+        if (MagicActive) { StopSummaryMarquee(); return; }
         if (_summaryMarqueeUpdatePending || _lifetimeCancellation.IsCancellationRequested) return;
         _summaryMarqueeUpdatePending = true;
         Dispatcher.BeginInvoke(() => { _summaryMarqueeUpdatePending = false; if (!_lifetimeCancellation.IsCancellationRequested) UpdateSummaryMarquee(); }, DispatcherPriority.Loaded);
@@ -2142,6 +2156,7 @@ public partial class MainWindow : Window
 
     private void UpdateSummaryMarquee()
     {
+        if (MagicActive) { StopSummaryMarquee(); return; }
         if ((!_isBalanceSummary && !_plainSummaryScroll) || _expanded || _focusModeHidden || _reverseHoverHidden || SummaryViewport.ActualWidth <= 0)
         { StopSummaryMarquee(); return; }
         SummaryText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));

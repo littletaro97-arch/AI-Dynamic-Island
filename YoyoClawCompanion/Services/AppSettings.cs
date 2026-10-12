@@ -20,6 +20,9 @@ internal sealed class IslandSettings
     public bool ShowDeepSeek { get; set; } = true;
     public string[] SuppressedOfflineProviders { get; set; } = [];
     public bool ShowShadow { get; set; } = true;
+    public bool EnableMagicAdaptation { get; set; }
+    public double MagicNotificationSeconds { get; set; } = 8;
+    public int MagicBlinkPeriodMs { get; set; } = 700;
     public bool ShowClockWhenReady { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
     public bool StartWithWindows { get; set; }
@@ -68,6 +71,8 @@ internal sealed class IslandSettings
 
     internal void NormalizeInteraction()
     {
+        MagicNotificationSeconds = double.IsFinite(MagicNotificationSeconds) ? Math.Clamp(MagicNotificationSeconds, 3, 30) : 8;
+        MagicBlinkPeriodMs = Math.Clamp(MagicBlinkPeriodMs, 350, 1400);
         HoverDelayMs = NormalizeHoverDelay(HoverDelayMs);
         TextSize = double.IsFinite(TextSize) ? Math.Clamp(TextSize, MinimumTextSize, 16) : MinimumTextSize;
     }

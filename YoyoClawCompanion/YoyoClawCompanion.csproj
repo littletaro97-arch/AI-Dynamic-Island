@@ -11,9 +11,9 @@
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <AssemblyTitle>AI Dynamic Island</AssemblyTitle>
     <Product>AI Dynamic Island</Product>
-    <Version>0.7.7</Version>
-    <AssemblyVersion>0.7.7.0</AssemblyVersion>
-    <FileVersion>0.7.7.0</FileVersion>
+    <Version>0.8.0-preview.1</Version>
+    <AssemblyVersion>0.8.0.0</AssemblyVersion>
+    <FileVersion>0.8.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,6 +34,11 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\MagicStatusbarAdapter\MagicStatusbarAdapter.csproj" ReferenceOutputAssembly="false" />
+    <Content Include="..\MagicStatusbarAdapter\bin\$(Configuration)\net8.0-windows10.0.19041.0\MagicStatusbarAdapter.dll"><Link>MagicStatusbarAdapter.dll</Link><ExcludeFromSingleFile>true</ExcludeFromSingleFile><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="..\MagicStatusbarAdapter\native\MagicBarLayout.dll"><Link>MagicBarLayout.dll</Link><ExcludeFromSingleFile>true</ExcludeFromSingleFile><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+  </ItemGroup>
   <Target Name="VerifyExternalBridgePayload" AfterTargets="Publish">
     <Error Condition="!Exists('$(PublishDir)magicore-bridge\status.mjs')" Text="发布缺少外部 Magicore status.mjs，不能交付。" />
     <Error Condition="!Exists('$(PublishDir)magicore-bridge\node_modules\@magicore\sdk\package.json')" Text="发布缺少外部 Magicore SDK，不能交付。" />

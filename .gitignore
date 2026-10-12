@@ -1,5 +1,10 @@
 **/bin/
 **/obj/
+MagicStatusbarAdapter/native/*.dll
+MagicStatusbarAdapter/native/*.lib
+MagicStatusbarAdapter/native/*.exp
+MagicStatusbarAdapter/native/*.obj
+MagicStatusbarAdapter/native/build.cmd
 **/node_modules/
 publish*/
 WorkBuddyIsland-Windows-便携版(1)/

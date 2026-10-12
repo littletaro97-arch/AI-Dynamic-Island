@@ -345,6 +345,7 @@
                     </Border>
                     <StackPanel Margin="10,1,0,0"><TextBlock x:Name="NavTitle" Text="AI Dynamic" FontSize="15" FontWeight="SemiBold"/><TextBlock x:Name="NavSubtitle" Text="Island" Foreground="#657087" FontSize="13"/></StackPanel>
                 </StackPanel>
+                <RadioButton x:Name="MagicNav" Visibility="Collapsed" ToolTip="Magic 视界" GroupName="SettingsNavigation" Style="{StaticResource NavButton}" Tag="MagicCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#188FA0FF" Margin="0,0,11,0"><Path Data="{StaticResource IconPosition}" Stroke="#8FA0FF" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform"/></Border><TextBlock Text="Magic 视界" VerticalAlignment="Center"/></StackPanel></RadioButton>
                 <RadioButton x:Name="PositionNav" ToolTip="位置" GroupName="SettingsNavigation" Style="{StaticResource NavButton}" Tag="PositionCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#18657087" Margin="0,0,11,0"><Path Data="{StaticResource IconPosition}" Stroke="#657087" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Border><TextBlock Text="位置" VerticalAlignment="Center"/></StackPanel></RadioButton>
                 <RadioButton x:Name="AppearanceNav" ToolTip="外观" GroupName="SettingsNavigation" Style="{StaticResource NavButton}" Tag="AppearanceCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#188FA0FF" Margin="0,0,11,0"><Path Data="{StaticResource IconAppearance}" Stroke="#8FA0FF" StrokeThickness="2" Width="18" Height="18" Stretch="Uniform" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Border><TextBlock Text="外观" VerticalAlignment="Center"/></StackPanel></RadioButton>
                 <RadioButton x:Name="ComponentNav" ToolTip="组件" GroupName="SettingsNavigation" Style="{StaticResource NavButton}" Tag="ComponentCard" Click="Nav_Click"><StackPanel Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="9" Background="#183ED598" Margin="0,0,11,0"><Path Data="{StaticResource IconComponents}" Fill="#3ED598" Width="17" Height="17" Stretch="Uniform"/></Border><TextBlock Text="组件" VerticalAlignment="Center"/></StackPanel></RadioButton>
@@ -364,6 +365,17 @@
                     <TextBlock x:Name="SubtitleText" Text="" Visibility="Collapsed"/>
 
 
+                    <Border x:Name="MagicCard" Style="{StaticResource Card}" Visibility="Collapsed"><StackPanel>
+                        <TextBlock Text="Magic 视界" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="进入 Magic 后自动使用顶部状态栏；退出后恢复普通灵动岛。" Foreground="#727C90" TextWrapping="Wrap" Margin="0,8,0,16"/>
+                        <CheckBox x:Name="MagicEnableCheck" Content="启用自动适配" Checked="MagicSetting_Changed" Unchecked="MagicSetting_Changed"/>
+                        <TextBlock x:Name="MagicStatusText" Margin="0,12,0,16" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="MagicDurationLabel" Text="通知每轮显示时长 · 8 秒"/>
+                        <Slider x:Name="MagicDurationSlider" Minimum="3" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True" Value="8" Margin="0,8,0,16" ValueChanged="MagicSetting_Changed"/>
+                        <TextBlock x:Name="MagicBlinkLabel" Text="提醒闪烁周期 · 700 毫秒（越短越快）"/>
+                        <Slider x:Name="MagicBlinkSlider" Minimum="350" Maximum="1400" TickFrequency="50" IsSnapToTickEnabled="True" Value="700" Margin="0,8,0,0" ValueChanged="MagicSetting_Changed"/>
+                    </StackPanel></Border>
+                    <TextBlock x:Name="MagicNormalHint" Text="当前为 Magic 模式：标灰项目仅适用于普通灵动岛，原有配置已保留。" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,18"/>
                     <Border x:Name="PositionCard" Style="{StaticResource Card}"><StackPanel>
                         <DockPanel><Button x:Name="SwitchDisplayButton" DockPanel.Dock="Right" Content="前往副屏" Style="{StaticResource ActionButton}" Click="SwitchDisplay_Click"/><TextBlock Text="位置" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/></DockPanel>
                         <TextBlock x:Name="DisplayConnectionText" Foreground="#727C90" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>

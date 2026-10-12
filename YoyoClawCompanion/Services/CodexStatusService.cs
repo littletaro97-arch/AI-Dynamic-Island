@@ -45,6 +45,8 @@ internal sealed class CodexStatusService : IDisposable
 
     private readonly string _sessionsRoot = Path.Combine(ProductPaths.CodexHome, "sessions");
     private readonly RecentSessionIndex _sessionIndex = new(Path.Combine(ProductPaths.CodexHome, "sessions"), "*.jsonl");
+    private readonly PaginatedCodexObserver _paginated = new(ProductPaths.CodexHome);
+    private readonly List<TaskCompletionEvent> _paginatedCompletions = [];
     private readonly object _limitsGate = new();
     private DateTimeOffset _lastLimitAttempt = DateTimeOffset.MinValue;
     private RateLimitsSnapshot? _cachedLimits;
@@ -95,6 +97,11 @@ internal sealed class CodexStatusService : IDisposable
         var activity = running && detectActivity ? ReadActivityState() : default;
         var completion = running ? ReadRecentCompletion() : default;
         var decision = running && detectActivity ? ReadDecisionState() : null;
+        var paginated = running ? _paginated.Read() : new CodexSignal(null, []);
+        if (detectActivity && paginated.Pending is not null) decision = paginated.Pending;
+        foreach (var item in paginated.Completions) _paginatedCompletions.Add(new(item.Key,item.Text,DateTimeOffset.UtcNow));
+        if (_paginatedCompletions.LastOrDefault() is { } latest && latest.CompletedAt > (completion.Timestamp ?? DateTimeOffset.MinValue)) completion = (latest.Response, latest.Id, latest.CompletedAt);
+        if (_paginatedCompletions.Count > 64) _paginatedCompletions.RemoveRange(0,_paginatedCompletions.Count-64);
         RateLimitsSnapshot? limits;
         long? limitReadMilliseconds;
         bool limitsLoading;
@@ -110,7 +117,7 @@ internal sealed class CodexStatusService : IDisposable
         watch.Stop();
         return new CodexStatus(
             running,
-            activity.IsBusy,
+            running && detectActivity && (activity.IsBusy || _paginated.ActiveTurns > _paginated.QuestionCount),
             readLimits && limits is not null,
             limitsLoading,
             limitsError,
@@ -127,7 +134,7 @@ internal sealed class CodexStatusService : IDisposable
             activity.ActiveSessions,
             activity.LatestLifecycleAt,
             activity.HasStaleStarted,
-            running ? _recentCompletions : [], decision is not null, decision?.Id, decision?.Prompt);
+            running ? _recentCompletions.Concat(_paginatedCompletions).ToArray() : [], decision is not null, decision?.Id, decision?.Prompt);
     }
 
     private CodexDecision? ReadDecisionState()

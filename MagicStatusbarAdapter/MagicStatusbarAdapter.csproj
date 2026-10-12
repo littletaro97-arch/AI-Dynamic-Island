@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0-windows10.0.19041.0</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><Content Include="native/MagicBarLayout.dll"><Link>MagicBarLayout.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content></ItemGroup>
+  <Target Name="BuildNativeLayout" BeforeTargets="BeforeBuild" Inputs="$(MSBuildProjectDirectory)/native/MagicBarLayout.cpp;$(MSBuildProjectDirectory)/Build-Native.ps1" Outputs="$(MSBuildProjectDirectory)/native/MagicBarLayout.dll"><Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build-Native.ps1&quot;" /></Target>
+</Project>

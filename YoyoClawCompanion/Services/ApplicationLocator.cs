@@ -9,11 +9,11 @@ namespace YoyoClawCompanion.Services;
 
 internal static class ApplicationLocator
 {
-    internal readonly record struct ProviderPresence(bool Codex, bool WorkBuddy, bool Yoyo, bool DeepSeek);
+    internal readonly record struct ProviderPresence(bool Codex, bool WorkBuddy, bool Yoyo, bool DeepSeek, bool Magic = false);
 
     internal static ProviderPresence CaptureProviderPresence()
     {
-        var codex = false; var workBuddy = false; var yoyo = false; var deepSeek = false;
+        var codex = false; var workBuddy = false; var yoyo = false; var deepSeek = false; var magic = false;
         // Toolhelp supplies names/IDs without allocating a managed Process plus
         // thread/module metadata for every unrelated process on the computer.
         using var snapshot = CreateToolhelp32Snapshot(2, 0); // TH32CS_SNAPPROCESS
@@ -23,12 +23,13 @@ internal static class ApplicationLocator
             var candidates = Process.GetProcessesByName("ChatGPT");
             try { codex = candidates.Any(IsCodexDesktopProcess); }
             finally { foreach (var process in candidates) process.Dispose(); }
-            return new(codex, IsProcessRunning("WorkBuddy"), IsProcessRunning("HnMagicClawUI"), IsProcessRunning("DeepSeek Harness"));
+            return new(codex, IsProcessRunning("WorkBuddy"), IsProcessRunning("HnMagicClawUI"), IsProcessRunning("DeepSeek Harness"), IsProcessRunning("magictaskbar-ui"));
         }
         do
         {
             var name = entry.Executable;
-            if (name.Equals("WorkBuddy.exe", StringComparison.OrdinalIgnoreCase)) workBuddy = true;
+            if (name.Equals("magictaskbar-ui.exe", StringComparison.OrdinalIgnoreCase)) magic = true;
+            else if (name.Equals("WorkBuddy.exe", StringComparison.OrdinalIgnoreCase)) workBuddy = true;
             else if (name.Equals("HnMagicClawUI.exe", StringComparison.OrdinalIgnoreCase)) yoyo = true;
             else if (name.Equals("DeepSeek Harness.exe", StringComparison.OrdinalIgnoreCase)) deepSeek = true;
             else if (name.Equals("ChatGPT.exe", StringComparison.OrdinalIgnoreCase) && !codex)
@@ -42,7 +43,7 @@ internal static class ApplicationLocator
             }
         }
         while (Process32Next(snapshot, ref entry));
-        return new(codex, workBuddy, yoyo, deepSeek);
+        return new(codex, workBuddy, yoyo, deepSeek, magic);
     }
 
     private static bool IsCodexDesktopProcess(Process process)
