@@ -4,6 +4,12 @@ using System.Windows.Media.Animation;
 namespace YoyoClawCompanion;
 public partial class SettingsWindow
 {
+    private bool _magicIconLoading;
+    private async void LoadMagicIcon(){
+        if(!_island.MagicInstalled||_magicIconLoading||MagicEnableCheck.Tag is System.Windows.Media.ImageSource)return;
+        _magicIconLoading=true;var icon=await Task.Run(Services.MagicIconService.Load).ConfigureAwait(false);if(Dispatcher.HasShutdownStarted)return;await Dispatcher.InvokeAsync(()=>{_magicIconLoading=false;if(_closed||icon==null)return;MagicEnableCheck.Tag=icon;
+        if(MagicNav.Content is StackPanel panel && panel.Children[0] is Border border)border.Child=new System.Windows.Controls.Image{Source=icon,Width=22,Height=22};});
+    }
     private void InitializeMagicSettings()
     {
         MagicEnableCheck.IsChecked=_island.CurrentSettings.EnableMagicAdaptation;
@@ -26,6 +32,7 @@ public partial class SettingsWindow
     private void UpdateMagicControls(bool animate)
     {
         var installed=_island.MagicInstalled;var active=_island.MagicActive;
+        if(installed)LoadMagicIcon();
         if(MagicCard.Visibility!=(installed?Visibility.Visible:Visibility.Collapsed)){
             MagicCard.Visibility=installed?Visibility.Visible:Visibility.Collapsed;
             if(animate&&installed)MagicCard.BeginAnimation(OpacityProperty,new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(180)));

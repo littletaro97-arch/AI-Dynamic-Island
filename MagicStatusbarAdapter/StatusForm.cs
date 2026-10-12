@@ -19,6 +19,11 @@ internal sealed class StatusForm : Form
     
     private readonly Action<string> openProvider;
     private readonly Action openSettings,disableAdapter;
+    private readonly Func<string,Task<string?>> openNotification;
+    private readonly nint targetBar;
+    private readonly LayoutRecovery layoutRecovery=new();
+    private MenuDismissHook? menuDismiss;
+    private bool notificationOpening;
     private AdapterOptions options=new();
     private Snapshot? latest;
     private nint winHook,layoutWatch;
@@ -32,6 +37,8 @@ internal sealed class StatusForm : Form
     private Bitmap? cachedSource;
     private bool closing,shown,stopping;
     private string renderKey="",fitMode="full";
+    private int? lastLayoutError;
+    private static readonly object diagnosticGate=new();
     private int layoutReads,layoutEvents,winEvents;
     private double alpha,fadeFrom,fadeTarget,lastDispatchMs;
     private long fadeStart,contentStart;
@@ -43,24 +50,36 @@ internal sealed class StatusForm : Form
         if(message.Msg==0x84){var point=new Point((short)(message.LParam.ToInt64()&0xffff),(short)((message.LParam.ToInt64()>>16)&0xffff));point.Offset(-lastOrigin.X,-lastOrigin.Y);message.Result=(nint)(shown&&hits.Find(point)!=null?1:-1);return;}
         base.WndProc(ref message);
     }
-    protected override void OnMouseUp(MouseEventArgs e)
+    protected override async void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);var area=hits.Find(e.Location);if(area==null)return;
         if(e.Button==MouseButtons.Right)ShowProviderMenu(area.Provider,e.Location);
-        else if(e.Button==MouseButtons.Left){if(area.Provider!=null)OpenProvider(area.Provider);else ShowProviderMenu(null,e.Location);}
+        else if(e.Button==MouseButtons.Left){
+            if(model.CurrentNotice is { AppId: not null } notice){
+                if(notificationOpening)return;notificationOpening=true;model.BeginOpen(notice.Key,DateTimeOffset.Now);noticeTimer.Stop();
+                model.Feedback(notice.Key,notice.MessageId,"正在打开来源应用…");Render();
+                string? feedback;
+                try{feedback=await openNotification(notice.AppId).ConfigureAwait(false);}catch{feedback="无法打开来源应用，请使用原系统通知或手动打开应用。";}
+                Dispatch(()=>{notificationOpening=false;if(closing||stopping)return;model.EndOpen(DateTimeOffset.Now);
+                if(feedback==null)model.Dismiss(notice.Key,notice.MessageId,DateTimeOffset.Now);else model.Feedback(notice.Key,notice.MessageId,feedback);
+                Render();FastGeometry();ScheduleNotice();});
+            }else if(area.Provider!=null)OpenProvider(area.Provider);else ShowProviderMenu(null,e.Location);
+        }
     }
     private void OpenProvider(string name){if(options.EnableAppLaunch)openProvider(name);}
     private void ShowProviderMenu(string? selected,Point position)
     {
-        providerMenu?.Dispose();providerMenu=new ContextMenuStrip();
+        menuDismiss?.Dispose();menuDismiss=null;providerMenu?.Dispose();providerMenu=new ContextMenuStrip{AutoClose=true};
+        providerMenu.Opened+=(_,_)=>{menuDismiss=new MenuDismissHook(providerMenu,Dispatch);};
+        providerMenu.Closed+=(_,_)=>{menuDismiss?.Dispose();menuDismiss=null;};
         if(selected!=null){providerMenu.Items.Add("打开 "+selected,null,(_,_)=>OpenProvider(selected));providerMenu.Items.Add(new ToolStripSeparator());}
-        foreach(var item in model.Current.Items.Where(i=>ProviderLabels.ProcessName(i.Name)!=null))providerMenu.Items.Add("打开 "+item.Name,null,(_,_)=>OpenProvider(item.Name));
+        foreach(var item in model.Current.Items.Where(i=>i.Name!=selected&&ProviderLabels.ProcessName(i.Name)!=null))providerMenu.Items.Add("打开 "+item.Name,null,(_,_)=>OpenProvider(item.Name));
         providerMenu.Items.Add(new ToolStripSeparator());providerMenu.Items.Add("设置",null,(_,_)=>openSettings());providerMenu.Items.Add("关闭 Magic 适配",null,(_,_)=>disableAdapter());providerMenu.Show(this,position);
     }
     private void KeepAboveBar(){if(shown&&bar!=null&&providerMenu?.Visible!=true){var previous=Native.GetWindow(bar.Handle,3);if(previous!=Handle)Native.SetWindowPos(Handle,previous==0?(nint)(-1):previous,0,0,0,0,0x13);}}
-    internal StatusForm(Action<string> launch,Action settings,Action disable)
+    internal StatusForm(Action<string> launch,Action settings,Action disable,Func<string,Task<string?>> openNotice,long barHandle)
     {
-        openProvider=launch;openSettings=settings;disableAdapter=disable;
+        openProvider=launch;openSettings=settings;disableAdapter=disable;openNotification=openNotice;targetBar=(nint)barHandle;
         winCallback=WinEvent;layoutCallback=LayoutEvent;
         Text="AI Dynamic Island · Magic";FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;AutoScaleMode=AutoScaleMode.None;
         Size=new(800,64);StartPosition=FormStartPosition.Manual;Location=new(0,0);
@@ -79,6 +98,7 @@ internal sealed class StatusForm : Form
         items=items.Select(i=>i.Status=="attention"&&!options.EnableConfirmationNotifications?i with{Status="idle",Value="",ShortValue=""}:i).ToList();
         model.Apply(new(items,latest.Warning),DateTimeOffset.Now);Render();FastGeometry();ScheduleNotice();
     }
+    internal void NotifySystem(string source,string title,string body,string key,string appId){model.NewSystemNotice(source,DateTimeOffset.Now,title,body,key,appId);Render();FastGeometry();ScheduleNotice();}
     internal void Notify(string source,string title,string body,string key){model.NewSystemNotice(source,DateTimeOffset.Now,title,body,key);Render();FastGeometry();ScheduleNotice();}
     internal void Question(string? id,string? prompt){model.SetCodexQuestion(options.ShowCodex&&options.EnableCodexConfirmationNotifications?id:null,prompt,DateTimeOffset.Now);Render();FastGeometry();ScheduleNotice();}
     internal void Stop(){if(stopping)return;stopping=true;fast.Stop();fallback.Stop();debounce.Stop();model.SetVisible(false,DateTimeOffset.Now);SetShown(false);var done=new System.Windows.Forms.Timer{Interval=100};done.Tick+=(_,_)=>{done.Stop();done.Dispose();Close();};done.Start();}
@@ -86,7 +106,8 @@ internal sealed class StatusForm : Form
     private void Initialize(){model.SetVisible(false,DateTimeOffset.Now);Attach();fast.Start();fallback.Start();}
     private void Attach()
     {
-        var candidate=Native.Windows().Where(w=>w.Title=="Magictopbar"&&w.Bounds.Width>600).OrderBy(w=>Math.Abs(w.Bounds.Top)).FirstOrDefault();
+        Native.Window? candidate=null;
+        if(Native.IsWindow(targetBar)&&Native.GetWindowRect(targetBar,out var rect)){Native.GetWindowThreadProcessId(targetBar,out var pid);candidate=new(targetBar,(int)pid,"Magictopbar",rect,Native.GetDpiForWindow(targetBar),Native.IsWindowVisible(targetBar));}
         if(candidate==null){bar=null;SetShown(false);return;}
         if(winHook!=0)Native.UnhookWinEvent(winHook);
         if(layoutWatch!=0)Native.StopLayoutWatch(layoutWatch);
@@ -106,7 +127,18 @@ internal sealed class StatusForm : Form
     {
         if(closing||layoutWatch==0)return;
         var hr=Native.ReadCachedLayout(layoutWatch,out var value);layoutReads++;
-        if(hr==0){layout=value;Render();FastGeometry();}else if(hr!=unchecked((int)0x8000000A)){layout=null;SetShown(false);}
+        var physical=bar!=null&&Native.OnScreen(bar)&&Native.BarExposed(bar);
+        if(hr==0){
+            if(lastLayoutError!=null){Diagnostic("layout recovered");lastLayoutError=null;}
+            // UIA offscreen can be transient during tray tree updates; actual HWND exposure wins.
+            if(physical)value.Visible=1;
+            layout=value;layoutRecovery.Valid();Render();FastGeometry();
+        }else if(hr!=unchecked((int)0x8000000A)){
+            if(lastLayoutError!=hr){lastLayoutError=hr;Diagnostic($"layout failure hr={hr:X8} physical={physical}");}
+            if(layoutRecovery.Retain(layout!=null,physical,Environment.TickCount64)){
+                Native.RefreshLayout(layoutWatch);debounce.Interval=70;debounce.Start();
+            }else{layout=null;SetShown(false);}
+        }
         WriteEvidence();
     }
     private void FastGeometry()
@@ -163,7 +195,7 @@ internal sealed class StatusForm : Form
     {
         if(visible&&bar!=null&&layout is { } l)visible=CenteredSpan.Calculate(bar.Bounds.Left,bar.Bounds.Width,l.BrandRight,l.Left,bar.Dpi/96.0).Width>=80;
         visible=visible&&(model.CurrentNotice!=null||(model.Current.Items.Count>0&&(!options.ActiveOnly||model.Current.Items.Any(i=>i.Status=="busy"))&&(!options.EnableUnchangedAutoHide||DateTimeOffset.Now-options.LastChangeAt<TimeSpan.FromMinutes(options.UnchangedAutoHideMinutes))));
-        if(shown==visible)return;shown=visible;fadeFrom=alpha;fadeTarget=visible?1:0;fadeStart=Environment.TickCount64;animation.Start();if(visible)Render();UpdateBlink();ScheduleNotice();WriteEvidence();
+        if(shown==visible)return;Diagnostic($"visible={visible} barY={bar?.Bounds.Top} left={layout?.BrandRight} right={layout?.Left}");shown=visible;fadeFrom=alpha;fadeTarget=visible?1:0;fadeStart=Environment.TickCount64;animation.Start();if(visible)Render();UpdateBlink();ScheduleNotice();WriteEvidence();
     }
     private void UpdateBlink(){var notice=model.CurrentNotice;var key=notice?.Key??notice?.Source+"|"+notice?.Text;if(key!=blinkKey){blinkKey=key??"";blinkStart=Environment.TickCount64;}if(shown&&notice!=null&&(notice.State=="attention"||Environment.TickCount64-blinkStart<options.MagicBlinkPeriodMs*2))blink.Start();else blink.Stop();}
     private void Animate()
@@ -187,6 +219,9 @@ internal sealed class StatusForm : Form
     private void ReleaseCached(){if(cachedDC!=0){Native.SelectObject(cachedDC,cachedOriginal);Native.DeleteObject(cachedBitmap);Native.DeleteDC(cachedDC);}cachedDC=0;cachedBitmap=0;cachedSource=null;}
     private static void DrawAlpha(Graphics g,Bitmap bitmap,float alpha){using var attrs=new ImageAttributes();attrs.SetColorMatrix(new ColorMatrix{Matrix33=alpha});g.DrawImage(bitmap,new Rectangle(0,0,bitmap.Width,bitmap.Height),0,0,bitmap.Width,bitmap.Height,GraphicsUnit.Pixel,attrs);}
     private void ScheduleNotice(){noticeTimer.Stop();if(shown&&model.NextTransitionAt is { } at){noticeTimer.Interval=Math.Max(1,(int)Math.Min(int.MaxValue,(at-DateTimeOffset.Now).TotalMilliseconds));noticeTimer.Start();}}
+    private static void Diagnostic(string text)=>_ = Task.Run(()=>{
+        try{lock(diagnosticGate){var path=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"YoyoClawCompanion","magic-layout.log");Directory.CreateDirectory(Path.GetDirectoryName(path)!);if(File.Exists(path)&&new FileInfo(path).Length>65536)File.WriteAllText(path,"");File.AppendAllText(path,$"{DateTimeOffset.Now:O} {text}\n");}}catch{}
+    });
     private void WriteEvidence() {}
     private void Log(Exception ex)=>System.Diagnostics.Trace.WriteLine("Magic adapter: "+ex.GetType().Name+" "+ex.Message);
     private void Cleanup()
@@ -195,6 +230,6 @@ internal sealed class StatusForm : Form
         foreach(var timer in new[]{fast,fallback,debounce,animation,blink,noticeTimer}){timer.Stop();timer.Dispose();}
         if(winHook!=0)Native.UnhookWinEvent(winHook);
         if(layoutWatch!=0){Native.StopLayoutWatch(layoutWatch);layoutWatch=0;}
-        providerMenu?.Dispose();ReleaseCached();pixels?.Dispose();oldPixels?.Dispose();GC.KeepAlive(layoutCallback);GC.KeepAlive(winCallback);
+        menuDismiss?.Dispose();menuDismiss=null;providerMenu?.Dispose();ReleaseCached();pixels?.Dispose();oldPixels?.Dispose();GC.KeepAlive(layoutCallback);GC.KeepAlive(winCallback);
     }
 }

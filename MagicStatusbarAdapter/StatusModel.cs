@@ -5,7 +5,7 @@ namespace MagicStatusbarAdapter;
 
 internal record ProviderItem(string Name,string Value,string ShortValue,string Status,DateTimeOffset? CompletedAt,string? Preview=null);
 internal record Snapshot(List<ProviderItem> Items,string? Warning);
-internal record Notice(string Source,string Text,string State,DateTimeOffset Expires,int Count=1,string? Key=null,DateTimeOffset? Created=null);
+internal record Notice(string Source,string Text,string State,DateTimeOffset Expires,int Count=1,string? Key=null,DateTimeOffset? Created=null,string? AppId=null,string? MessageId=null);
 
 internal sealed class StatusModel
 {
@@ -16,6 +16,7 @@ internal sealed class StatusModel
     private readonly Queue<string> deliveryOrder=[];
     private Notice? active,paused,attention,codexQuestion;
     private TimeSpan remaining;
+    private (string? Key,TimeSpan Remaining)? opening;
     private bool visible=true;
     private DateTimeOffset nextRound=DateTimeOffset.MinValue;
     internal double RoundSeconds {get;set;}=8;
@@ -51,18 +52,18 @@ internal sealed class StatusModel
     }
     private void Pause(DateTimeOffset now){if(active==null)return;remaining=active.Expires-now;if(remaining<TimeSpan.Zero)remaining=TimeSpan.Zero;paused=active;active=null;}
     private void Resume(DateTimeOffset now){if(paused!=null){active=paused with{Expires=now+remaining};paused=null;}Advance(now);}
-    internal void NewSystemNotice(string application,DateTimeOffset now,string? title=null,string? body=null,string? key=null)
+    internal void NewSystemNotice(string application,DateTimeOffset now,string? title=null,string? body=null,string? key=null,string? appId=null)
     {
         var text=string.Join(" · ",new[]{OneLine(title??"",256),OneLine(body??"",2048)}.Where(s=>s.Length>0));
-        Enqueue(application,text.Length>0?text:"收到新通知","notification",now,key);
+        Enqueue(application,text.Length>0?text:"收到新通知","notification",now,key,appId);
     }
     internal void NewCodexCompletion(string key,string text,DateTimeOffset now)=>Enqueue("Codex","任务已完成 · "+text,"complete",now,key);
-    private void Enqueue(string source,string text,string state,DateTimeOffset now,string? key)
+    private void Enqueue(string source,string text,string state,DateTimeOffset now,string? key,string? appId=null)
     {
         if(key!=null){if(!delivered.Add(key))return;deliveryOrder.Enqueue(key);if(deliveryOrder.Count>256)delivered.Remove(deliveryOrder.Dequeue());}
         source=OneLine(source,48);if(source.Length==0)source="应用";text=OneLine(text,2304);
         Advance(now);
-        var candidate=new Notice(source,text,state,now.AddSeconds(RoundSeconds),Key:key,Created:now);
+        var candidate=new Notice(source,text,state,now.AddSeconds(RoundSeconds),Key:key,Created:now,AppId:appId,MessageId:key);
         // One round per source across active, paused and queued groups. Arrival never resets its deadline.
         if(active is { } current&&current.Source==source) {active=candidate with{Count=current.Count+1,Expires=current.Expires,Key=current.Key};return;}
         if(paused is { } suspended&&suspended.Source==source){paused=candidate with{Count=suspended.Count+1,Expires=suspended.Expires,Key=suspended.Key};return;}
@@ -71,6 +72,25 @@ internal sealed class StatusModel
         if(active==null&&!Blocked&&now>=nextRound){active=candidate;return;}
         if(queue.Count>=12){OverflowCount++;return;}
         queue.Add(candidate);
+    }
+    internal void BeginOpen(string? key,DateTimeOffset now){
+        if(active?.Key!=key||active==null)return;
+        opening=(key,active.Expires-now);active=active with{Expires=DateTimeOffset.MaxValue};
+    }
+    internal void EndOpen(DateTimeOffset now){
+        if(opening is not { } hold)return;opening=null;
+        var readTime=hold.Remaining<TimeSpan.FromSeconds(3)?TimeSpan.FromSeconds(3):hold.Remaining;
+        if(active?.Key==hold.Key&&active!=null)active=active with{Expires=now+readTime};
+        if(paused?.Key==hold.Key&&paused!=null)remaining=readTime;
+    }
+    internal bool Feedback(string? key,string? message,string text){
+        bool Matches(Notice? n)=>n!=null&&n.Key==key&&n.MessageId==message;
+        if(Matches(active)){active=active! with{Text=OneLine(text,2304)};return true;}
+        if(Matches(paused)){paused=paused! with{Text=OneLine(text,2304)};return true;}return false;
+    }
+    internal bool Dismiss(string? key,string? message,DateTimeOffset now){
+        if(active?.Key==key&&active?.MessageId==message&&active!=null){active=null;nextRound=now.AddSeconds(2);return true;}
+        if(paused?.Key==key&&paused?.MessageId==message&&paused!=null){paused=null;remaining=TimeSpan.Zero;return true;}return false;
     }
     internal bool Expire(DateTimeOffset now){var previous=CurrentNotice;Advance(now);return previous!=CurrentNotice;}
     private void Advance(DateTimeOffset now)

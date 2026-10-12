@@ -21,6 +21,7 @@ internal static class NotificationAppLauncher
         && id.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
         && !id.Contains('/') && id.IndexOf(':', 2) < 0 && !id.Split('\\').Any(p => p is "." or "..");
 
+    internal static string? Feedback(NotificationOpenResult result)=>result switch{NotificationOpenResult.Opened=>null,NotificationOpenResult.RunningButUnavailable=>"来源应用已运行，但无法唤起窗口，请从系统托盘打开。",_=>"无法打开来源应用，请使用原系统通知或手动打开应用。"};
     internal static bool TryOpen(string id) => Open(id) == NotificationOpenResult.Opened;
     internal static Task<bool> TryOpenAsync(string id) => OpenBooleanAsync(id);
     private static async Task<bool> OpenBooleanAsync(string id) => await OpenAsync(id) == NotificationOpenResult.Opened;

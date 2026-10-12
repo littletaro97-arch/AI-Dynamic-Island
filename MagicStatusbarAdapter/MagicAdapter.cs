@@ -5,9 +5,10 @@ namespace MagicStatusbarAdapter;
 public sealed class MagicAdapter
 {
     private readonly StatusForm form;
-    public MagicAdapter(Action<string> launch,Action settings,Action disable){form=new(launch,settings,disable);form.Show();}
+    public MagicAdapter(Action<string> launch,Action settings,Action disable,Func<string,Task<string?>> openNotice,long barHandle){form=new(launch,settings,disable,openNotice,barHandle);form.Show();}
     public void Configure(string json)=>form.Configure(json);
     public void Update(string json)=>form.Update(json);
+    public void NotifySystem(string source,string title,string body,string key,string appId)=>form.NotifySystem(source,title,body,key,appId);
     public void Notify(string source,string title,string body,string key)=>form.Notify(source,title,body,key);
     public void Question(string? id,string? prompt)=>form.Question(id,prompt);
     public void Stop()=>form.Stop();

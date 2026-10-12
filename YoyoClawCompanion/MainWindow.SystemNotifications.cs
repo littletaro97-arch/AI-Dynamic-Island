@@ -39,7 +39,7 @@ public partial class MainWindow
     private void ReceiveSystemToast(SystemToast toast)
     {
         if (!_settings.EnableSystemNotifications || IsIgnoredNotification(toast)) return;
-        if (MagicActive) { _magicNotice?.Invoke(toast.Source,toast.Title,toast.Body,toast.Id); return; }
+        if (MagicActive) { _magicSystemNotice?.Invoke(toast.Source,toast.Title,toast.Body,toast.Id,toast.AppUserModelId); return; }
         var index = _activeSystemToastBatch.FindIndex(item => item.Id == toast.Id);
         if (index >= 0)
         {
@@ -270,9 +270,7 @@ public partial class MainWindow
         }
         else
         {
-            _notificationLaunchFeedback = result == NotificationOpenResult.RunningButUnavailable
-                ? "来源应用已运行，但无法唤起窗口，请从系统托盘打开。"
-                : "无法打开来源应用，请使用原系统通知或手动打开应用。";
+            _notificationLaunchFeedback = NotificationAppLauncher.Feedback(result);
             UpdateRecentNotice();
         }
     }
