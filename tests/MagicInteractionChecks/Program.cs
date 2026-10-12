@@ -21,6 +21,10 @@ class Program
         protected override void WndProc(ref Forms.Message message){if(message.Msg==0xd){Reads++;message.Result=IntPtr.Zero;return;}base.WndProc(ref message);}
         public void Dispose()=>DestroyHandle();
     }
+    private delegate bool EnumCallback(IntPtr h,IntPtr p);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumCallback callback,IntPtr data);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle,out uint pid);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle,System.Text.StringBuilder text,int length);
     [StructLayout(LayoutKind.Sequential)] struct MouseData{internal int X,Y;internal uint Mouse,Flags,Time;internal nuint Extra;}
     [STAThread] static void Main(){
         using var trap=new CaptionTrap();
@@ -28,6 +32,11 @@ class Program
         var bar=(IntPtr)host.GetMethod("MagicBarHandle",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
         Check(trap.Reads==0,"host discovery never synchronously queries own window captions");
         if(bar==IntPtr.Zero){Console.WriteLine("No live Magic toolbar: remaining desktop checks skipped.");return;}
+        var primaryMethod=host.GetMethod("IsPrimaryMagicBar",BindingFlags.Static|BindingFlags.NonPublic)!;
+        Check((bool)primaryMethod.Invoke(null,new object[]{bar})!,"live toolbar selection prefers primary monitor");
+        IntPtr secondary=IntPtr.Zero;
+        EnumWindows((h,_)=>{GetWindowThreadProcessId(h,out var pid);if(pid==(uint)Environment.ProcessId)return true;var caption=new System.Text.StringBuilder(64);GetWindowText(h,caption,64);if(caption.ToString()=="Magictopbar"&&!(bool)primaryMethod.Invoke(null,new object[]{h})!)secondary=h;return true;},IntPtr.Zero);
+        if(secondary!=IntPtr.Zero){host.GetField("_magicKnownBar",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,secondary);var selected=(IntPtr)host.GetMethod("MagicBarHandle",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;Check(selected==bar,"cached secondary toolbar cannot displace existing primary toolbar");}
         int notificationCalls=0;string? target=null;
         var adapter=new MagicAdapter(_=>{},()=>{},()=>{},id=>{notificationCalls++;target=id;return Task.Run(async()=>{await Task.Delay(40);return (string?)"无法打开来源应用，请使用原系统通知或手动打开应用。";});},bar.ToInt64());
         var form=(Forms.Form)typeof(MagicAdapter).GetField("form",Flags)!.GetValue(adapter)!;

@@ -18,6 +18,7 @@ public partial class MainWindow
     private string? _magicError;
     private nint _magicFailedHandle;
     private static nint _magicKnownBar;
+    private nint _magicActiveBar;
     private string _magicLastStatus="";
     internal bool MagicActive=>_magicAdapter!=null;
     internal bool MagicInstalled=>_magicInstalled;
@@ -30,16 +31,23 @@ public partial class MainWindow
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetWindowText(nint handle,System.Text.StringBuilder text,int length);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint handle,out MagicRect rect);
     [StructLayout(LayoutKind.Sequential)] private struct MagicRect {public int Left,Top,Right,Bottom;}
+    [StructLayout(LayoutKind.Sequential)] private struct MagicMonitorInfo{public int Size;public MagicRect Monitor,Work;public uint Flags;}
+    [DllImport("user32.dll")] private static extern nint MonitorFromWindow(nint window,uint flags);
+    [DllImport("user32.dll")] private static extern bool GetMonitorInfo(nint monitor,ref MagicMonitorInfo info);
+    private static bool IsPrimaryMagicBar(nint handle){var info=new MagicMonitorInfo{Size=Marshal.SizeOf<MagicMonitorInfo>()};return GetMonitorInfo(MonitorFromWindow(handle,2),ref info)&&(info.Flags&1)!=0;}
     private static nint MagicBarHandle(){
-        if(_magicKnownBar!=0&&IsWindow(_magicKnownBar))return _magicKnownBar;
-        nint found=0;
+        if(_magicKnownBar!=0&&IsWindow(_magicKnownBar)&&IsPrimaryMagicBar(_magicKnownBar))return _magicKnownBar;
+        nint found=0;var bestTop=double.PositiveInfinity;
         EnumWindows((handle,_)=>{
             GetWindowThreadProcessId(handle,out var pid);
             // Own SystemEvents windows can synchronously wait for this dispatcher. Never query their captions.
             if(pid==(uint)Environment.ProcessId)return true;
             if(!GetWindowRect(handle,out var bounds)||bounds.Right-bounds.Left<=600||bounds.Bottom-bounds.Top>160)return true;
             var text=new System.Text.StringBuilder(64);GetWindowText(handle,text,text.Capacity);
-            if(text.ToString()=="Magictopbar"){found=handle;return false;}return true;
+            if(text.ToString()=="Magictopbar"){
+                if(IsPrimaryMagicBar(handle)){found=handle;return false;}
+                var top=Math.Abs((double)bounds.Top);if(top<bestTop){bestTop=top;found=handle;}
+            }return true;
         },0);
         return _magicKnownBar=found;
     }
@@ -62,6 +70,7 @@ public partial class MainWindow
         var desired=_magicInstalled&&_settings.EnableMagicAdaptation&&bar!=0;
         if(desired&&bar==_magicFailedHandle)return;
         if(!desired){_magicFailedHandle=0;_magicError=null;}
+        if(desired&&MagicActive&&bar!=_magicActiveBar){LogMagic("toolbar changed; rebind");StopMagic();}
         if(desired==MagicActive){var status=MagicStatus;if(status!=_magicLastStatus){_magicLastStatus=status;MagicModeChanged?.Invoke(this,EventArgs.Empty);}return;}
         if(desired)
         {
@@ -76,7 +85,7 @@ public partial class MainWindow
                 _magicConfigure=MagicMethod<Action<string>>("Configure");_magicUpdate=MagicMethod<Action<string>>("Update");
                 _magicNotice=MagicMethod<Action<string,string,string,string>>("Notify");_magicSystemNotice=MagicMethod<Action<string,string,string,string,string>>("NotifySystem");_magicQuestion=MagicMethod<Action<string?,string?>>("Question");_magicStop=MagicMethod<Action>("Stop");
                 _magicConfigure(JsonSerializer.Serialize(_settings));StatusSnapshotStore.Published+=PublishMagicSnapshot;
-                LogMagic("enter ready");
+                _magicActiveBar=bar;LogMagic($"enter ready bar={bar}");
                 _magicError=null;HideIslandForFocusMode(animate:true);
                 _readyClockTimer.Stop();_passThroughTimer.Stop();_fullscreenTimer.Stop();
                 _ = RefreshStatusAsync();
@@ -90,7 +99,7 @@ public partial class MainWindow
     {
         if(_magicAdapter!=null)LogMagic("exit requested");
         StatusSnapshotStore.Published-=PublishMagicSnapshot;
-        try{_magicStop?.Invoke();}finally{_magicAdapter=null;_magicConfigure=null;_magicUpdate=null;_magicNotice=null;_magicSystemNotice=null;_magicQuestion=null;_magicStop=null;}
+        try{_magicStop?.Invoke();}finally{_magicAdapter=null;_magicActiveBar=0;_magicConfigure=null;_magicUpdate=null;_magicNotice=null;_magicSystemNotice=null;_magicQuestion=null;_magicStop=null;}
     }
     private void UpdateMagicSettings(){if(!_magicDetectionDone)return;CheckMagicMode();_magicConfigure?.Invoke(JsonSerializer.Serialize(_settings));}
 }
