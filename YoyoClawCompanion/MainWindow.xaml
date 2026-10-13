@@ -47,12 +47,13 @@
         <Geometry x:Key="MenuRefreshIcon">M20,8 A8,8 0 1 0 20,16 M20,4 L20,9 L15,9</Geometry>
         <Geometry x:Key="MenuCopyIcon">M8,8 L20,8 L20,20 L8,20 Z M4,16 L4,4 L16,4</Geometry>
         <Geometry x:Key="MenuExitIcon">M12,2 L12,12 M6,5 A9,9 0 1 0 18,5</Geometry>
+        <Thickness x:Key="IslandMenuShadowMargin">0</Thickness>
         <SolidColorBrush x:Key="IslandMenuHoverBrush" Color="#16FFFFFF"/>
         <Style x:Key="IslandContextMenuStyle" TargetType="ContextMenu">
             <Setter Property="Padding" Value="6"/><Setter Property="MinWidth" Value="206"/>
             <Setter Property="BorderThickness" Value="1"/><Setter Property="HasDropShadow" Value="True"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
-                <Border x:Name="MenuSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="13" Padding="{TemplateBinding Padding}">
+                <Border x:Name="MenuSurface" Margin="{DynamicResource IslandMenuShadowMargin}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="13" Padding="{TemplateBinding Padding}">
                     <Border.Effect><DropShadowEffect BlurRadius="26" ShadowDepth="8" Opacity=".38"/></Border.Effect>
                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
                 </Border>

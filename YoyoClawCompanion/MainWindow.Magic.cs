@@ -99,6 +99,7 @@ public partial class MainWindow
     {
         if(_magicAdapter!=null){
             _islandMenu.IsOpen=false;
+            _magicMenuDismiss?.Dispose();_magicMenuDismiss=null;RestoreMagicMenuChrome();
             _islandMenu.BeginAnimation(OpacityProperty,null);
             _islandMenu.Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             _islandMenu.PlacementTarget=Island;
@@ -109,8 +110,33 @@ public partial class MainWindow
         try{_magicStop?.Invoke();}finally{_magicAdapter=null;_magicActiveBar=0;_magicConfigure=null;_magicUpdate=null;_magicNotice=null;_magicSystemNotice=null;_magicQuestion=null;_magicStop=null;}
     }
     private string? _magicMenuSelection;
+    private PopupDismissObserver? _magicMenuDismiss;
+    private void ConfigureMagicMenuChrome(){
+        // WPF draws the rounded shadow. Do not also ask Windows to shadow the rectangular popup.
+        _islandMenu.HasDropShadow=false;
+        _islandMenu.Resources["IslandMenuShadowMargin"]=new Thickness(14,14,24,24);
+    }
+    private void RestoreMagicMenuChrome(){
+        _islandMenu.ClearValue(System.Windows.Controls.ContextMenu.HasDropShadowProperty);
+        _islandMenu.Resources.Remove("IslandMenuShadowMargin");
+    }
+    private void StartMagicMenuDismiss(){
+        if(!MagicActive||!_islandMenu.IsOpen)return;
+        _magicMenuDismiss?.Dispose();_magicMenuDismiss=null;
+        _islandMenu.ApplyTemplate();_islandMenu.UpdateLayout();
+        var surface=_islandMenu.Template.FindName("MenuSurface",_islandMenu) as FrameworkElement;
+        if(surface==null)return;
+        PopupDismissObserver.Region? Bounds(){
+            if(!_islandMenu.IsOpen||!surface.IsVisible)return null;
+            var point=surface.PointToScreen(new System.Windows.Point());
+            var scale=System.Windows.Media.VisualTreeHelper.GetDpi(surface);
+            return new(point.X,point.Y,surface.ActualWidth*scale.DpiScaleX,surface.ActualHeight*scale.DpiScaleY,13*Math.Min(scale.DpiScaleX,scale.DpiScaleY));
+        }
+        try{_magicMenuDismiss=new(Bounds,action=>Dispatcher.BeginInvoke(action),()=>_islandMenu.IsOpen=false);}
+        catch(Exception error){LogMagic("menu observer unavailable: "+error.GetBaseException().Message);_islandMenu.IsOpen=false;}
+    }
     private void OpenMagicContextMenu(string selected,int x,int y){
-        if(!MagicActive)return;_magicMenuSelection=selected;
+        if(!MagicActive)return;_magicMenuSelection=selected;ConfigureMagicMenuChrome();
         var source=System.Windows.PresentationSource.FromVisual(this);var transform=source?.CompositionTarget?.TransformFromDevice??System.Windows.Media.Matrix.Identity;
         var point=transform.Transform(new System.Windows.Point(x,y));_islandMenu.PlacementTarget=this;_islandMenu.Placement=System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint;_islandMenu.HorizontalOffset=point.X;_islandMenu.VerticalOffset=point.Y;_islandMenu.StaysOpen=false;_islandMenu.IsOpen=true;
         _islandMenu.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(0,1,TimeSpan.FromMilliseconds(120)));
