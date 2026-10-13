@@ -2,7 +2,7 @@ param([string]$IsccPath, [switch]$PortableOnly)
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'YoyoClawCompanion\YoyoClawCompanion.csproj'
 [xml]$metadata = Get-Content -LiteralPath $project
-$version = [string]$metadata.Project.PropertyGroup.Version
+$version = $metadata.SelectSingleNode('/Project/PropertyGroup/Version').InnerText.Trim()
 $bridgeSdk = Join-Path $PSScriptRoot 'magicore-bridge\node_modules\@magicore\sdk\package.json'
 if (-not (Test-Path -LiteralPath $bridgeSdk)) { throw '缺少 Magicore vendor SDK；请从 YOYO 安装包恢复，不要运行 npm ci。' }
 $publishDirectory = Join-Path $PSScriptRoot "publish-v$version"
