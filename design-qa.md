@@ -1,8 +1,8 @@
 # Program order and tray icon design QA
 
-- Source visual truth: `E:\课外项目\AI Dynamic Island\设置-程序顺序重设计-原型.html` and `C:\Users\LITTLE~1\AppData\Local\Temp\codex-clipboard-211a5e51-875e-4415-afe3-0b6e06d01dde.png`
+- Source visual truth: the local provider-order HTML prototype and user-supplied reference screenshot (not included in the repository).
 - Implementation screenshot: unavailable for the native WPF settings window; the current Computer Use surface returned no native applications/windows.
-- Tray implementation preview: `C:\Users\LittleTaro\AppData\Local\Temp\ai-dynamic-island-tray-preview.png`
+- Tray implementation preview: local temporary rendering output (not included in the repository).
 - Viewport: intended native WPF settings window at 920 x 720 DIPs; no valid captured implementation viewport was available.
 - Source pixels: tray reference 322 x 120; provider-order source is responsive HTML rather than a fixed screenshot.
 - Implementation pixels: tray preview 64 x 64; provider-order implementation capture unavailable.

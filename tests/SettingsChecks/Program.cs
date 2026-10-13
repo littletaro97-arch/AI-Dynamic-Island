@@ -36,8 +36,13 @@ class Program
         magicFields.GetField("_magicDetectionDone",Flags)!.SetValue(main,true);
         magicFields.GetField("_magicInstalled",Flags)!.SetValue(main,false);
         var enableMagic=settings.GetType().GetProperty("EnableMagicAdaptation")!;
-        enableMagic.SetValue(settings,true);Call(main,"CheckMagicMode");
+        enableMagic.SetValue(settings,true);Call(main,"CheckMagicMode");Call(window,"UpdateMagicControls",false);
+        Assert(((FrameworkElement)window.FindName("MagicCard")).Visibility==Visibility.Collapsed&&((FrameworkElement)window.FindName("MagicNav")).Visibility==Visibility.Collapsed&&((FrameworkElement)window.FindName("MagicNormalHint")).Visibility==Visibility.Collapsed,"absent Magic exposes no navigation, settings card or restriction hint");
         Assert(!AppDomain.CurrentDomain.GetAssemblies().Any(a=>a.GetName().Name=="MagicStatusbarAdapter"),"absent Magic never loads adapter assembly even with enabled setting");
+        settings.GetType().GetProperty("SettingsNavigationCollapsed")!.SetValue(settings,true);Call(window,"ApplyNavigationLayout");
+        Assert(((FrameworkElement)window.FindName("MagicNav")).Visibility==Visibility.Collapsed,"collapsed sidebar cannot expose absent Magic entry");
+        settings.GetType().GetProperty("SettingsNavigationCollapsed")!.SetValue(settings,false);Call(window,"ApplyNavigationLayout");
+        Assert(((FrameworkElement)window.FindName("MagicNav")).Visibility==Visibility.Collapsed,"expanded sidebar cannot expose absent Magic entry");
         Assert(!System.Diagnostics.Process.GetCurrentProcess().Modules.Cast<System.Diagnostics.ProcessModule>().Any(m=>m.ModuleName=="MagicBarLayout.dll"),"absent Magic never loads native layout DLL");
         magicFields.GetField("_magicInstalled",Flags)!.SetValue(main,true);enableMagic.SetValue(settings,false);Call(main,"CheckMagicMode");
         Assert(!AppDomain.CurrentDomain.GetAssemblies().Any(a=>a.GetName().Name=="MagicStatusbarAdapter"),"disabled Magic never loads adapter assembly");

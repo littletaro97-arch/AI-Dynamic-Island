@@ -66,7 +66,7 @@ public partial class MainWindow
     private void CheckMagicMode()
     {
         if(!_magicDetectionDone||_lifetimeCancellation.IsCancellationRequested)return;
-        var bar=MagicBarHandle();
+        var bar=_magicInstalled?MagicBarHandle():0;
         var desired=_magicInstalled&&_settings.EnableMagicAdaptation&&bar!=0;
         if(desired&&bar==_magicFailedHandle)return;
         if(!desired){_magicFailedHandle=0;_magicError=null;}
