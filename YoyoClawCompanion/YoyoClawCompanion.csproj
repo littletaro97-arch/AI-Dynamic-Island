@@ -34,7 +34,7 @@
     </Content>
   </ItemGroup>
 
-  <PropertyGroup><MagicAdapterBuildOutput Condition="'$(MagicAdapterBuildOutput)' == ''">..\MagicStatusbarAdapter\bin\$(Configuration)\net8.0-windows10.0.19041.0\$(RuntimeIdentifier)</MagicAdapterBuildOutput></PropertyGroup>
+  <PropertyGroup><MagicAdapterBuildOutput Condition="'$(MagicAdapterBuildOutput)' == ''">..\MagicStatusbarAdapter\bin\$(Configuration)\net8.0-windows10.0.19041.0</MagicAdapterBuildOutput></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MagicStatusbarAdapter\MagicStatusbarAdapter.csproj" ReferenceOutputAssembly="false" />
     <Content Include="$(MagicAdapterBuildOutput)\MagicStatusbarAdapter.dll"><Link>MagicStatusbarAdapter.dll</Link><ExcludeFromSingleFile>true</ExcludeFromSingleFile><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>

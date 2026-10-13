@@ -18,7 +18,10 @@ $productVersion = (Get-Item -LiteralPath $publishedExecutable).VersionInfo.Produ
 if ($productVersion -ne $version) { throw "程序产品版本 $productVersion 与发布版本 $version 不一致，停止打包。" }
 $informationalVersion = (Get-Item -LiteralPath $publishedExecutable).VersionInfo.ProductVersion
 if (-not $informationalVersion.EndsWith("+$sourceRevision")) { throw '主程序构建提交与当前源码不一致，停止打包。' }
-$moduleSource = Join-Path $PSScriptRoot 'MagicStatusbarAdapter\bin\Release\net8.0-windows10.0.19041.0\win-x64\MagicStatusbarAdapter.dll'
+$moduleSource = Join-Path $PSScriptRoot 'MagicStatusbarAdapter\bin\Release\net8.0-windows10.0.19041.0\MagicStatusbarAdapter.dll'
+# The SDK removes RuntimeIdentifier from this library project reference.
+$moduleRevision = (Get-Item -LiteralPath $moduleSource).VersionInfo.ProductVersion
+if (-not $moduleRevision.EndsWith("+$sourceRevision")) { throw 'Magic 模块构建提交与当前源码不一致，停止打包。' }
 foreach ($pair in @(
     @($moduleSource, (Join-Path $publishDirectory 'MagicStatusbarAdapter.dll')),
     @((Join-Path $PSScriptRoot 'MagicStatusbarAdapter\native\MagicBarLayout.dll'), (Join-Path $publishDirectory 'MagicBarLayout.dll'))
