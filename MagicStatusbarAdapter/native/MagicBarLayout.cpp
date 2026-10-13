@@ -68,10 +68,9 @@ using ChangeCallback=void(__stdcall*)();
 struct Watch;
 class Handler final : public IUIAutomationPropertyChangedEventHandler, public IUIAutomationStructureChangedEventHandler {
     std::atomic<ULONG> refs{1};
-    ChangeCallback callback;
     HANDLE dirty;
 public:
-    Handler(ChangeCallback value,HANDLE event):callback(value),dirty(event){}
+    Handler(HANDLE event):dirty(event){}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out) override {
         if(!out)return E_POINTER;
         if(iid==IID_IUnknown||iid==__uuidof(IUIAutomationPropertyChangedEventHandler))*out=static_cast<IUIAutomationPropertyChangedEventHandler*>(this);
@@ -80,8 +79,8 @@ public:
     }
     ULONG STDMETHODCALLTYPE AddRef() override{return ++refs;}
     ULONG STDMETHODCALLTYPE Release() override{const auto count=--refs;if(!count)delete this;return count;}
-    HRESULT STDMETHODCALLTYPE HandlePropertyChangedEvent(IUIAutomationElement*,PROPERTYID,VARIANT) override{SetEvent(dirty);callback();return S_OK;}
-    HRESULT STDMETHODCALLTYPE HandleStructureChangedEvent(IUIAutomationElement*,StructureChangeType,SAFEARRAY*) override{SetEvent(dirty);callback();return S_OK;}
+    HRESULT STDMETHODCALLTYPE HandlePropertyChangedEvent(IUIAutomationElement*,PROPERTYID,VARIANT) override{SetEvent(dirty);return S_OK;}
+    HRESULT STDMETHODCALLTYPE HandleStructureChangedEvent(IUIAutomationElement*,StructureChangeType,SAFEARRAY*) override{SetEvent(dirty);return S_OK;}
 };
 struct Watch {HANDLE stop,dirty;std::thread thread;std::mutex mutex;BarLayout layout{};HRESULT result=E_PENDING;std::atomic<bool> active{true};};
 extern "C" __declspec(dllexport) Watch* __cdecl StartLayoutWatch(HWND hwnd,ChangeCallback callback) {
@@ -92,7 +91,7 @@ extern "C" __declspec(dllexport) Watch* __cdecl StartLayoutWatch(HWND hwnd,Chang
         SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         {
             ComPtr<IUIAutomation> automation;ComPtr<IUIAutomationElement> root;
-            auto handler=new Handler(callback,watch->dirty);
+            auto handler=new Handler(watch->dirty);
             if(SUCCEEDED(CoCreateInstance(CLSID_CUIAutomation,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&automation)))&&SUCCEEDED(automation->ElementFromHandle(hwnd,&root))) {
                 PROPERTYID properties[]={UIA_BoundingRectanglePropertyId,UIA_IsOffscreenPropertyId};
                 automation->AddPropertyChangedEventHandlerNativeArray(root.Get(),TreeScope_Subtree,nullptr,handler,properties,2);
@@ -101,8 +100,8 @@ extern "C" __declspec(dllexport) Watch* __cdecl StartLayoutWatch(HWND hwnd,Chang
                 while(WaitForMultipleObjects(2,events,FALSE,10000)!=WAIT_OBJECT_0) {
                     if(!watch->active)continue;
                     BarLayout layout{};const auto hr=ReadWithClient(hwnd,automation.Get(),root.Get(),&layout);
-                    {std::lock_guard lock(watch->mutex);watch->layout=layout;watch->result=hr;}
-                    callback();
+                    bool changed=false;{std::lock_guard lock(watch->mutex);changed=watch->result!=hr||watch->layout.left!=layout.left||watch->layout.brandRight!=layout.brandRight||watch->layout.visible!=layout.visible;watch->layout=layout;watch->result=hr;}
+                    if(changed)callback();
                 }
                 automation->RemovePropertyChangedEventHandler(root.Get(),handler);
                 automation->RemoveStructureChangedEventHandler(root.Get(),handler);

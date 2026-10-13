@@ -107,3 +107,45 @@ var slow=new StatusModel();slow.NewSystemNotice("App",now,body:"body",key:"slow"
 Check(slow.CurrentNotice?.Source=="App","slow app activation keeps source displayed beyond original countdown");slow.EndOpen(now.AddSeconds(20));slow.Feedback("slow","slow","failed");Check(slow.CurrentNotice!.Expires==now.AddSeconds(23),"failed activation leaves a readable feedback interval");
 var recover=new LayoutRecovery();Check(recover.Retain(true,true,0),"retain valid layout during first transient UIA failure");Check(recover.Retain(true,true,200),"bounded tray update retains layout");Check(!recover.Retain(true,true,251),"persistent layout failure cannot retain stale geometry indefinitely");recover.Valid();Check(recover.Retain(true,true,500),"successful sample resets failure window");Check(!recover.Retain(true,false,501),"actual smart hide or fullscreen has no recovery delay");Check(!recover.Retain(false,true,502),"startup cannot invent missing layout");
 Console.WriteLine($"PASS {checks} integrated model, launch identity and layout recovery checks");
+
+var stamp=new RenderStamp();Check(stamp.Changed(initial,null,980,64,2,0),"first visual renders");
+Check(!stamp.Changed(initial,null,980,64,2,0),"unchanged visual skips render");
+var metadata=new Snapshot(initial.Items.Select(i=>i with{CompletedAt=now.AddHours(1),Preview="new body"}).ToList(),initial.Warning);
+Check(!stamp.Changed(metadata,null,980,64,2,0),"nonvisual bodies and dates skip render");
+Check(stamp.Changed(metadata with{Items=metadata.Items.Select(i=>i with{Value=i.Value+"1"}).ToList()},null,980,64,2,0),"quota changes repaint");
+var noticeCache=new Notice("QQ","body","notification",now.AddSeconds(8),AppId:"QQ.App",Title:"raw title");
+Check(stamp.Changed(initial,noticeCache,980,64,2,0),"notification renders");
+Check(!stamp.Changed(initial,noticeCache with{Expires=now.AddSeconds(30)},980,64,2,0),"expiry alone does not allocate pixels");
+Check(stamp.Changed(initial,noticeCache with{Title="different raw title"},980,64,2,0),"mute action identity invalidates cache");
+foreach(var width in new[]{80,160,404,980}){
+ var geo=NotificationGeometry.Calculate(width,2,140);
+ Check(geo.TextWidth>0&&geo.ButtonLeft>=geo.TextWidth&&geo.ButtonLeft+geo.ButtonWidth<=width,"mute geometry stays in safe span "+width);
+ Check((width-geo.TextWidth)/2+geo.TextWidth<geo.ButtonLeft,"centered text cannot collide with far-right mute "+width);
+}
+Check(StatusPainter.Numeric('5')&&StatusPainter.Numeric('.')&&StatusPainter.Numeric('%')&&!StatusPainter.Numeric('小'),"digits and numeric punctuation use bold face");
+var raw=new string('标',100);var ignored=new StatusModel();ignored.NewSystemNotice(new string('源',100),now,raw,"body","raw1","App.Id");
+Check(ignored.CurrentNotice!.Title==raw&&ignored.CurrentNotice.OriginalSource?.Length==100,"mute preserves full original title and source");
+ignored.NewSystemNotice("Other",now,raw,"body","raw2","Other.Id");ignored.RemoveIgnored("App.Id",raw,now);
+Check(ignored.CurrentNotice==null&&ignored.PendingCount==1,"mute removes matching active group only");
+ignored.Expire(now.AddSeconds(2));Check(ignored.CurrentNotice!.Source=="Other","unrelated source resumes normally after mute");
+ignored.SetCodexQuestion("priority","answer",now.AddSeconds(3));ignored.RemoveIgnored("Other.Id",raw,now.AddSeconds(3));
+Check(ignored.CurrentNotice.Source=="Codex"&&ignored.PendingCount==0,"mute also removes matching paused groups without replacing question");
+using(var painter=new StatusPainter()){
+ using var rendered=painter.Paint(initial,noticeCache with{Text=new string('长',200)},404,64,2,0).Pixels;
+ Check(rendered.Width==404&&rendered.Height==64,"notification renders full safe span for centered text and mute");
+ var frame=painter.Paint(initial,noticeCache,980,64,2,0);
+ Check(frame.Hits.Areas.Count(a=>a.Action==HitAction.Mute)==1,"system notification has one mute target");
+ var muteArea=frame.Hits.Areas.Single(a=>a.Action==HitAction.Mute);
+ Check(frame.Hits.Find(new System.Drawing.Point((int)(muteArea.Bounds.Left+muteArea.Bounds.Width/2),32))?.Action==HitAction.Mute,"far-right mute target does not activate app content");frame.Pixels.Dispose();
+ var ai=painter.Paint(initial,new Notice("Codex","answer","attention",DateTimeOffset.MaxValue),980,64,2,0);
+ Check(ai.Hits.Areas.All(a=>a.Action!=HitAction.Mute),"Codex decision has no system mute action");ai.Pixels.Dispose();
+}
+Console.WriteLine($"PASS {checks} total including visual caching, numeric typography and shared mute identity");
+
+Check(NotificationAppearance.MuteRadius(24,24)==6&&NotificationAppearance.MuteRadius(2,24)==2&&NotificationAppearance.MuteRadius(0,24)==0,"normal and Magic reuse compact button radius calculation");
+using(var roundPainter=new StatusPainter()){
+ var frame=roundPainter.Paint(initial,noticeCache,980,64,2,0);
+ var action=frame.Hits.Areas.Single(a=>a.Action==HitAction.Mute).Bounds;
+ Check(frame.Pixels.GetPixel((int)action.Left,(int)action.Top).A==0,"mute button corners are transparent and rounded");frame.Pixels.Dispose();
+}
+Console.WriteLine($"PASS {checks} including reused notification button corners");

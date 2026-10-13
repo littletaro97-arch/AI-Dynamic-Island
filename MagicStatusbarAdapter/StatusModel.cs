@@ -5,7 +5,7 @@ namespace MagicStatusbarAdapter;
 
 internal record ProviderItem(string Name,string Value,string ShortValue,string Status,DateTimeOffset? CompletedAt,string? Preview=null);
 internal record Snapshot(List<ProviderItem> Items,string? Warning);
-internal record Notice(string Source,string Text,string State,DateTimeOffset Expires,int Count=1,string? Key=null,DateTimeOffset? Created=null,string? AppId=null,string? MessageId=null);
+internal record Notice(string Source,string Text,string State,DateTimeOffset Expires,int Count=1,string? Key=null,DateTimeOffset? Created=null,string? AppId=null,string? MessageId=null,string? Title=null,string? OriginalSource=null);
 
 internal sealed class StatusModel
 {
@@ -55,15 +55,15 @@ internal sealed class StatusModel
     internal void NewSystemNotice(string application,DateTimeOffset now,string? title=null,string? body=null,string? key=null,string? appId=null)
     {
         var text=string.Join(" · ",new[]{OneLine(title??"",256),OneLine(body??"",2048)}.Where(s=>s.Length>0));
-        Enqueue(application,text.Length>0?text:"收到新通知","notification",now,key,appId);
+        Enqueue(application,text.Length>0?text:"收到新通知","notification",now,key,appId,title,application);
     }
     internal void NewCodexCompletion(string key,string text,DateTimeOffset now)=>Enqueue("Codex","任务已完成 · "+text,"complete",now,key);
-    private void Enqueue(string source,string text,string state,DateTimeOffset now,string? key,string? appId=null)
+    private void Enqueue(string source,string text,string state,DateTimeOffset now,string? key,string? appId=null,string? title=null,string? originalSource=null)
     {
         if(key!=null){if(!delivered.Add(key))return;deliveryOrder.Enqueue(key);if(deliveryOrder.Count>256)delivered.Remove(deliveryOrder.Dequeue());}
         source=OneLine(source,48);if(source.Length==0)source="应用";text=OneLine(text,2304);
         Advance(now);
-        var candidate=new Notice(source,text,state,now.AddSeconds(RoundSeconds),Key:key,Created:now,AppId:appId,MessageId:key);
+        var candidate=new Notice(source,text,state,now.AddSeconds(RoundSeconds),Key:key,Created:now,AppId:appId,MessageId:key,Title:title,OriginalSource:originalSource);
         // One round per source across active, paused and queued groups. Arrival never resets its deadline.
         if(active is { } current&&current.Source==source) {active=candidate with{Count=current.Count+1,Expires=current.Expires,Key=current.Key};return;}
         if(paused is { } suspended&&suspended.Source==source){paused=candidate with{Count=suspended.Count+1,Expires=suspended.Expires,Key=suspended.Key};return;}
@@ -91,6 +91,10 @@ internal sealed class StatusModel
     internal bool Dismiss(string? key,string? message,DateTimeOffset now){
         if(active?.Key==key&&active?.MessageId==message&&active!=null){active=null;nextRound=now.AddSeconds(2);return true;}
         if(paused?.Key==key&&paused?.MessageId==message&&paused!=null){paused=null;remaining=TimeSpan.Zero;return true;}return false;
+    }
+    internal void RemoveIgnored(string appId,string title,DateTimeOffset now){
+        bool Match(Notice? n)=>n?.AppId==appId&&(n.Title??"").Trim()==title.Trim();
+        queue.RemoveAll(n=>Match(n));if(Match(paused)){paused=null;remaining=TimeSpan.Zero;}if(Match(active)){active=null;nextRound=now.AddSeconds(2);}
     }
     internal bool Expire(DateTimeOffset now){var previous=CurrentNotice;Advance(now);return previous!=CurrentNotice;}
     private void Advance(DateTimeOffset now)

@@ -81,7 +81,7 @@ public partial class MainWindow
                 Action<string> launch=name=>{if(_settings.EnableAppLaunch)OpenProviderFromMenu(name switch{"Codex"=>"codex","WorkBuddy"=>"workbuddy","YOYO" or "YOYO Claw"=>"yoyo","DeepSeek Harness"=>"deepseek",_=>name});};
                 Action disable=()=>{_settings.EnableMagicAdaptation=false;PersistSettingsAsync();CheckMagicMode();};
                 Func<string,Task<string?>> openNotice=async id=>NotificationAppLauncher.Feedback(await NotificationAppLauncher.OpenAsync(id));
-                _magicAdapter=Activator.CreateInstance(assembly.GetType("MagicStatusbarAdapter.MagicAdapter")!,launch,(Action)OpenHome,disable,openNotice,bar.ToInt64());
+                _magicAdapter=Activator.CreateInstance(assembly.GetType("MagicStatusbarAdapter.MagicAdapter")!,launch,(Action)OpenHome,disable,openNotice,bar.ToInt64(),(Action<string,int,int>)OpenMagicContextMenu,(Func<string,string,string,Task>)IgnoreMagicNotificationAsync);
                 _magicConfigure=MagicMethod<Action<string>>("Configure");_magicUpdate=MagicMethod<Action<string>>("Update");
                 _magicNotice=MagicMethod<Action<string,string,string,string>>("Notify");_magicSystemNotice=MagicMethod<Action<string,string,string,string,string>>("NotifySystem");_magicQuestion=MagicMethod<Action<string?,string?>>("Question");_magicStop=MagicMethod<Action>("Stop");
                 _magicConfigure(JsonSerializer.Serialize(_settings));StatusSnapshotStore.Published+=PublishMagicSnapshot;
@@ -97,9 +97,34 @@ public partial class MainWindow
     private void PublishMagicSnapshot(string json)=>_magicUpdate?.Invoke(json);
     private void StopMagic()
     {
-        if(_magicAdapter!=null)LogMagic("exit requested");
+        if(_magicAdapter!=null){
+            _islandMenu.IsOpen=false;
+            _islandMenu.BeginAnimation(OpacityProperty,null);
+            _islandMenu.Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            _islandMenu.PlacementTarget=Island;
+            _islandMenu.HorizontalOffset=_islandMenu.VerticalOffset=0;
+            LogMagic("exit requested");
+        }
         StatusSnapshotStore.Published-=PublishMagicSnapshot;
         try{_magicStop?.Invoke();}finally{_magicAdapter=null;_magicActiveBar=0;_magicConfigure=null;_magicUpdate=null;_magicNotice=null;_magicSystemNotice=null;_magicQuestion=null;_magicStop=null;}
     }
+    private string? _magicMenuSelection;
+    private void OpenMagicContextMenu(string selected,int x,int y){
+        if(!MagicActive)return;_magicMenuSelection=selected;
+        var source=System.Windows.PresentationSource.FromVisual(this);var transform=source?.CompositionTarget?.TransformFromDevice??System.Windows.Media.Matrix.Identity;
+        var point=transform.Transform(new System.Windows.Point(x,y));_islandMenu.PlacementTarget=this;_islandMenu.Placement=System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint;_islandMenu.HorizontalOffset=point.X;_islandMenu.VerticalOffset=point.Y;_islandMenu.StaysOpen=false;_islandMenu.IsOpen=true;
+        _islandMenu.BeginAnimation(OpacityProperty,new System.Windows.Media.Animation.DoubleAnimation(0,1,TimeSpan.FromMilliseconds(120)));
+    }
+    private void RebuildMagicMenu(){
+        _islandMenu.Items.Clear();
+        var selected=_magicMenuSelection switch{"Codex"=>"codex","WorkBuddy"=>"workbuddy","YOYO"=>"yoyo","DeepSeek Harness"=>"deepseek",_=>null};
+        var entries=GetProviderMenuEntries().ToArray();foreach(var entry in entries.OrderByDescending(e=>e.Key==selected)){
+            var dot=new System.Windows.Shapes.Ellipse{Width=9,Height=9,Fill=Brush(entry.Color),VerticalAlignment=VerticalAlignment.Center};
+            var item=CreateIslandMenuItem("打开 "+entry.Label,null,(_,_)=>OpenProviderFromMenu(entry.Key),dot);item.IsEnabled=entry.CanLaunch&&_settings.EnableAppLaunch;item.InputGestureText=entry.CanLaunch?"↗":"未找到";_islandMenu.Items.Add(item);
+        }
+        _islandMenu.Items.Add(CreateIslandSeparator());_islandMenu.Items.Add(CreateIslandMenuItem("设置","MenuHomeIcon",(_,_)=>OpenHome()));
+        _islandMenu.Items.Add(CreateIslandMenuItem("关闭 Magic 适配","MenuExitIcon",(_,_)=>{_settings.EnableMagicAdaptation=false;PersistSettingsAsync();CheckMagicMode();}));
+    }
+    private Task IgnoreMagicNotificationAsync(string appId,string title,string source)=>IgnoreNotificationRuleAsync(new NotificationTitleRule(appId,title.Trim(),source));
     private void UpdateMagicSettings(){if(!_magicDetectionDone)return;CheckMagicMode();_magicConfigure?.Invoke(JsonSerializer.Serialize(_settings));}
 }

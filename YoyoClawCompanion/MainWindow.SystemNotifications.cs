@@ -211,7 +211,7 @@ public partial class MainWindow
                 Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top,
                 ToolTip = $"不再提醒此标题：{toast.Title}（可在设置中恢复）", Padding = new Thickness(0) };
             // Keep straight edges on this compact action, even when the island uses a large radius.
-            ignore.Resources["NotificationActionCornerRadius"] = new CornerRadius(Math.Min(_settings.CornerRadius, lineHeight / 4));
+            ignore.Resources["NotificationActionCornerRadius"] = new CornerRadius(NotificationAppearance.MuteRadius(_settings.CornerRadius, lineHeight));
             System.Windows.Automation.AutomationProperties.SetName(ignore, "不再通知此来源的相同标题");
             ignore.Click += IgnoreNotification_Click;
             Grid.SetColumn(ignore, 1); row.Children.Add(ignore);
@@ -232,13 +232,18 @@ public partial class MainWindow
     {
         e.Handled = true;
         if (sender is not Button { Tag: SystemToast toast }) return;
-        if (!IsIgnoredNotification(toast))
-            _settings.IgnoredNotificationTitles = (_settings.IgnoredNotificationTitles ?? []).Append(NotificationTitleRule.From(toast)).ToArray();
+        await IgnoreNotificationRuleAsync(NotificationTitleRule.From(toast));
+    }
+
+    private async Task IgnoreNotificationRuleAsync(NotificationTitleRule rule)
+    {
+        if(!(_settings.IgnoredNotificationTitles??[]).Any(item=>item.AppUserModelId==rule.AppUserModelId&&item.Title==rule.Title))
+            _settings.IgnoredNotificationTitles=(_settings.IgnoredNotificationTitles??[]).Append(rule).ToArray();
         _pendingSystemToasts.Remove(IsIgnoredNotification);
         _activeSystemToastBatch.RemoveAll(IsIgnoredNotification);
         NotificationFiltersChanged?.Invoke(this, EventArgs.Empty);
-        if (_activeSystemToastBatch.Count == 0) EndCompletionNotice();
-        else { FillSystemToastBatch(); UpdateRecentNotice(); SetSystemToastHeader(); }
+        if(!MagicActive){if (_activeSystemToastBatch.Count == 0) EndCompletionNotice();
+        else { FillSystemToastBatch(); UpdateRecentNotice(); SetSystemToastHeader(); }}
         await AppSettings.SaveAsync(_settings);
     }
 

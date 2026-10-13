@@ -179,7 +179,7 @@ public partial class MainWindow : Window
     private void ConfigureIslandMenu()
     {
         _islandMenu.Style = (Style)FindResource("IslandContextMenuStyle");
-        _islandMenu.Opened += (_, _) => RebuildIslandMenu();
+        _islandMenu.Opened += (_, _) => { if(MagicActive) RebuildMagicMenu(); else RebuildIslandMenu(); };
         _islandMenu.Closed += (_, _) =>
         {
             if (!_trayWakeActive && !Island.IsMouseOver && _expanded) _leaveTimer.Start();

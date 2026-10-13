@@ -5,7 +5,7 @@ namespace MagicStatusbarAdapter;
 public sealed class MagicAdapter
 {
     private readonly StatusForm form;
-    public MagicAdapter(Action<string> launch,Action settings,Action disable,Func<string,Task<string?>> openNotice,long barHandle){form=new(launch,settings,disable,openNotice,barHandle);form.Show();}
+    public MagicAdapter(Action<string> launch,Action settings,Action disable,Func<string,Task<string?>> openNotice,long barHandle,Action<string,int,int> menu,Func<string,string,string,Task> mute){form=new(launch,settings,disable,openNotice,barHandle,menu,mute);form.Show();}
     public void Configure(string json)=>form.Configure(json);
     public void Update(string json)=>form.Update(json);
     public void NotifySystem(string source,string title,string body,string key,string appId)=>form.NotifySystem(source,title,body,key,appId);
@@ -15,6 +15,7 @@ public sealed class MagicAdapter
 }
 internal sealed class AdapterOptions
 {
+    public double CornerRadius {get;set;}=24;
     public double MagicNotificationSeconds {get;set;}=8;
     public int MagicBlinkPeriodMs {get;set;}=700;
     public bool ShowYoyo {get;set;}=true;

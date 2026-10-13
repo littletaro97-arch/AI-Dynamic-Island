@@ -43,6 +43,9 @@ public partial class SettingsWindow
         MagicDurationLabel.Text=$"通知每轮显示时长 · {MagicDurationSlider.Value:0} 秒";
         MagicBlinkLabel.Text=$"提醒闪烁周期 · {MagicBlinkSlider.Value:0} 毫秒（越短越快）";
         MagicDurationSlider.IsEnabled=MagicBlinkSlider.IsEnabled=MagicEnableCheck.IsChecked==true;
+        PositionPreviewViewbox.Opacity=active?.45:1;
+        if(active)PositionModeText.Text="Magic 模式 · 位置由状态栏管理";
+        else UpdatePositionControls(PreviewDisplay is { } display?_island.PositionForDisplay(display).Preset:_island.CurrentSettings.PositionPreset);
         MagicNormalHint.Visibility=active?Visibility.Visible:Visibility.Collapsed;
         if(animate){MagicStatusText.BeginAnimation(OpacityProperty,new DoubleAnimation(.4,1,TimeSpan.FromMilliseconds(160)));if(active)MagicNormalHint.BeginAnimation(OpacityProperty,new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(160)));}
         foreach(var element in new FrameworkElement[]{PositionCard,CornerSlider,OpacitySlider,WidthSlider,ExpandedWidthSlider,HeightSlider,TextSizeSlider,ShadowCheck,TopmostCheck,ReadyClockCheck,HoverExpansionCheck,HoverDelayPanel,ReverseHoverCheck,SpringAnimationCheck,QuotaScrollSpeedSlider,ReplyFirstWhenExpandedUpCheck,AllowExpandedBeyondScreenCheck,MaxResponseLinesCombo,CompletionDisplayPanel,SystemNotificationDisplaySlider,FullscreenActiveOnlyCheck}){

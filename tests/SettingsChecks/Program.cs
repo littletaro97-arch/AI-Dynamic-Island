@@ -48,6 +48,18 @@ class Program
         magicFields.GetField("_magicAdapter",Flags)!.SetValue(main,new object());Call(window,"UpdateMagicControls",false);
         Assert(!((FrameworkElement)window.FindName("PositionCard")).IsEnabled&&!((Slider)window.FindName("TextSizeSlider")).IsEnabled,"Magic disables normal position and typography controls");
         Assert(((CheckBox)window.FindName("SystemNotificationsCheck")).IsEnabled,"shared notification toggle remains available");
+        var preset=(RadioButton)window.FindName("TopCenterPreset");preset.ApplyTemplate();
+        var presetSurface=(Border)preset.Template.FindName("PresetSurface",preset);
+        Assert(!preset.IsEnabled&&preset.Opacity<.5&&presetSurface.BorderThickness.Left==1,"disabled selected position loses green emphasis and fades");
+        Assert(((FrameworkElement)window.FindName("PositionPreviewViewbox")).Opacity<.5,"Magic position preview visibly dimmed");
+        Assert(((TextBlock)window.FindName("PositionModeText")).Text.Contains("位置由状态栏管理"),"Magic position guidance explains unavailable adjustment");
+        var menu=(ContextMenu)magicFields.GetField("_islandMenu",Flags)!.GetValue(main)!;
+        Call(main,"RebuildMagicMenu");
+        Assert(ReferenceEquals(menu.Style,main.FindResource("IslandContextMenuStyle")),"Magic menu reuses main menu style");
+        Assert(menu.Items.OfType<MenuItem>().All(item=>ReferenceEquals(item.Style,main.FindResource("IslandMenuItemStyle"))),"every Magic menu action reuses main menu item style");
+        menu.Placement=System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint;menu.HorizontalOffset=120;menu.VerticalOffset=30;
+        Call(main,"StopMagic");
+        Assert(menu.Placement==System.Windows.Controls.Primitives.PlacementMode.MousePoint&&menu.HorizontalOffset==0&&menu.VerticalOffset==0,"Magic exit resets ordinary menu placement");
         Assert(Equals(savedWidth,settings.GetType().GetProperty("IslandWidth")!.GetValue(settings)),"mode changes preserve normal width");
         magicFields.GetField("_magicAdapter",Flags)!.SetValue(main,null);Call(window,"UpdateMagicControls",false);
         Assert(((FrameworkElement)window.FindName("PositionCard")).IsEnabled&&((Slider)window.FindName("TextSizeSlider")).IsEnabled,"normal controls restored after Magic exit");
@@ -139,7 +151,7 @@ class Program
         Assert(badge.Visibility==Visibility.Visible && badge.Opacity==1,"rapid update badge reversal remains visible");
         Assert(progress.Visibility==Visibility.Visible && Math.Abs(progress.Value-80)<.01 && progress.Opacity==1,"rapid progress hide/show settles visible");
         foreach(var name in order) Assert(((StackPanel)((RadioButton)window.FindName(name+"Nav")).Content).Children[1].Visibility==Visibility.Visible,"rapid toggle label visible "+name);
-        if(Environment.GetEnvironmentVariable("ISLAND_LAYOUT_EVIDENCE_DIR") is {Length:>0} evidence)
+        if(Environment.GetCommandLineArgs().Contains("--layout-evidence") && Environment.GetEnvironmentVariable("ISLAND_LAYOUT_EVIDENCE_DIR") is {Length:>0} evidence)
         {
             var notificationCard=(FrameworkElement)window.FindName("NotificationCard");
             notificationCard.BeginAnimation(UIElement.OpacityProperty,null);notificationCard.Opacity=1;
@@ -155,7 +167,7 @@ class Program
             evidenceWindow.Close();
         }
         // Read-only live toolbar acceptance probe; never changes vendor configuration.
-        if (System.Diagnostics.Process.GetProcessesByName("magictaskbar-ui").Length > 0)
+        if (Environment.GetCommandLineArgs().Contains("--live-magic") && System.Diagnostics.Process.GetProcessesByName("magictaskbar-ui").Length > 0)
         {
             enableMagic.SetValue(settings,true);Call(main,"CheckMagicMode");
             Assert((bool)typeof(MainWindow).GetProperty("MagicActive",Flags)!.GetValue(main)!,"live Magic module starts inside main process");
