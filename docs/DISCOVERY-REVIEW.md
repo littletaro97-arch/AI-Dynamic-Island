@@ -2,9 +2,11 @@
 
 ## 2026-10-14 授权应用
 
-所有者已授权修改 GitHub 对应界面，明确不发布新版本。执行前 fetch 核验远端 main 仍为 `7b70d0f`，没有其他对话的新远端提交需要合并。Description 与 15 个 Topics 已应用并 API 回读核验，见 [元数据执行记录](DISCOVERY-METADATA.md)。文档以独立克隆中的提交做普通快进推送，不使用 force，不修改另一工作区。
+所有者已授权修改 GitHub 对应界面，明确不发布新版本。执行前 fetch 核验远端 main 仍为 `7b70d0f`，没有其他对话的新远端提交需要合并。Description 与 15 个 Topics 已应用并 API 回读核验，见 [元数据执行记录](DISCOVERY-METADATA.md)。自动审批最初认为界面授权未明确包含 push，拒绝推送；所有者随后明确回复“授权 push 文档到 main”。文档提交已普通快进推送至 main 的 `cdf719391cde925a2abdf9acd135f950799a5610`，没有 force，也未修改另一工作区。
 
-下文的“尚未应用”、after 对照与待验收清单是 2026-10-13 的历史阶段记录；上线后的单独采样记录将追加于文末，不能把历史本地 after 误读为上线效果。
+API 回读确认公开 README blob 与该提交相同，`docs/update.json` blob 与原基线相同，最新正式 Release 仍为 v0.8.0。回读时间及设置值见 [执行快照](discovery/metadata-applied.json)。截图、许可证确认仍为待办，没有新版本、安装包或运行逻辑变更。
+
+下文的“尚未应用”、after 对照与待验收清单是 2026-10-13 的历史阶段记录；2026-10-14 上线后的单独采样记录见文末，不能把历史本地 after 误读为上线效果。
 
 ## 基线与隔离
 
@@ -75,3 +77,24 @@ README 首页无版本项目名、中英文说明、下载入口、截图待办�
 | windows desktop ai widget in:readme | 10/13/2026 23:43:58 | 前 50 未见 | 10/13/2026 23:49:22 | 前 50 未见 |
 
 两轮均无 API 错误，incomplete_results 均为 false。此对照反映公开仓库在两次采样中的位置；真正上线后对照尚待授权发布与重新采样。
+
+## 2026-10-14 上线后即时搜索快照
+
+README、Description 和 Topics 已上线；精确查询、时间、结果列表与 incomplete_results 见 [原始数据](discovery/after-live-2026-10-14.json)。条件与 before 相同，默认 best match，首 50 项。
+
+| 查询 | 上线前位置 | 上线后采样时间（+08:00） | 上线后位置 |
+| --- | --- | --- | --- |
+| AI Dynamic Island | 36 | 10/14/2026 12:42:42 | 37 |
+| AI Dynamic Island in:readme | 前 50 未见 | 10/14/2026 12:42:52 | 前 50 未见 |
+| codex dynamic island | 33 | 10/14/2026 12:43:02 | 33 |
+| codex dynamic island in:readme | 前 50 未见 | 10/14/2026 12:43:11 | 前 50 未见 |
+| agent quota monitor | 前 50 未见 | 10/14/2026 12:43:20 | 前 50 未见 |
+| agent quota monitor in:readme | 前 50 未见 | 10/14/2026 12:43:30 | 前 50 未见 |
+| codex usage widget windows | 前 50 未见 | 10/14/2026 12:43:39 | 前 50 未见 |
+| codex usage widget windows in:readme | 前 50 未见 | 10/14/2026 12:43:48 | 前 50 未见 |
+| AI agent status monitor | 前 50 未见 | 10/14/2026 12:43:58 | 前 50 未见 |
+| AI agent status monitor in:readme | 前 50 未见 | 10/14/2026 12:44:07 | 前 50 未见 |
+| windows desktop ai widget | 前 50 未见 | 10/14/2026 12:44:17 | 前 50 未见 |
+| windows desktop ai widget in:readme | 前 50 未见 | 10/14/2026 12:44:26 | 前 50 未见 |
+
+本次十二条查询无 API 错误，incomplete_results 均为 false。结果仍是即时采样，索引是否完整更新未知；不能把一次排名变化或没有进入前 50 解读为优化成功 / 失败。未建立定时监控，后续复测需沿用相同条件并记录日期。

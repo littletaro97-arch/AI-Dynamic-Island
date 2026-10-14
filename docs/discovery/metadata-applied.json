@@ -1,0 +1,27 @@
+{
+  "latest_release": "v0.8.0",
+  "readme_blob": "e32d10fe016095f29decbc9dca4830fc7d09f860",
+  "unchanged_update_manifest_blob": "ee9541b840709f8eb296caffa67f37a652c0fe5f",
+  "metadata": {
+    "description": "Windows AI agent status monitor & desktop widget (Dynamic Island) for Codex, WorkBuddy, YOYO Claw and DeepSeek Harness. Quota monitoring for supported agents, task tracking and notifications.",
+    "topics": [
+      "agent-monitor",
+      "ai-agent",
+      "codex",
+      "deepseek-harness",
+      "desktop-widget",
+      "dotnet",
+      "dynamic-island",
+      "quota-monitor",
+      "task-status",
+      "usage-monitor",
+      "windows",
+      "windows-11",
+      "workbuddy",
+      "wpf",
+      "yoyo-claw"
+    ]
+  },
+  "observed_at": "2026-10-14T12:43:19.9250614+08:00",
+  "applied_main": "cdf719391cde925a2abdf9acd135f950799a5610"
+}
