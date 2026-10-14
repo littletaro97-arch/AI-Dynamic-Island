@@ -1,15 +1,15 @@
-# GitHub 元数据待验收方案
+# GitHub 元数据方案与执行记录
 
-本轮先完成分析和本地文档整改，等待所有者验收；**公开 Description / Topics 尚未修改**。没有尝试写入而被拒绝，不是权限失败。CLI 只读访问已验证可用；写权限未测试。
+2026-10-14（Asia/Shanghai），所有者授权修改 GitHub 对应界面，并明确不发布新版本。已通过 `gh repo edit --description` 和 Topics API PUT 应用以下建议值，随后 API 回读核验成功。没有创建 Release、改版本或修改公开更新清单。原先 2026-10-13 的阶段仅完成本地整改，尚未修改公开设置。
 
-## 当前值（GitHub API 实测）
+## 修改前值（GitHub API 实测，执行前再次核对）
 
 - Description：`Windows AI 状态灵动岛：Codex、WorkBuddy、YOYO Claw 任务与额度；安装版、便携版及应用内更新`
 - Topics：空数组。
 - 最新正式 Release：v0.8.0。
 - GitHub 可识别许可证：null。
 
-## 建议应用值
+## 已应用值
 
 Description（明确额度是部分来源能力）：
 
@@ -21,7 +21,7 @@ Topics：
 
 对应源码证据：WPF / .NET 8 csproj；CodexStatusService / CodexResetReminderTracker；WorkBuddyStatusService / WorkBuddyCreditsService；YoyoStatusService / YoyoQuotaService；DeepSeekStatusService。DeepSeek 只有任务状态，不添加通用 API、所有服务额度、实时性能等未经验证的宣称。
 
-## 验收后应用（本轮未执行）
+## 应用命令（已执行，供维护复用）
 
 下列命令只修改这两类元数据，不 push 代码、不创建 Release，不修改更新清单。执行前重新读取当前值；若其他对话改过元数据，先核对差异，避免覆盖。
 
